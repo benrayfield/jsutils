@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html><head>
+<script src=bitfuncs.js></script>
+<script src=unicode.js></script>
+<script src=sha256.js></script>
+<script>
+var testHashOfString = function(text){
+	var hashhex = unicode.asString(bitfuncs.uint8ArrayToHex(sha256(unicode.asBytes(text))));
+	document.getElementById('out').innerHTML = hashhex;
+};
+</script>
+</head><body>
+<textarea id='bigTextarea' style='width:100%'></textarea>
+<input type=button onclick='testHashOfString(document.getElementById("bigTextarea").value);' value='Input text to hash for testing the sha256'>
+<div id="out">output goes here</div>
+
+
+<body></html>
