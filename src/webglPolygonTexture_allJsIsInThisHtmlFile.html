@@ -1,0 +1,3234 @@
+
+<center>
+<canvas id="canvas" width=700 height=700></canvas>
+<br><br>
+modified code from https://webglfundamentals.org/webgl/lessons/webgl-3d-textures.html
+<br>
+Ben Rayfield put it all in 1 html file and converted a cat pic to hex, replacing the pic on the polygons.
+</center>
+
+<!-- vertex shader -->
+<script  id="vertex-shader-3d" type="x-shader/x-vertex">
+attribute vec4 a_position;
+attribute vec2 a_texcoord;
+
+uniform mat4 u_matrix;
+
+varying vec2 v_texcoord;
+
+void main() {
+  // Multiply the position by the matrix.
+  gl_Position = u_matrix * a_position;
+
+  // Pass the texcoord to the fragment shader.
+  v_texcoord = a_texcoord;
+}
+</script>
+
+
+<!-- fragment shader -->
+<script  id="fragment-shader-3d" type="x-shader/x-fragment">
+precision mediump float;
+
+// Passed in from the vertex shader.
+varying vec2 v_texcoord;
+
+// The texture.
+uniform sampler2D u_texture;
+
+void main() {
+   gl_FragColor = texture2D(u_texture, v_texcoord);
+}
+</script>
+
+<!--
+for most samples webgl-utils only provides shader compiling/linking and
+canvas resizing because why clutter the examples with code that's the same in every sample.
+See https://webglfundamentals.org/webgl/lessons/webgl-boilerplate.html
+and https://webglfundamentals.org/webgl/lessons/webgl-resizing-the-canvas.html
+for webgl-utils, m3, m4, and webgl-lessons-ui.
+-->
+
+<script>
+
+//webglfundamentals.org_webgl_resources_webgl-utils.js
+
+/*
+ * Copyright 2012, Gregg Tavares.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *
+ *     * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above
+ * copyright notice, this list of conditions and the following disclaimer
+ * in the documentation and/or other materials provided with the
+ * distribution.
+ *     * Neither the name of Gregg Tavares. nor the names of his
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+(function(root, factory) {  // eslint-disable-line
+  if (typeof define === 'function' && define.amd) {
+    // AMD. Register as an anonymous module.
+    define([], function() {
+      return factory.call(root);
+    });
+  } else {
+    // Browser globals
+    root.webglUtils = factory.call(root);
+  }
+}(this, function() {
+  'use strict';
+
+  const topWindow = this;
+
+  /** @module webgl-utils */
+
+  function isInIFrame(w) {
+    w = w || topWindow;
+    return w !== w.top;
+  }
+
+  if (!isInIFrame()) {
+    console.log("%c%s", 'color:blue;font-weight:bold;', 'for more about webgl-utils.js see:');  // eslint-disable-line
+    console.log("%c%s", 'color:blue;font-weight:bold;', 'https://webglfundamentals.org/webgl/lessons/webgl-boilerplate.html');  // eslint-disable-line
+  }
+
+  /**
+   * Wrapped logging function.
+   * @param {string} msg The message to log.
+   */
+  function error(msg) {
+    if (topWindow.console) {
+      if (topWindow.console.error) {
+        topWindow.console.error(msg);
+      } else if (topWindow.console.log) {
+        topWindow.console.log(msg);
+      }
+    }
+  }
+
+
+  /**
+   * Error Callback
+   * @callback ErrorCallback
+   * @param {string} msg error message.
+   * @memberOf module:webgl-utils
+   */
+
+
+  /**
+   * Loads a shader.
+   * @param {WebGLRenderingContext} gl The WebGLRenderingContext to use.
+   * @param {string} shaderSource The shader source.
+   * @param {number} shaderType The type of shader.
+   * @param {module:webgl-utils.ErrorCallback} opt_errorCallback callback for errors.
+   * @return {WebGLShader} The created shader.
+   */
+  function loadShader(gl, shaderSource, shaderType, opt_errorCallback) {
+    const errFn = opt_errorCallback || error;
+    // Create the shader object
+    const shader = gl.createShader(shaderType);
+
+    // Load the shader source
+    gl.shaderSource(shader, shaderSource);
+
+    // Compile the shader
+    gl.compileShader(shader);
+
+    // Check the compile status
+    const compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+    if (!compiled) {
+      // Something went wrong during compilation; get the error
+      const lastError = gl.getShaderInfoLog(shader);
+      errFn('*** Error compiling shader \'' + shader + '\':' + lastError);
+      gl.deleteShader(shader);
+      return null;
+    }
+
+    return shader;
+  }
+
+  /**
+   * Creates a program, attaches shaders, binds attrib locations, links the
+   * program and calls useProgram.
+   * @param {WebGLShader[]} shaders The shaders to attach
+   * @param {string[]} [opt_attribs] An array of attribs names. Locations will be assigned by index if not passed in
+   * @param {number[]} [opt_locations] The locations for the. A parallel array to opt_attribs letting you assign locations.
+   * @param {module:webgl-utils.ErrorCallback} opt_errorCallback callback for errors. By default it just prints an error to the console
+   *        on error. If you want something else pass an callback. It's passed an error message.
+   * @memberOf module:webgl-utils
+   */
+  function createProgram(
+      gl, shaders, opt_attribs, opt_locations, opt_errorCallback) {
+    const errFn = opt_errorCallback || error;
+    const program = gl.createProgram();
+    shaders.forEach(function(shader) {
+      gl.attachShader(program, shader);
+    });
+    if (opt_attribs) {
+      opt_attribs.forEach(function(attrib, ndx) {
+        gl.bindAttribLocation(
+            program,
+            opt_locations ? opt_locations[ndx] : ndx,
+            attrib);
+      });
+    }
+    gl.linkProgram(program);
+
+    // Check the link status
+    const linked = gl.getProgramParameter(program, gl.LINK_STATUS);
+    if (!linked) {
+        // something went wrong with the link
+        const lastError = gl.getProgramInfoLog(program);
+        errFn('Error in program linking:' + lastError);
+
+        gl.deleteProgram(program);
+        return null;
+    }
+    return program;
+  }
+
+  /**
+   * Loads a shader from a script tag.
+   * @param {WebGLRenderingContext} gl The WebGLRenderingContext to use.
+   * @param {string} scriptId The id of the script tag.
+   * @param {number} opt_shaderType The type of shader. If not passed in it will
+   *     be derived from the type of the script tag.
+   * @param {module:webgl-utils.ErrorCallback} opt_errorCallback callback for errors.
+   * @return {WebGLShader} The created shader.
+   */
+  function createShaderFromScript(
+      gl, scriptId, opt_shaderType, opt_errorCallback) {
+    let shaderSource = '';
+    let shaderType;
+    const shaderScript = document.getElementById(scriptId);
+    if (!shaderScript) {
+      throw ('*** Error: unknown script element' + scriptId);
+    }
+    shaderSource = shaderScript.text;
+
+    if (!opt_shaderType) {
+      if (shaderScript.type === 'x-shader/x-vertex') {
+        shaderType = gl.VERTEX_SHADER;
+      } else if (shaderScript.type === 'x-shader/x-fragment') {
+        shaderType = gl.FRAGMENT_SHADER;
+      } else if (shaderType !== gl.VERTEX_SHADER && shaderType !== gl.FRAGMENT_SHADER) {
+        throw ('*** Error: unknown shader type');
+      }
+    }
+
+    return loadShader(
+        gl, shaderSource, opt_shaderType ? opt_shaderType : shaderType,
+        opt_errorCallback);
+  }
+
+  const defaultShaderType = [
+    'VERTEX_SHADER',
+    'FRAGMENT_SHADER',
+  ];
+
+  /**
+   * Creates a program from 2 script tags.
+   *
+   * @param {WebGLRenderingContext} gl The WebGLRenderingContext
+   *        to use.
+   * @param {string[]} shaderScriptIds Array of ids of the script
+   *        tags for the shaders. The first is assumed to be the
+   *        vertex shader, the second the fragment shader.
+   * @param {string[]} [opt_attribs] An array of attribs names. Locations will be assigned by index if not passed in
+   * @param {number[]} [opt_locations] The locations for the. A parallel array to opt_attribs letting you assign locations.
+   * @param {module:webgl-utils.ErrorCallback} opt_errorCallback callback for errors. By default it just prints an error to the console
+   *        on error. If you want something else pass an callback. It's passed an error message.
+   * @return {WebGLProgram} The created program.
+   * @memberOf module:webgl-utils
+   */
+  function createProgramFromScripts(
+      gl, shaderScriptIds, opt_attribs, opt_locations, opt_errorCallback) {
+    const shaders = [];
+    for (let ii = 0; ii < shaderScriptIds.length; ++ii) {
+      shaders.push(createShaderFromScript(
+          gl, shaderScriptIds[ii], gl[defaultShaderType[ii]], opt_errorCallback));
+    }
+    return createProgram(gl, shaders, opt_attribs, opt_locations, opt_errorCallback);
+  }
+
+  /**
+   * Creates a program from 2 sources.
+   *
+   * @param {WebGLRenderingContext} gl The WebGLRenderingContext
+   *        to use.
+   * @param {string[]} shaderSourcess Array of sources for the
+   *        shaders. The first is assumed to be the vertex shader,
+   *        the second the fragment shader.
+   * @param {string[]} [opt_attribs] An array of attribs names. Locations will be assigned by index if not passed in
+   * @param {number[]} [opt_locations] The locations for the. A parallel array to opt_attribs letting you assign locations.
+   * @param {module:webgl-utils.ErrorCallback} opt_errorCallback callback for errors. By default it just prints an error to the console
+   *        on error. If you want something else pass an callback. It's passed an error message.
+   * @return {WebGLProgram} The created program.
+   * @memberOf module:webgl-utils
+   */
+  function createProgramFromSources(
+      gl, shaderSources, opt_attribs, opt_locations, opt_errorCallback) {
+    const shaders = [];
+    for (let ii = 0; ii < shaderSources.length; ++ii) {
+      shaders.push(loadShader(
+          gl, shaderSources[ii], gl[defaultShaderType[ii]], opt_errorCallback));
+    }
+    return createProgram(gl, shaders, opt_attribs, opt_locations, opt_errorCallback);
+  }
+
+  /**
+   * Returns the corresponding bind point for a given sampler type
+   */
+  function getBindPointForSamplerType(gl, type) {
+    if (type === gl.SAMPLER_2D)   return gl.TEXTURE_2D;        // eslint-disable-line
+    if (type === gl.SAMPLER_CUBE) return gl.TEXTURE_CUBE_MAP;  // eslint-disable-line
+    return undefined;
+  }
+
+  /**
+   * @typedef {Object.<string, function>} Setters
+   */
+
+  /**
+   * Creates setter functions for all uniforms of a shader
+   * program.
+   *
+   * @see {@link module:webgl-utils.setUniforms}
+   *
+   * @param {WebGLProgram} program the program to create setters for.
+   * @returns {Object.<string, function>} an object with a setter by name for each uniform
+   * @memberOf module:webgl-utils
+   */
+  function createUniformSetters(gl, program) {
+    let textureUnit = 0;
+
+    /**
+     * Creates a setter for a uniform of the given program with it's
+     * location embedded in the setter.
+     * @param {WebGLProgram} program
+     * @param {WebGLUniformInfo} uniformInfo
+     * @returns {function} the created setter.
+     */
+    function createUniformSetter(program, uniformInfo) {
+      const location = gl.getUniformLocation(program, uniformInfo.name);
+      const type = uniformInfo.type;
+      // Check if this uniform is an array
+      const isArray = (uniformInfo.size > 1 && uniformInfo.name.substr(-3) === '[0]');
+      if (type === gl.FLOAT && isArray) {
+        return function(v) {
+          gl.uniform1fv(location, v);
+        };
+      }
+      if (type === gl.FLOAT) {
+        return function(v) {
+          gl.uniform1f(location, v);
+        };
+      }
+      if (type === gl.FLOAT_VEC2) {
+        return function(v) {
+          gl.uniform2fv(location, v);
+        };
+      }
+      if (type === gl.FLOAT_VEC3) {
+        return function(v) {
+          gl.uniform3fv(location, v);
+        };
+      }
+      if (type === gl.FLOAT_VEC4) {
+        return function(v) {
+          gl.uniform4fv(location, v);
+        };
+      }
+      if (type === gl.INT && isArray) {
+        return function(v) {
+          gl.uniform1iv(location, v);
+        };
+      }
+      if (type === gl.INT) {
+        return function(v) {
+          gl.uniform1i(location, v);
+        };
+      }
+      if (type === gl.INT_VEC2) {
+        return function(v) {
+          gl.uniform2iv(location, v);
+        };
+      }
+      if (type === gl.INT_VEC3) {
+        return function(v) {
+          gl.uniform3iv(location, v);
+        };
+      }
+      if (type === gl.INT_VEC4) {
+        return function(v) {
+          gl.uniform4iv(location, v);
+        };
+      }
+      if (type === gl.BOOL) {
+        return function(v) {
+          gl.uniform1iv(location, v);
+        };
+      }
+      if (type === gl.BOOL_VEC2) {
+        return function(v) {
+          gl.uniform2iv(location, v);
+        };
+      }
+      if (type === gl.BOOL_VEC3) {
+        return function(v) {
+          gl.uniform3iv(location, v);
+        };
+      }
+      if (type === gl.BOOL_VEC4) {
+        return function(v) {
+          gl.uniform4iv(location, v);
+        };
+      }
+      if (type === gl.FLOAT_MAT2) {
+        return function(v) {
+          gl.uniformMatrix2fv(location, false, v);
+        };
+      }
+      if (type === gl.FLOAT_MAT3) {
+        return function(v) {
+          gl.uniformMatrix3fv(location, false, v);
+        };
+      }
+      if (type === gl.FLOAT_MAT4) {
+        return function(v) {
+          gl.uniformMatrix4fv(location, false, v);
+        };
+      }
+      if ((type === gl.SAMPLER_2D || type === gl.SAMPLER_CUBE) && isArray) {
+        const units = [];
+        for (let ii = 0; ii < info.size; ++ii) {
+          units.push(textureUnit++);
+        }
+        return function(bindPoint, units) {
+          return function(textures) {
+            gl.uniform1iv(location, units);
+            textures.forEach(function(texture, index) {
+              gl.activeTexture(gl.TEXTURE0 + units[index]);
+              gl.bindTexture(bindPoint, texture);
+            });
+          };
+        }(getBindPointForSamplerType(gl, type), units);
+      }
+      if (type === gl.SAMPLER_2D || type === gl.SAMPLER_CUBE) {
+        return function(bindPoint, unit) {
+          return function(texture) {
+            gl.uniform1i(location, unit);
+            gl.activeTexture(gl.TEXTURE0 + unit);
+            gl.bindTexture(bindPoint, texture);
+          };
+        }(getBindPointForSamplerType(gl, type), textureUnit++);
+      }
+      throw ('unknown type: 0x' + type.toString(16)); // we should never get here.
+    }
+
+    const uniformSetters = { };
+    const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+
+    for (let ii = 0; ii < numUniforms; ++ii) {
+      const uniformInfo = gl.getActiveUniform(program, ii);
+      if (!uniformInfo) {
+        break;
+      }
+      let name = uniformInfo.name;
+      // remove the array suffix.
+      if (name.substr(-3) === '[0]') {
+        name = name.substr(0, name.length - 3);
+      }
+      const setter = createUniformSetter(program, uniformInfo);
+      uniformSetters[name] = setter;
+    }
+    return uniformSetters;
+  }
+
+  /**
+   * Set uniforms and binds related textures.
+   *
+   * Example:
+   *
+   *     let programInfo = createProgramInfo(
+   *         gl, ["some-vs", "some-fs"]);
+   *
+   *     let tex1 = gl.createTexture();
+   *     let tex2 = gl.createTexture();
+   *
+   *     ... assume we setup the textures with data ...
+   *
+   *     let uniforms = {
+   *       u_someSampler: tex1,
+   *       u_someOtherSampler: tex2,
+   *       u_someColor: [1,0,0,1],
+   *       u_somePosition: [0,1,1],
+   *       u_someMatrix: [
+   *         1,0,0,0,
+   *         0,1,0,0,
+   *         0,0,1,0,
+   *         0,0,0,0,
+   *       ],
+   *     };
+   *
+   *     gl.useProgram(program);
+   *
+   * This will automatically bind the textures AND set the
+   * uniforms.
+   *
+   *     setUniforms(programInfo.uniformSetters, uniforms);
+   *
+   * For the example above it is equivalent to
+   *
+   *     let texUnit = 0;
+   *     gl.activeTexture(gl.TEXTURE0 + texUnit);
+   *     gl.bindTexture(gl.TEXTURE_2D, tex1);
+   *     gl.uniform1i(u_someSamplerLocation, texUnit++);
+   *     gl.activeTexture(gl.TEXTURE0 + texUnit);
+   *     gl.bindTexture(gl.TEXTURE_2D, tex2);
+   *     gl.uniform1i(u_someSamplerLocation, texUnit++);
+   *     gl.uniform4fv(u_someColorLocation, [1, 0, 0, 1]);
+   *     gl.uniform3fv(u_somePositionLocation, [0, 1, 1]);
+   *     gl.uniformMatrix4fv(u_someMatrix, false, [
+   *         1,0,0,0,
+   *         0,1,0,0,
+   *         0,0,1,0,
+   *         0,0,0,0,
+   *       ]);
+   *
+   * Note it is perfectly reasonable to call `setUniforms` multiple times. For example
+   *
+   *     let uniforms = {
+   *       u_someSampler: tex1,
+   *       u_someOtherSampler: tex2,
+   *     };
+   *
+   *     let moreUniforms {
+   *       u_someColor: [1,0,0,1],
+   *       u_somePosition: [0,1,1],
+   *       u_someMatrix: [
+   *         1,0,0,0,
+   *         0,1,0,0,
+   *         0,0,1,0,
+   *         0,0,0,0,
+   *       ],
+   *     };
+   *
+   *     setUniforms(programInfo.uniformSetters, uniforms);
+   *     setUniforms(programInfo.uniformSetters, moreUniforms);
+   *
+   * @param {Object.<string, function>|module:webgl-utils.ProgramInfo} setters the setters returned from
+   *        `createUniformSetters` or a ProgramInfo from {@link module:webgl-utils.createProgramInfo}.
+   * @param {Object.<string, value>} an object with values for the
+   *        uniforms.
+   * @memberOf module:webgl-utils
+   */
+  function setUniforms(setters, ...values) {
+    setters = setters.uniformSetters || setters;
+    for (const uniforms of values) {
+      Object.keys(uniforms).forEach(function(name) {
+        const setter = setters[name];
+        if (setter) {
+          setter(uniforms[name]);
+        }
+      });
+    }
+  }
+
+  /**
+   * Creates setter functions for all attributes of a shader
+   * program. You can pass this to {@link module:webgl-utils.setBuffersAndAttributes} to set all your buffers and attributes.
+   *
+   * @see {@link module:webgl-utils.setAttributes} for example
+   * @param {WebGLProgram} program the program to create setters for.
+   * @return {Object.<string, function>} an object with a setter for each attribute by name.
+   * @memberOf module:webgl-utils
+   */
+  function createAttributeSetters(gl, program) {
+    const attribSetters = {
+    };
+
+    function createAttribSetter(index) {
+      return function(b) {
+          if (b.value) {
+            gl.disableVertexAttribArray(index);
+            switch (b.value.length) {
+              case 4:
+                gl.vertexAttrib4fv(index, b.value);
+                break;
+              case 3:
+                gl.vertexAttrib3fv(index, b.value);
+                break;
+              case 2:
+                gl.vertexAttrib2fv(index, b.value);
+                break;
+              case 1:
+                gl.vertexAttrib1fv(index, b.value);
+                break;
+              default:
+                throw new Error('the length of a float constant value must be between 1 and 4!');
+            }
+          } else {
+            gl.bindBuffer(gl.ARRAY_BUFFER, b.buffer);
+            gl.enableVertexAttribArray(index);
+            gl.vertexAttribPointer(
+                index, b.numComponents || b.size, b.type || gl.FLOAT, b.normalize || false, b.stride || 0, b.offset || 0);
+          }
+        };
+    }
+
+    const numAttribs = gl.getProgramParameter(program, gl.ACTIVE_ATTRIBUTES);
+    for (let ii = 0; ii < numAttribs; ++ii) {
+      const attribInfo = gl.getActiveAttrib(program, ii);
+      if (!attribInfo) {
+        break;
+      }
+      const index = gl.getAttribLocation(program, attribInfo.name);
+      attribSetters[attribInfo.name] = createAttribSetter(index);
+    }
+
+    return attribSetters;
+  }
+
+  /**
+   * Sets attributes and binds buffers (deprecated... use {@link module:webgl-utils.setBuffersAndAttributes})
+   *
+   * Example:
+   *
+   *     let program = createProgramFromScripts(
+   *         gl, ["some-vs", "some-fs"]);
+   *
+   *     let attribSetters = createAttributeSetters(program);
+   *
+   *     let positionBuffer = gl.createBuffer();
+   *     let texcoordBuffer = gl.createBuffer();
+   *
+   *     let attribs = {
+   *       a_position: {buffer: positionBuffer, numComponents: 3},
+   *       a_texcoord: {buffer: texcoordBuffer, numComponents: 2},
+   *     };
+   *
+   *     gl.useProgram(program);
+   *
+   * This will automatically bind the buffers AND set the
+   * attributes.
+   *
+   *     setAttributes(attribSetters, attribs);
+   *
+   * Properties of attribs. For each attrib you can add
+   * properties:
+   *
+   * *   type: the type of data in the buffer. Default = gl.FLOAT
+   * *   normalize: whether or not to normalize the data. Default = false
+   * *   stride: the stride. Default = 0
+   * *   offset: offset into the buffer. Default = 0
+   *
+   * For example if you had 3 value float positions, 2 value
+   * float texcoord and 4 value uint8 colors you'd setup your
+   * attribs like this
+   *
+   *     let attribs = {
+   *       a_position: {buffer: positionBuffer, numComponents: 3},
+   *       a_texcoord: {buffer: texcoordBuffer, numComponents: 2},
+   *       a_color: {
+   *         buffer: colorBuffer,
+   *         numComponents: 4,
+   *         type: gl.UNSIGNED_BYTE,
+   *         normalize: true,
+   *       },
+   *     };
+   *
+   * @param {Object.<string, function>|model:webgl-utils.ProgramInfo} setters Attribute setters as returned from createAttributeSetters or a ProgramInfo as returned {@link module:webgl-utils.createProgramInfo}
+   * @param {Object.<string, module:webgl-utils.AttribInfo>} attribs AttribInfos mapped by attribute name.
+   * @memberOf module:webgl-utils
+   * @deprecated use {@link module:webgl-utils.setBuffersAndAttributes}
+   */
+  function setAttributes(setters, attribs) {
+    setters = setters.attribSetters || setters;
+    Object.keys(attribs).forEach(function(name) {
+      const setter = setters[name];
+      if (setter) {
+        setter(attribs[name]);
+      }
+    });
+  }
+
+  /**
+   * Creates a vertex array object and then sets the attributes
+   * on it
+   *
+   * @param {WebGLRenderingContext} gl The WebGLRenderingContext
+   *        to use.
+   * @param {Object.<string, function>} setters Attribute setters as returned from createAttributeSetters
+   * @param {Object.<string, module:webgl-utils.AttribInfo>} attribs AttribInfos mapped by attribute name.
+   * @param {WebGLBuffer} [indices] an optional ELEMENT_ARRAY_BUFFER of indices
+   */
+  function createVAOAndSetAttributes(gl, setters, attribs, indices) {
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    setAttributes(setters, attribs);
+    if (indices) {
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices);
+    }
+    // We unbind this because otherwise any change to ELEMENT_ARRAY_BUFFER
+    // like when creating buffers for other stuff will mess up this VAO's binding
+    gl.bindVertexArray(null);
+    return vao;
+  }
+
+  /**
+   * Creates a vertex array object and then sets the attributes
+   * on it
+   *
+   * @param {WebGLRenderingContext} gl The WebGLRenderingContext
+   *        to use.
+   * @param {Object.<string, function>| module:webgl-utils.ProgramInfo} programInfo as returned from createProgramInfo or Attribute setters as returned from createAttributeSetters
+   * @param {module:webgl-utils:BufferInfo} bufferInfo BufferInfo as returned from createBufferInfoFromArrays etc...
+   * @param {WebGLBuffer} [indices] an optional ELEMENT_ARRAY_BUFFER of indices
+   */
+  function createVAOFromBufferInfo(gl, programInfo, bufferInfo) {
+    return createVAOAndSetAttributes(gl, programInfo.attribSetters || programInfo, bufferInfo.attribs, bufferInfo.indices);
+  }
+
+  /**
+   * @typedef {Object} ProgramInfo
+   * @property {WebGLProgram} program A shader program
+   * @property {Object<string, function>} uniformSetters: object of setters as returned from createUniformSetters,
+   * @property {Object<string, function>} attribSetters: object of setters as returned from createAttribSetters,
+   * @memberOf module:webgl-utils
+   */
+
+  /**
+   * Creates a ProgramInfo from 2 sources.
+   *
+   * A ProgramInfo contains
+   *
+   *     programInfo = {
+   *        program: WebGLProgram,
+   *        uniformSetters: object of setters as returned from createUniformSetters,
+   *        attribSetters: object of setters as returned from createAttribSetters,
+   *     }
+   *
+   * @param {WebGLRenderingContext} gl The WebGLRenderingContext
+   *        to use.
+   * @param {string[]} shaderSourcess Array of sources for the
+   *        shaders or ids. The first is assumed to be the vertex shader,
+   *        the second the fragment shader.
+   * @param {string[]} [opt_attribs] An array of attribs names. Locations will be assigned by index if not passed in
+   * @param {number[]} [opt_locations] The locations for the. A parallel array to opt_attribs letting you assign locations.
+   * @param {module:webgl-utils.ErrorCallback} opt_errorCallback callback for errors. By default it just prints an error to the console
+   *        on error. If you want something else pass an callback. It's passed an error message.
+   * @return {module:webgl-utils.ProgramInfo} The created program.
+   * @memberOf module:webgl-utils
+   */
+  function createProgramInfo(
+      gl, shaderSources, opt_attribs, opt_locations, opt_errorCallback) {
+    shaderSources = shaderSources.map(function(source) {
+      const script = document.getElementById(source);
+      return script ? script.text : source;
+    });
+    const program = webglUtils.createProgramFromSources(gl, shaderSources, opt_attribs, opt_locations, opt_errorCallback);
+    if (!program) {
+      return null;
+    }
+    const uniformSetters = createUniformSetters(gl, program);
+    const attribSetters = createAttributeSetters(gl, program);
+    return {
+      program: program,
+      uniformSetters: uniformSetters,
+      attribSetters: attribSetters,
+    };
+  }
+
+  /**
+   * Sets attributes and buffers including the `ELEMENT_ARRAY_BUFFER` if appropriate
+   *
+   * Example:
+   *
+   *     let programInfo = createProgramInfo(
+   *         gl, ["some-vs", "some-fs"]);
+   *
+   *     let arrays = {
+   *       position: { numComponents: 3, data: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0], },
+   *       texcoord: { numComponents: 2, data: [0, 0, 0, 1, 1, 0, 1, 1],                 },
+   *     };
+   *
+   *     let bufferInfo = createBufferInfoFromArrays(gl, arrays);
+   *
+   *     gl.useProgram(programInfo.program);
+   *
+   * This will automatically bind the buffers AND set the
+   * attributes.
+   *
+   *     setBuffersAndAttributes(programInfo.attribSetters, bufferInfo);
+   *
+   * For the example above it is equivilent to
+   *
+   *     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+   *     gl.enableVertexAttribArray(a_positionLocation);
+   *     gl.vertexAttribPointer(a_positionLocation, 3, gl.FLOAT, false, 0, 0);
+   *     gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+   *     gl.enableVertexAttribArray(a_texcoordLocation);
+   *     gl.vertexAttribPointer(a_texcoordLocation, 4, gl.FLOAT, false, 0, 0);
+   *
+   * @param {WebGLRenderingContext} gl A WebGLRenderingContext.
+   * @param {Object.<string, function>} setters Attribute setters as returned from `createAttributeSetters`
+   * @param {module:webgl-utils.BufferInfo} buffers a BufferInfo as returned from `createBufferInfoFromArrays`.
+   * @memberOf module:webgl-utils
+   */
+  function setBuffersAndAttributes(gl, setters, buffers) {
+    setAttributes(setters, buffers.attribs);
+    if (buffers.indices) {
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
+    }
+  }
+
+  // Add your prefix here.
+  const browserPrefixes = [
+    '',
+    'MOZ_',
+    'OP_',
+    'WEBKIT_',
+  ];
+
+  /**
+   * Given an extension name like WEBGL_compressed_texture_s3tc
+   * returns the supported version extension, like
+   * WEBKIT_WEBGL_compressed_teture_s3tc
+   * @param {string} name Name of extension to look for
+   * @return {WebGLExtension} The extension or undefined if not
+   *     found.
+   * @memberOf module:webgl-utils
+   */
+  function getExtensionWithKnownPrefixes(gl, name) {
+    for (let ii = 0; ii < browserPrefixes.length; ++ii) {
+      const prefixedName = browserPrefixes[ii] + name;
+      const ext = gl.getExtension(prefixedName);
+      if (ext) {
+        return ext;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Resize a canvas to match the size its displayed.
+   * @param {HTMLCanvasElement} canvas The canvas to resize.
+   * @param {number} [multiplier] amount to multiply by.
+   *    Pass in window.devicePixelRatio for native pixels.
+   * @return {boolean} true if the canvas was resized.
+   * @memberOf module:webgl-utils
+   */
+  function resizeCanvasToDisplaySize(canvas, multiplier) {
+    multiplier = multiplier || 1;
+    const width  = canvas.clientWidth  * multiplier | 0;
+    const height = canvas.clientHeight * multiplier | 0;
+    if (canvas.width !== width ||  canvas.height !== height) {
+      canvas.width  = width;
+      canvas.height = height;
+      return true;
+    }
+    return false;
+  }
+
+  // Add `push` to a typed array. It just keeps a 'cursor'
+  // and allows use to `push` values into the array so we
+  // don't have to manually compute offsets
+  function augmentTypedArray(typedArray, numComponents) {
+    let cursor = 0;
+    typedArray.push = function() {
+      for (let ii = 0; ii < arguments.length; ++ii) {
+        const value = arguments[ii];
+        if (value instanceof Array || (value.buffer && value.buffer instanceof ArrayBuffer)) {
+          for (let jj = 0; jj < value.length; ++jj) {
+            typedArray[cursor++] = value[jj];
+          }
+        } else {
+          typedArray[cursor++] = value;
+        }
+      }
+    };
+    typedArray.reset = function(opt_index) {
+      cursor = opt_index || 0;
+    };
+    typedArray.numComponents = numComponents;
+    Object.defineProperty(typedArray, 'numElements', {
+      get: function() {
+        return this.length / this.numComponents | 0;
+      },
+    });
+    return typedArray;
+  }
+
+  /**
+   * creates a typed array with a `push` function attached
+   * so that you can easily *push* values.
+   *
+   * `push` can take multiple arguments. If an argument is an array each element
+   * of the array will be added to the typed array.
+   *
+   * Example:
+   *
+   *     let array = createAugmentedTypedArray(3, 2);  // creates a Float32Array with 6 values
+   *     array.push(1, 2, 3);
+   *     array.push([4, 5, 6]);
+   *     // array now contains [1, 2, 3, 4, 5, 6]
+   *
+   * Also has `numComponents` and `numElements` properties.
+   *
+   * @param {number} numComponents number of components
+   * @param {number} numElements number of elements. The total size of the array will be `numComponents * numElements`.
+   * @param {constructor} opt_type A constructor for the type. Default = `Float32Array`.
+   * @return {ArrayBuffer} A typed array.
+   * @memberOf module:webgl-utils
+   */
+  function createAugmentedTypedArray(numComponents, numElements, opt_type) {
+    const Type = opt_type || Float32Array;
+    return augmentTypedArray(new Type(numComponents * numElements), numComponents);
+  }
+
+  function createBufferFromTypedArray(gl, array, type, drawType) {
+    type = type || gl.ARRAY_BUFFER;
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(type, buffer);
+    gl.bufferData(type, array, drawType || gl.STATIC_DRAW);
+    return buffer;
+  }
+
+  function allButIndices(name) {
+    return name !== 'indices';
+  }
+
+  function createMapping(obj) {
+    const mapping = {};
+    Object.keys(obj).filter(allButIndices).forEach(function(key) {
+      mapping['a_' + key] = key;
+    });
+    return mapping;
+  }
+
+  function getGLTypeForTypedArray(gl, typedArray) {
+    if (typedArray instanceof Int8Array)    { return gl.BYTE; }            // eslint-disable-line
+    if (typedArray instanceof Uint8Array)   { return gl.UNSIGNED_BYTE; }   // eslint-disable-line
+    if (typedArray instanceof Int16Array)   { return gl.SHORT; }           // eslint-disable-line
+    if (typedArray instanceof Uint16Array)  { return gl.UNSIGNED_SHORT; }  // eslint-disable-line
+    if (typedArray instanceof Int32Array)   { return gl.INT; }             // eslint-disable-line
+    if (typedArray instanceof Uint32Array)  { return gl.UNSIGNED_INT; }    // eslint-disable-line
+    if (typedArray instanceof Float32Array) { return gl.FLOAT; }           // eslint-disable-line
+    throw 'unsupported typed array type';
+  }
+
+  // This is really just a guess. Though I can't really imagine using
+  // anything else? Maybe for some compression?
+  function getNormalizationForTypedArray(typedArray) {
+    if (typedArray instanceof Int8Array)    { return true; }  // eslint-disable-line
+    if (typedArray instanceof Uint8Array)   { return true; }  // eslint-disable-line
+    return false;
+  }
+
+  function isArrayBuffer(a) {
+    return a.buffer && a.buffer instanceof ArrayBuffer;
+  }
+
+  function guessNumComponentsFromName(name, length) {
+    let numComponents;
+    if (name.indexOf('coord') >= 0) {
+      numComponents = 2;
+    } else if (name.indexOf('color') >= 0) {
+      numComponents = 4;
+    } else {
+      numComponents = 3;  // position, normals, indices ...
+    }
+
+    if (length % numComponents > 0) {
+      throw 'can not guess numComponents. You should specify it.';
+    }
+
+    return numComponents;
+  }
+
+  function makeTypedArray(array, name) {
+    if (isArrayBuffer(array)) {
+      return array;
+    }
+
+    if (array.data && isArrayBuffer(array.data)) {
+      return array.data;
+    }
+
+    if (Array.isArray(array)) {
+      array = {
+        data: array,
+      };
+    }
+
+    if (!array.numComponents) {
+      array.numComponents = guessNumComponentsFromName(name, array.length);
+    }
+
+    let type = array.type;
+    if (!type) {
+      if (name === 'indices') {
+        type = Uint16Array;
+      }
+    }
+    const typedArray = createAugmentedTypedArray(array.numComponents, array.data.length / array.numComponents | 0, type);
+    typedArray.push(array.data);
+    return typedArray;
+  }
+
+  /**
+   * @typedef {Object} AttribInfo
+   * @property {number} [numComponents] the number of components for this attribute.
+   * @property {number} [size] the number of components for this attribute.
+   * @property {number} [type] the type of the attribute (eg. `gl.FLOAT`, `gl.UNSIGNED_BYTE`, etc...) Default = `gl.FLOAT`
+   * @property {boolean} [normalized] whether or not to normalize the data. Default = false
+   * @property {number} [offset] offset into buffer in bytes. Default = 0
+   * @property {number} [stride] the stride in bytes per element. Default = 0
+   * @property {WebGLBuffer} buffer the buffer that contains the data for this attribute
+   * @memberOf module:webgl-utils
+   */
+
+
+  /**
+   * Creates a set of attribute data and WebGLBuffers from set of arrays
+   *
+   * Given
+   *
+   *      let arrays = {
+   *        position: { numComponents: 3, data: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0], },
+   *        texcoord: { numComponents: 2, data: [0, 0, 0, 1, 1, 0, 1, 1],                 },
+   *        normal:   { numComponents: 3, data: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],     },
+   *        color:    { numComponents: 4, data: [255, 255, 255, 255, 255, 0, 0, 255, 0, 0, 255, 255], type: Uint8Array, },
+   *        indices:  { numComponents: 3, data: [0, 1, 2, 1, 2, 3],                       },
+   *      };
+   *
+   * returns something like
+   *
+   *      let attribs = {
+   *        a_position: { numComponents: 3, type: gl.FLOAT,         normalize: false, buffer: WebGLBuffer, },
+   *        a_texcoord: { numComponents: 2, type: gl.FLOAT,         normalize: false, buffer: WebGLBuffer, },
+   *        a_normal:   { numComponents: 3, type: gl.FLOAT,         normalize: false, buffer: WebGLBuffer, },
+   *        a_color:    { numComponents: 4, type: gl.UNSIGNED_BYTE, normalize: true,  buffer: WebGLBuffer, },
+   *      };
+   *
+   * @param {WebGLRenderingContext} gl The webgl rendering context.
+   * @param {Object.<string, array|typedarray>} arrays The arrays
+   * @param {Object.<string, string>} [opt_mapping] mapping from attribute name to array name.
+   *     if not specified defaults to "a_name" -> "name".
+   * @return {Object.<string, module:webgl-utils.AttribInfo>} the attribs
+   * @memberOf module:webgl-utils
+   */
+  function createAttribsFromArrays(gl, arrays, opt_mapping) {
+    const mapping = opt_mapping || createMapping(arrays);
+    const attribs = {};
+    Object.keys(mapping).forEach(function(attribName) {
+      const bufferName = mapping[attribName];
+      const origArray = arrays[bufferName];
+      if (origArray.value) {
+        attribs[attribName] = {
+          value: origArray.value,
+        };
+      } else {
+        const array = makeTypedArray(origArray, bufferName);
+        attribs[attribName] = {
+          buffer:        createBufferFromTypedArray(gl, array),
+          numComponents: origArray.numComponents || array.numComponents || guessNumComponentsFromName(bufferName),
+          type:          getGLTypeForTypedArray(gl, array),
+          normalize:     getNormalizationForTypedArray(array),
+        };
+      }
+    });
+    return attribs;
+  }
+
+  function getArray(array) {
+    return array.length ? array : array.data;
+  }
+
+  const texcoordRE = /coord|texture/i;
+  const colorRE = /color|colour/i;
+
+  function guessNumComponentsFromName(name, length) {
+    let numComponents;
+    if (texcoordRE.test(name)) {
+      numComponents = 2;
+    } else if (colorRE.test(name)) {
+      numComponents = 4;
+    } else {
+      numComponents = 3;  // position, normals, indices ...
+    }
+
+    if (length % numComponents > 0) {
+      throw new Error(`Can not guess numComponents for attribute '${name}'. Tried ${numComponents} but ${length} values is not evenly divisible by ${numComponents}. You should specify it.`);
+    }
+
+    return numComponents;
+  }
+
+  function getNumComponents(array, arrayName) {
+    return array.numComponents || array.size || guessNumComponentsFromName(arrayName, getArray(array).length);
+  }
+
+  /**
+   * tries to get the number of elements from a set of arrays.
+   */
+  const positionKeys = ['position', 'positions', 'a_position'];
+  function getNumElementsFromNonIndexedArrays(arrays) {
+    let key;
+    for (const k of positionKeys) {
+      if (k in arrays) {
+        key = k;
+        break;
+      }
+    }
+    key = key || Object.keys(arrays)[0];
+    const array = arrays[key];
+    const length = getArray(array).length;
+    const numComponents = getNumComponents(array, key);
+    const numElements = length / numComponents;
+    if (length % numComponents > 0) {
+      throw new Error(`numComponents ${numComponents} not correct for length ${length}`);
+    }
+    return numElements;
+  }
+
+  /**
+   * @typedef {Object} BufferInfo
+   * @property {number} numElements The number of elements to pass to `gl.drawArrays` or `gl.drawElements`.
+   * @property {WebGLBuffer} [indices] The indices `ELEMENT_ARRAY_BUFFER` if any indices exist.
+   * @property {Object.<string, module:webgl-utils.AttribInfo>} attribs The attribs approriate to call `setAttributes`
+   * @memberOf module:webgl-utils
+   */
+
+
+  /**
+   * Creates a BufferInfo from an object of arrays.
+   *
+   * This can be passed to {@link module:webgl-utils.setBuffersAndAttributes} and to
+   * {@link module:webgl-utils:drawBufferInfo}.
+   *
+   * Given an object like
+   *
+   *     let arrays = {
+   *       position: { numComponents: 3, data: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0], },
+   *       texcoord: { numComponents: 2, data: [0, 0, 0, 1, 1, 0, 1, 1],                 },
+   *       normal:   { numComponents: 3, data: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],     },
+   *       indices:  { numComponents: 3, data: [0, 1, 2, 1, 2, 3],                       },
+   *     };
+   *
+   *  Creates an BufferInfo like this
+   *
+   *     bufferInfo = {
+   *       numElements: 4,        // or whatever the number of elements is
+   *       indices: WebGLBuffer,  // this property will not exist if there are no indices
+   *       attribs: {
+   *         a_position: { buffer: WebGLBuffer, numComponents: 3, },
+   *         a_normal:   { buffer: WebGLBuffer, numComponents: 3, },
+   *         a_texcoord: { buffer: WebGLBuffer, numComponents: 2, },
+   *       },
+   *     };
+   *
+   *  The properties of arrays can be JavaScript arrays in which case the number of components
+   *  will be guessed.
+   *
+   *     let arrays = {
+   *        position: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0],
+   *        texcoord: [0, 0, 0, 1, 1, 0, 1, 1],
+   *        normal:   [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+   *        indices:  [0, 1, 2, 1, 2, 3],
+   *     };
+   *
+   *  They can also by TypedArrays
+   *
+   *     let arrays = {
+   *        position: new Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0]),
+   *        texcoord: new Float32Array([0, 0, 0, 1, 1, 0, 1, 1]),
+   *        normal:   new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]),
+   *        indices:  new Uint16Array([0, 1, 2, 1, 2, 3]),
+   *     };
+   *
+   *  Or augmentedTypedArrays
+   *
+   *     let positions = createAugmentedTypedArray(3, 4);
+   *     let texcoords = createAugmentedTypedArray(2, 4);
+   *     let normals   = createAugmentedTypedArray(3, 4);
+   *     let indices   = createAugmentedTypedArray(3, 2, Uint16Array);
+   *
+   *     positions.push([0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0]);
+   *     texcoords.push([0, 0, 0, 1, 1, 0, 1, 1]);
+   *     normals.push([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]);
+   *     indices.push([0, 1, 2, 1, 2, 3]);
+   *
+   *     let arrays = {
+   *        position: positions,
+   *        texcoord: texcoords,
+   *        normal:   normals,
+   *        indices:  indices,
+   *     };
+   *
+   * For the last example it is equivalent to
+   *
+   *     let bufferInfo = {
+   *       attribs: {
+   *         a_position: { numComponents: 3, buffer: gl.createBuffer(), },
+   *         a_texcoods: { numComponents: 2, buffer: gl.createBuffer(), },
+   *         a_normals: { numComponents: 3, buffer: gl.createBuffer(), },
+   *       },
+   *       indices: gl.createBuffer(),
+   *       numElements: 6,
+   *     };
+   *
+   *     gl.bindBuffer(gl.ARRAY_BUFFER, bufferInfo.attribs.a_position.buffer);
+   *     gl.bufferData(gl.ARRAY_BUFFER, arrays.position, gl.STATIC_DRAW);
+   *     gl.bindBuffer(gl.ARRAY_BUFFER, bufferInfo.attribs.a_texcoord.buffer);
+   *     gl.bufferData(gl.ARRAY_BUFFER, arrays.texcoord, gl.STATIC_DRAW);
+   *     gl.bindBuffer(gl.ARRAY_BUFFER, bufferInfo.attribs.a_normal.buffer);
+   *     gl.bufferData(gl.ARRAY_BUFFER, arrays.normal, gl.STATIC_DRAW);
+   *     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufferInfo.indices);
+   *     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, arrays.indices, gl.STATIC_DRAW);
+   *
+   * @param {WebGLRenderingContext} gl A WebGLRenderingContext
+   * @param {Object.<string, array|object|typedarray>} arrays Your data
+   * @param {Object.<string, string>} [opt_mapping] an optional mapping of attribute to array name.
+   *    If not passed in it's assumed the array names will be mapped to an attribute
+   *    of the same name with "a_" prefixed to it. An other words.
+   *
+   *        let arrays = {
+   *           position: ...,
+   *           texcoord: ...,
+   *           normal:   ...,
+   *           indices:  ...,
+   *        };
+   *
+   *        bufferInfo = createBufferInfoFromArrays(gl, arrays);
+   *
+   *    Is the same as
+   *
+   *        let arrays = {
+   *           position: ...,
+   *           texcoord: ...,
+   *           normal:   ...,
+   *           indices:  ...,
+   *        };
+   *
+   *        let mapping = {
+   *          a_position: "position",
+   *          a_texcoord: "texcoord",
+   *          a_normal:   "normal",
+   *        };
+   *
+   *        bufferInfo = createBufferInfoFromArrays(gl, arrays, mapping);
+   *
+   * @return {module:webgl-utils.BufferInfo} A BufferInfo
+   * @memberOf module:webgl-utils
+   */
+  function createBufferInfoFromArrays(gl, arrays, opt_mapping) {
+    const bufferInfo = {
+      attribs: createAttribsFromArrays(gl, arrays, opt_mapping),
+    };
+    let indices = arrays.indices;
+    if (indices) {
+      indices = makeTypedArray(indices, 'indices');
+      bufferInfo.indices = createBufferFromTypedArray(gl, indices, gl.ELEMENT_ARRAY_BUFFER);
+      bufferInfo.numElements = indices.length;
+    } else {
+      bufferInfo.numElements = getNumElementsFromNonIndexedArrays(arrays);
+    }
+
+    return bufferInfo;
+  }
+
+  /**
+   * Creates buffers from typed arrays
+   *
+   * Given something like this
+   *
+   *     let arrays = {
+   *        positions: [1, 2, 3],
+   *        normals: [0, 0, 1],
+   *     }
+   *
+   * returns something like
+   *
+   *     buffers = {
+   *       positions: WebGLBuffer,
+   *       normals: WebGLBuffer,
+   *     }
+   *
+   * If the buffer is named 'indices' it will be made an ELEMENT_ARRAY_BUFFER.
+   *
+   * @param {WebGLRenderingContext} gl A WebGLRenderingContext.
+   * @param {Object<string, array|typedarray>} arrays
+   * @return {Object<string, WebGLBuffer>} returns an object with one WebGLBuffer per array
+   * @memberOf module:webgl-utils
+   */
+  function createBuffersFromArrays(gl, arrays) {
+    const buffers = { };
+    Object.keys(arrays).forEach(function(key) {
+      const type = key === 'indices' ? gl.ELEMENT_ARRAY_BUFFER : gl.ARRAY_BUFFER;
+      const array = makeTypedArray(arrays[key], name);
+      buffers[key] = createBufferFromTypedArray(gl, array, type);
+    });
+
+    // hrm
+    if (arrays.indices) {
+      buffers.numElements = arrays.indices.length;
+    } else if (arrays.position) {
+      buffers.numElements = arrays.position.length / 3;
+    }
+
+    return buffers;
+  }
+
+  /**
+   * Calls `gl.drawElements` or `gl.drawArrays`, whichever is appropriate
+   *
+   * normally you'd call `gl.drawElements` or `gl.drawArrays` yourself
+   * but calling this means if you switch from indexed data to non-indexed
+   * data you don't have to remember to update your draw call.
+   *
+   * @param {WebGLRenderingContext} gl A WebGLRenderingContext
+   * @param {module:webgl-utils.BufferInfo} bufferInfo as returned from createBufferInfoFromArrays
+   * @param {enum} [primitiveType] eg (gl.TRIANGLES, gl.LINES, gl.POINTS, gl.TRIANGLE_STRIP, ...)
+   * @param {number} [count] An optional count. Defaults to bufferInfo.numElements
+   * @param {number} [offset] An optional offset. Defaults to 0.
+   * @memberOf module:webgl-utils
+   */
+  function drawBufferInfo(gl, bufferInfo, primitiveType, count, offset) {
+    const indices = bufferInfo.indices;
+    primitiveType = primitiveType === undefined ? gl.TRIANGLES : primitiveType;
+    const numElements = count === undefined ? bufferInfo.numElements : count;
+    offset = offset === undefined ? 0 : offset;
+    if (indices) {
+      gl.drawElements(primitiveType, numElements, gl.UNSIGNED_SHORT, offset);
+    } else {
+      gl.drawArrays(primitiveType, offset, numElements);
+    }
+  }
+
+  /**
+   * @typedef {Object} DrawObject
+   * @property {module:webgl-utils.ProgramInfo} programInfo A ProgramInfo as returned from createProgramInfo
+   * @property {module:webgl-utils.BufferInfo} bufferInfo A BufferInfo as returned from createBufferInfoFromArrays
+   * @property {Object<string, ?>} uniforms The values for the uniforms
+   * @memberOf module:webgl-utils
+   */
+
+  /**
+   * Draws a list of objects
+   * @param {WebGLRenderingContext} gl A WebGLRenderingContext
+   * @param {DrawObject[]} objectsToDraw an array of objects to draw.
+   * @memberOf module:webgl-utils
+   */
+  function drawObjectList(gl, objectsToDraw) {
+    let lastUsedProgramInfo = null;
+    let lastUsedBufferInfo = null;
+
+    objectsToDraw.forEach(function(object) {
+      const programInfo = object.programInfo;
+      const bufferInfo = object.bufferInfo;
+      let bindBuffers = false;
+
+      if (programInfo !== lastUsedProgramInfo) {
+        lastUsedProgramInfo = programInfo;
+        gl.useProgram(programInfo.program);
+        bindBuffers = true;
+      }
+
+      // Setup all the needed attributes.
+      if (bindBuffers || bufferInfo !== lastUsedBufferInfo) {
+        lastUsedBufferInfo = bufferInfo;
+        setBuffersAndAttributes(gl, programInfo.attribSetters, bufferInfo);
+      }
+
+      // Set the uniforms.
+      setUniforms(programInfo.uniformSetters, object.uniforms);
+
+      // Draw
+      drawBufferInfo(gl, bufferInfo);
+    });
+  }
+
+  function glEnumToString(gl, v) {
+    const results = [];
+    for (const key in gl) {
+      if (gl[key] === v) {
+        results.push(key);
+      }
+    }
+    return results.length
+        ? results.join(' | ')
+        : `0x${v.toString(16)}`;
+  }
+
+  const isIE = /*@cc_on!@*/false || !!document.documentMode;
+  // Edge 20+
+  const isEdge = !isIE && !!window.StyleMedia;
+  if (isEdge) {
+    // Hack for Edge. Edge's WebGL implmentation is crap still and so they
+    // only respond to "experimental-webgl". I don't want to clutter the
+    // examples with that so his hack works around it
+    HTMLCanvasElement.prototype.getContext = function(origFn) {
+      return function() {
+        let args = arguments;
+        const type = args[0];
+        if (type === 'webgl') {
+          args = [].slice.call(arguments);
+          args[0] = 'experimental-webgl';
+        }
+        return origFn.apply(this, args);
+      };
+    }(HTMLCanvasElement.prototype.getContext);
+  }
+
+  return {
+    createAugmentedTypedArray: createAugmentedTypedArray,
+    createAttribsFromArrays: createAttribsFromArrays,
+    createBuffersFromArrays: createBuffersFromArrays,
+    createBufferInfoFromArrays: createBufferInfoFromArrays,
+    createAttributeSetters: createAttributeSetters,
+    createProgram: createProgram,
+    createProgramFromScripts: createProgramFromScripts,
+    createProgramFromSources: createProgramFromSources,
+    createProgramInfo: createProgramInfo,
+    createUniformSetters: createUniformSetters,
+    createVAOAndSetAttributes: createVAOAndSetAttributes,
+    createVAOFromBufferInfo: createVAOFromBufferInfo,
+    drawBufferInfo: drawBufferInfo,
+    drawObjectList: drawObjectList,
+    glEnumToString: glEnumToString,
+    getExtensionWithKnownPrefixes: getExtensionWithKnownPrefixes,
+    resizeCanvasToDisplaySize: resizeCanvasToDisplaySize,
+    setAttributes: setAttributes,
+    setBuffersAndAttributes: setBuffersAndAttributes,
+    setUniforms: setUniforms,
+  };
+
+}));
+</script>
+
+<script>
+
+//webglfundamentals.org_webgl_resources_m4.js
+
+/*
+ * Copyright 2014, Gregg Tavares.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *
+ *     * Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above
+ * copyright notice, this list of conditions and the following disclaimer
+ * in the documentation and/or other materials provided with the
+ * distribution.
+ *     * Neither the name of Gregg Tavares. nor the names of his
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+/**
+ * Various 3d math functions.
+ *
+ * @module webgl-3d-math
+ */
+(function(root, factory) {  // eslint-disable-line
+  if (typeof define === 'function' && define.amd) {
+    // AMD. Register as an anonymous module.
+    define([], factory);
+  } else {
+    // Browser globals
+    root.m4 = factory();
+  }
+}(this, function() {
+  "use strict";
+
+  /**
+   * An array or typed array with 3 values.
+   * @typedef {number[]|TypedArray} Vector3
+   * @memberOf module:webgl-3d-math
+   */
+
+  /**
+   * An array or typed array with 4 values.
+   * @typedef {number[]|TypedArray} Vector4
+   * @memberOf module:webgl-3d-math
+   */
+
+  /**
+   * An array or typed array with 16 values.
+   * @typedef {number[]|TypedArray} Matrix4
+   * @memberOf module:webgl-3d-math
+   */
+
+
+  let MatType = Float32Array;
+
+  /**
+   * Sets the type this library creates for a Mat4
+   * @param {constructor} Ctor the constructor for the type. Either `Float32Array` or `Array`
+   * @return {constructor} previous constructor for Mat4
+   */
+  function setDefaultType(Ctor) {
+    const OldType = MatType;
+    MatType = Ctor;
+    return OldType;
+  }
+
+  /**
+   * Takes two 4-by-4 matrices, a and b, and computes the product in the order
+   * that pre-composes b with a.  In other words, the matrix returned will
+   * transform by b first and then a.  Note this is subtly different from just
+   * multiplying the matrices together.  For given a and b, this function returns
+   * the same object in both row-major and column-major mode.
+   * @param {Matrix4} a A matrix.
+   * @param {Matrix4} b A matrix.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   */
+  function multiply(a, b, dst) {
+    dst = dst || new MatType(16);
+    var b00 = b[0 * 4 + 0];
+    var b01 = b[0 * 4 + 1];
+    var b02 = b[0 * 4 + 2];
+    var b03 = b[0 * 4 + 3];
+    var b10 = b[1 * 4 + 0];
+    var b11 = b[1 * 4 + 1];
+    var b12 = b[1 * 4 + 2];
+    var b13 = b[1 * 4 + 3];
+    var b20 = b[2 * 4 + 0];
+    var b21 = b[2 * 4 + 1];
+    var b22 = b[2 * 4 + 2];
+    var b23 = b[2 * 4 + 3];
+    var b30 = b[3 * 4 + 0];
+    var b31 = b[3 * 4 + 1];
+    var b32 = b[3 * 4 + 2];
+    var b33 = b[3 * 4 + 3];
+    var a00 = a[0 * 4 + 0];
+    var a01 = a[0 * 4 + 1];
+    var a02 = a[0 * 4 + 2];
+    var a03 = a[0 * 4 + 3];
+    var a10 = a[1 * 4 + 0];
+    var a11 = a[1 * 4 + 1];
+    var a12 = a[1 * 4 + 2];
+    var a13 = a[1 * 4 + 3];
+    var a20 = a[2 * 4 + 0];
+    var a21 = a[2 * 4 + 1];
+    var a22 = a[2 * 4 + 2];
+    var a23 = a[2 * 4 + 3];
+    var a30 = a[3 * 4 + 0];
+    var a31 = a[3 * 4 + 1];
+    var a32 = a[3 * 4 + 2];
+    var a33 = a[3 * 4 + 3];
+    dst[ 0] = b00 * a00 + b01 * a10 + b02 * a20 + b03 * a30;
+    dst[ 1] = b00 * a01 + b01 * a11 + b02 * a21 + b03 * a31;
+    dst[ 2] = b00 * a02 + b01 * a12 + b02 * a22 + b03 * a32;
+    dst[ 3] = b00 * a03 + b01 * a13 + b02 * a23 + b03 * a33;
+    dst[ 4] = b10 * a00 + b11 * a10 + b12 * a20 + b13 * a30;
+    dst[ 5] = b10 * a01 + b11 * a11 + b12 * a21 + b13 * a31;
+    dst[ 6] = b10 * a02 + b11 * a12 + b12 * a22 + b13 * a32;
+    dst[ 7] = b10 * a03 + b11 * a13 + b12 * a23 + b13 * a33;
+    dst[ 8] = b20 * a00 + b21 * a10 + b22 * a20 + b23 * a30;
+    dst[ 9] = b20 * a01 + b21 * a11 + b22 * a21 + b23 * a31;
+    dst[10] = b20 * a02 + b21 * a12 + b22 * a22 + b23 * a32;
+    dst[11] = b20 * a03 + b21 * a13 + b22 * a23 + b23 * a33;
+    dst[12] = b30 * a00 + b31 * a10 + b32 * a20 + b33 * a30;
+    dst[13] = b30 * a01 + b31 * a11 + b32 * a21 + b33 * a31;
+    dst[14] = b30 * a02 + b31 * a12 + b32 * a22 + b33 * a32;
+    dst[15] = b30 * a03 + b31 * a13 + b32 * a23 + b33 * a33;
+    return dst;
+  }
+
+
+  /**
+   * adds 2 vectors3s
+   * @param {Vector3} a a
+   * @param {Vector3} b b
+   * @param {Vector3} dst optional vector3 to store result
+   * @return {Vector3} dst or new Vector3 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function addVectors(a, b, dst) {
+    dst = dst || new MatType(3);
+    dst[0] = a[0] + b[0];
+    dst[1] = a[1] + b[1];
+    dst[2] = a[2] + b[2];
+    return dst;
+  }
+
+  /**
+   * subtracts 2 vectors3s
+   * @param {Vector3} a a
+   * @param {Vector3} b b
+   * @param {Vector3} dst optional vector3 to store result
+   * @return {Vector3} dst or new Vector3 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function subtractVectors(a, b, dst) {
+    dst = dst || new MatType(3);
+    dst[0] = a[0] - b[0];
+    dst[1] = a[1] - b[1];
+    dst[2] = a[2] - b[2];
+    return dst;
+  }
+
+  /**
+   * scale vectors3
+   * @param {Vector3} v vector
+   * @param {Number} s scale
+   * @param {Vector3} dst optional vector3 to store result
+   * @return {Vector3} dst or new Vector3 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function scaleVector(v, s, dst) {
+    dst = dst || new MatType(3);
+    dst[0] = v[0] * s;
+    dst[1] = v[1] * s;
+    dst[2] = v[2] * s;
+    return dst;
+  }
+
+  /**
+   * normalizes a vector.
+   * @param {Vector3} v vector to normalize
+   * @param {Vector3} dst optional vector3 to store result
+   * @return {Vector3} dst or new Vector3 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function normalize(v, dst) {
+    dst = dst || new MatType(3);
+    var length = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    // make sure we don't divide by 0.
+    if (length > 0.00001) {
+      dst[0] = v[0] / length;
+      dst[1] = v[1] / length;
+      dst[2] = v[2] / length;
+    }
+    return dst;
+  }
+
+  /**
+   * Computes the length of a vector
+   * @param {Vector3} v vector to take length of
+   * @return {number} length of vector
+   */
+  function length(v) {
+    return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+  }
+
+  /**
+   * Computes the length squared of a vector
+   * @param {Vector3} v vector to take length of
+   * @return {number} length sqaured of vector
+   */
+  function lengthSq(v) {
+    return v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+  }
+
+  /**
+   * Computes the cross product of 2 vectors3s
+   * @param {Vector3} a a
+   * @param {Vector3} b b
+   * @param {Vector3} dst optional vector3 to store result
+   * @return {Vector3} dst or new Vector3 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function cross(a, b, dst) {
+    dst = dst || new MatType(3);
+    dst[0] = a[1] * b[2] - a[2] * b[1];
+    dst[1] = a[2] * b[0] - a[0] * b[2];
+    dst[2] = a[0] * b[1] - a[1] * b[0];
+    return dst;
+  }
+
+  /**
+   * Computes the dot product of two vectors; assumes both vectors have
+   * three entries.
+   * @param {Vector3} a Operand vector.
+   * @param {Vector3} b Operand vector.
+   * @return {number} dot product
+   * @memberOf module:webgl-3d-math
+   */
+  function dot(a, b) {
+    return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+  }
+
+  /**
+   * Computes the distance squared between 2 points
+   * @param {Vector3} a
+   * @param {Vector3} b
+   * @return {number} distance squared between a and b
+   */
+  function distanceSq(a, b) {
+    const dx = a[0] - b[0];
+    const dy = a[1] - b[1];
+    const dz = a[2] - b[2];
+    return dx * dx + dy * dy + dz * dz;
+  }
+
+  /**
+   * Computes the distance between 2 points
+   * @param {Vector3} a
+   * @param {Vector3} b
+   * @return {number} distance between a and b
+   */
+  function distance(a, b) {
+    return Math.sqrt(distanceSq(a, b));
+  }
+
+  /**
+   * Makes an identity matrix.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function identity(dst) {
+    dst = dst || new MatType(16);
+
+    dst[ 0] = 1;
+    dst[ 1] = 0;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = 1;
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = 0;
+    dst[ 9] = 0;
+    dst[10] = 1;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Transposes a matrix.
+   * @param {Matrix4} m matrix to transpose.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function transpose(m, dst) {
+    dst = dst || new MatType(16);
+
+    dst[ 0] = m[0];
+    dst[ 1] = m[4];
+    dst[ 2] = m[8];
+    dst[ 3] = m[12];
+    dst[ 4] = m[1];
+    dst[ 5] = m[5];
+    dst[ 6] = m[9];
+    dst[ 7] = m[13];
+    dst[ 8] = m[2];
+    dst[ 9] = m[6];
+    dst[10] = m[10];
+    dst[11] = m[14];
+    dst[12] = m[3];
+    dst[13] = m[7];
+    dst[14] = m[11];
+    dst[15] = m[15];
+
+    return dst;
+  }
+
+  /**
+   * Creates a lookAt matrix.
+   * This is a world matrix for a camera. In other words it will transform
+   * from the origin to a place and orientation in the world. For a view
+   * matrix take the inverse of this.
+   * @param {Vector3} cameraPosition position of the camera
+   * @param {Vector3} target position of the target
+   * @param {Vector3} up direction
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function lookAt(cameraPosition, target, up, dst) {
+    dst = dst || new MatType(16);
+    var zAxis = normalize(
+        subtractVectors(cameraPosition, target));
+    var xAxis = normalize(cross(up, zAxis));
+    var yAxis = normalize(cross(zAxis, xAxis));
+
+    dst[ 0] = xAxis[0];
+    dst[ 1] = xAxis[1];
+    dst[ 2] = xAxis[2];
+    dst[ 3] = 0;
+    dst[ 4] = yAxis[0];
+    dst[ 5] = yAxis[1];
+    dst[ 6] = yAxis[2];
+    dst[ 7] = 0;
+    dst[ 8] = zAxis[0];
+    dst[ 9] = zAxis[1];
+    dst[10] = zAxis[2];
+    dst[11] = 0;
+    dst[12] = cameraPosition[0];
+    dst[13] = cameraPosition[1];
+    dst[14] = cameraPosition[2];
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Computes a 4-by-4 perspective transformation matrix given the angular height
+   * of the frustum, the aspect ratio, and the near and far clipping planes.  The
+   * arguments define a frustum extending in the negative z direction.  The given
+   * angle is the vertical angle of the frustum, and the horizontal angle is
+   * determined to produce the given aspect ratio.  The arguments near and far are
+   * the distances to the near and far clipping planes.  Note that near and far
+   * are not z coordinates, but rather they are distances along the negative
+   * z-axis.  The matrix generated sends the viewing frustum to the unit box.
+   * We assume a unit box extending from -1 to 1 in the x and y dimensions and
+   * from -1 to 1 in the z dimension.
+   * @param {number} fieldOfViewInRadians field of view in y axis.
+   * @param {number} aspect aspect of viewport (width / height)
+   * @param {number} near near Z clipping plane
+   * @param {number} far far Z clipping plane
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function perspective(fieldOfViewInRadians, aspect, near, far, dst) {
+    dst = dst || new MatType(16);
+    var f = Math.tan(Math.PI * 0.5 - 0.5 * fieldOfViewInRadians);
+    var rangeInv = 1.0 / (near - far);
+
+    dst[ 0] = f / aspect;
+    dst[ 1] = 0;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = f;
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = 0;
+    dst[ 9] = 0;
+    dst[10] = (near + far) * rangeInv;
+    dst[11] = -1;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = near * far * rangeInv * 2;
+    dst[15] = 0;
+
+    return dst;
+  }
+
+  /**
+   * Computes a 4-by-4 orthographic projection matrix given the coordinates of the
+   * planes defining the axis-aligned, box-shaped viewing volume.  The matrix
+   * generated sends that box to the unit box.  Note that although left and right
+   * are x coordinates and bottom and top are y coordinates, near and far
+   * are not z coordinates, but rather they are distances along the negative
+   * z-axis.  We assume a unit box extending from -1 to 1 in the x and y
+   * dimensions and from -1 to 1 in the z dimension.
+   * @param {number} left The x coordinate of the left plane of the box.
+   * @param {number} right The x coordinate of the right plane of the box.
+   * @param {number} bottom The y coordinate of the bottom plane of the box.
+   * @param {number} top The y coordinate of the right plane of the box.
+   * @param {number} near The negative z coordinate of the near plane of the box.
+   * @param {number} far The negative z coordinate of the far plane of the box.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function orthographic(left, right, bottom, top, near, far, dst) {
+    dst = dst || new MatType(16);
+
+    dst[ 0] = 2 / (right - left);
+    dst[ 1] = 0;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = 2 / (top - bottom);
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = 0;
+    dst[ 9] = 0;
+    dst[10] = 2 / (near - far);
+    dst[11] = 0;
+    dst[12] = (left + right) / (left - right);
+    dst[13] = (bottom + top) / (bottom - top);
+    dst[14] = (near + far) / (near - far);
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Computes a 4-by-4 perspective transformation matrix given the left, right,
+   * top, bottom, near and far clipping planes. The arguments define a frustum
+   * extending in the negative z direction. The arguments near and far are the
+   * distances to the near and far clipping planes. Note that near and far are not
+   * z coordinates, but rather they are distances along the negative z-axis. The
+   * matrix generated sends the viewing frustum to the unit box. We assume a unit
+   * box extending from -1 to 1 in the x and y dimensions and from -1 to 1 in the z
+   * dimension.
+   * @param {number} left The x coordinate of the left plane of the box.
+   * @param {number} right The x coordinate of the right plane of the box.
+   * @param {number} bottom The y coordinate of the bottom plane of the box.
+   * @param {number} top The y coordinate of the right plane of the box.
+   * @param {number} near The negative z coordinate of the near plane of the box.
+   * @param {number} far The negative z coordinate of the far plane of the box.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function frustum(left, right, bottom, top, near, far, dst) {
+    dst = dst || new MatType(16);
+
+    var dx = right - left;
+    var dy = top - bottom;
+    var dz = far - near;
+
+    dst[ 0] = 2 * near / dx;
+    dst[ 1] = 0;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = 2 * near / dy;
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = (left + right) / dx;
+    dst[ 9] = (top + bottom) / dy;
+    dst[10] = -(far + near) / dz;
+    dst[11] = -1;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = -2 * near * far / dz;
+    dst[15] = 0;
+
+    return dst;
+  }
+
+  /**
+   * Makes a translation matrix
+   * @param {number} tx x translation.
+   * @param {number} ty y translation.
+   * @param {number} tz z translation.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function translation(tx, ty, tz, dst) {
+    dst = dst || new MatType(16);
+
+    dst[ 0] = 1;
+    dst[ 1] = 0;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = 1;
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = 0;
+    dst[ 9] = 0;
+    dst[10] = 1;
+    dst[11] = 0;
+    dst[12] = tx;
+    dst[13] = ty;
+    dst[14] = tz;
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Multiply by translation matrix.
+   * @param {Matrix4} m matrix to multiply
+   * @param {number} tx x translation.
+   * @param {number} ty y translation.
+   * @param {number} tz z translation.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function translate(m, tx, ty, tz, dst) {
+    // This is the optimized version of
+    // return multiply(m, translation(tx, ty, tz), dst);
+    dst = dst || new MatType(16);
+
+    var m00 = m[0];
+    var m01 = m[1];
+    var m02 = m[2];
+    var m03 = m[3];
+    var m10 = m[1 * 4 + 0];
+    var m11 = m[1 * 4 + 1];
+    var m12 = m[1 * 4 + 2];
+    var m13 = m[1 * 4 + 3];
+    var m20 = m[2 * 4 + 0];
+    var m21 = m[2 * 4 + 1];
+    var m22 = m[2 * 4 + 2];
+    var m23 = m[2 * 4 + 3];
+    var m30 = m[3 * 4 + 0];
+    var m31 = m[3 * 4 + 1];
+    var m32 = m[3 * 4 + 2];
+    var m33 = m[3 * 4 + 3];
+
+    if (m !== dst) {
+      dst[ 0] = m00;
+      dst[ 1] = m01;
+      dst[ 2] = m02;
+      dst[ 3] = m03;
+      dst[ 4] = m10;
+      dst[ 5] = m11;
+      dst[ 6] = m12;
+      dst[ 7] = m13;
+      dst[ 8] = m20;
+      dst[ 9] = m21;
+      dst[10] = m22;
+      dst[11] = m23;
+    }
+
+    dst[12] = m00 * tx + m10 * ty + m20 * tz + m30;
+    dst[13] = m01 * tx + m11 * ty + m21 * tz + m31;
+    dst[14] = m02 * tx + m12 * ty + m22 * tz + m32;
+    dst[15] = m03 * tx + m13 * ty + m23 * tz + m33;
+
+    return dst;
+  }
+
+  /**
+   * Makes an x rotation matrix
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function xRotation(angleInRadians, dst) {
+    dst = dst || new MatType(16);
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+
+    dst[ 0] = 1;
+    dst[ 1] = 0;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = c;
+    dst[ 6] = s;
+    dst[ 7] = 0;
+    dst[ 8] = 0;
+    dst[ 9] = -s;
+    dst[10] = c;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Multiply by an x rotation matrix
+   * @param {Matrix4} m matrix to multiply
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function xRotate(m, angleInRadians, dst) {
+    // this is the optimized version of
+    // return multiply(m, xRotation(angleInRadians), dst);
+    dst = dst || new MatType(16);
+
+    var m10 = m[4];
+    var m11 = m[5];
+    var m12 = m[6];
+    var m13 = m[7];
+    var m20 = m[8];
+    var m21 = m[9];
+    var m22 = m[10];
+    var m23 = m[11];
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+
+    dst[4]  = c * m10 + s * m20;
+    dst[5]  = c * m11 + s * m21;
+    dst[6]  = c * m12 + s * m22;
+    dst[7]  = c * m13 + s * m23;
+    dst[8]  = c * m20 - s * m10;
+    dst[9]  = c * m21 - s * m11;
+    dst[10] = c * m22 - s * m12;
+    dst[11] = c * m23 - s * m13;
+
+    if (m !== dst) {
+      dst[ 0] = m[ 0];
+      dst[ 1] = m[ 1];
+      dst[ 2] = m[ 2];
+      dst[ 3] = m[ 3];
+      dst[12] = m[12];
+      dst[13] = m[13];
+      dst[14] = m[14];
+      dst[15] = m[15];
+    }
+
+    return dst;
+  }
+
+  /**
+   * Makes an y rotation matrix
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function yRotation(angleInRadians, dst) {
+    dst = dst || new MatType(16);
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+
+    dst[ 0] = c;
+    dst[ 1] = 0;
+    dst[ 2] = -s;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = 1;
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = s;
+    dst[ 9] = 0;
+    dst[10] = c;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Multiply by an y rotation matrix
+   * @param {Matrix4} m matrix to multiply
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function yRotate(m, angleInRadians, dst) {
+    // this is the optimized version of
+    // return multiply(m, yRotation(angleInRadians), dst);
+    dst = dst || new MatType(16);
+
+    var m00 = m[0 * 4 + 0];
+    var m01 = m[0 * 4 + 1];
+    var m02 = m[0 * 4 + 2];
+    var m03 = m[0 * 4 + 3];
+    var m20 = m[2 * 4 + 0];
+    var m21 = m[2 * 4 + 1];
+    var m22 = m[2 * 4 + 2];
+    var m23 = m[2 * 4 + 3];
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+
+    dst[ 0] = c * m00 - s * m20;
+    dst[ 1] = c * m01 - s * m21;
+    dst[ 2] = c * m02 - s * m22;
+    dst[ 3] = c * m03 - s * m23;
+    dst[ 8] = c * m20 + s * m00;
+    dst[ 9] = c * m21 + s * m01;
+    dst[10] = c * m22 + s * m02;
+    dst[11] = c * m23 + s * m03;
+
+    if (m !== dst) {
+      dst[ 4] = m[ 4];
+      dst[ 5] = m[ 5];
+      dst[ 6] = m[ 6];
+      dst[ 7] = m[ 7];
+      dst[12] = m[12];
+      dst[13] = m[13];
+      dst[14] = m[14];
+      dst[15] = m[15];
+    }
+
+    return dst;
+  }
+
+  /**
+   * Makes an z rotation matrix
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function zRotation(angleInRadians, dst) {
+    dst = dst || new MatType(16);
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+
+    dst[ 0] = c;
+    dst[ 1] = s;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = -s;
+    dst[ 5] = c;
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = 0;
+    dst[ 9] = 0;
+    dst[10] = 1;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Multiply by an z rotation matrix
+   * @param {Matrix4} m matrix to multiply
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function zRotate(m, angleInRadians, dst) {
+    // This is the optimized version of
+    // return multiply(m, zRotation(angleInRadians), dst);
+    dst = dst || new MatType(16);
+
+    var m00 = m[0 * 4 + 0];
+    var m01 = m[0 * 4 + 1];
+    var m02 = m[0 * 4 + 2];
+    var m03 = m[0 * 4 + 3];
+    var m10 = m[1 * 4 + 0];
+    var m11 = m[1 * 4 + 1];
+    var m12 = m[1 * 4 + 2];
+    var m13 = m[1 * 4 + 3];
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+
+    dst[ 0] = c * m00 + s * m10;
+    dst[ 1] = c * m01 + s * m11;
+    dst[ 2] = c * m02 + s * m12;
+    dst[ 3] = c * m03 + s * m13;
+    dst[ 4] = c * m10 - s * m00;
+    dst[ 5] = c * m11 - s * m01;
+    dst[ 6] = c * m12 - s * m02;
+    dst[ 7] = c * m13 - s * m03;
+
+    if (m !== dst) {
+      dst[ 8] = m[ 8];
+      dst[ 9] = m[ 9];
+      dst[10] = m[10];
+      dst[11] = m[11];
+      dst[12] = m[12];
+      dst[13] = m[13];
+      dst[14] = m[14];
+      dst[15] = m[15];
+    }
+
+    return dst;
+  }
+
+  /**
+   * Makes an rotation matrix around an arbitrary axis
+   * @param {Vector3} axis axis to rotate around
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function axisRotation(axis, angleInRadians, dst) {
+    dst = dst || new MatType(16);
+
+    var x = axis[0];
+    var y = axis[1];
+    var z = axis[2];
+    var n = Math.sqrt(x * x + y * y + z * z);
+    x /= n;
+    y /= n;
+    z /= n;
+    var xx = x * x;
+    var yy = y * y;
+    var zz = z * z;
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+    var oneMinusCosine = 1 - c;
+
+    dst[ 0] = xx + (1 - xx) * c;
+    dst[ 1] = x * y * oneMinusCosine + z * s;
+    dst[ 2] = x * z * oneMinusCosine - y * s;
+    dst[ 3] = 0;
+    dst[ 4] = x * y * oneMinusCosine - z * s;
+    dst[ 5] = yy + (1 - yy) * c;
+    dst[ 6] = y * z * oneMinusCosine + x * s;
+    dst[ 7] = 0;
+    dst[ 8] = x * z * oneMinusCosine + y * s;
+    dst[ 9] = y * z * oneMinusCosine - x * s;
+    dst[10] = zz + (1 - zz) * c;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Multiply by an axis rotation matrix
+   * @param {Matrix4} m matrix to multiply
+   * @param {Vector3} axis axis to rotate around
+   * @param {number} angleInRadians amount to rotate
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function axisRotate(m, axis, angleInRadians, dst) {
+    // This is the optimized version of
+    // return multiply(m, axisRotation(axis, angleInRadians), dst);
+    dst = dst || new MatType(16);
+
+    var x = axis[0];
+    var y = axis[1];
+    var z = axis[2];
+    var n = Math.sqrt(x * x + y * y + z * z);
+    x /= n;
+    y /= n;
+    z /= n;
+    var xx = x * x;
+    var yy = y * y;
+    var zz = z * z;
+    var c = Math.cos(angleInRadians);
+    var s = Math.sin(angleInRadians);
+    var oneMinusCosine = 1 - c;
+
+    var r00 = xx + (1 - xx) * c;
+    var r01 = x * y * oneMinusCosine + z * s;
+    var r02 = x * z * oneMinusCosine - y * s;
+    var r10 = x * y * oneMinusCosine - z * s;
+    var r11 = yy + (1 - yy) * c;
+    var r12 = y * z * oneMinusCosine + x * s;
+    var r20 = x * z * oneMinusCosine + y * s;
+    var r21 = y * z * oneMinusCosine - x * s;
+    var r22 = zz + (1 - zz) * c;
+
+    var m00 = m[0];
+    var m01 = m[1];
+    var m02 = m[2];
+    var m03 = m[3];
+    var m10 = m[4];
+    var m11 = m[5];
+    var m12 = m[6];
+    var m13 = m[7];
+    var m20 = m[8];
+    var m21 = m[9];
+    var m22 = m[10];
+    var m23 = m[11];
+
+    dst[ 0] = r00 * m00 + r01 * m10 + r02 * m20;
+    dst[ 1] = r00 * m01 + r01 * m11 + r02 * m21;
+    dst[ 2] = r00 * m02 + r01 * m12 + r02 * m22;
+    dst[ 3] = r00 * m03 + r01 * m13 + r02 * m23;
+    dst[ 4] = r10 * m00 + r11 * m10 + r12 * m20;
+    dst[ 5] = r10 * m01 + r11 * m11 + r12 * m21;
+    dst[ 6] = r10 * m02 + r11 * m12 + r12 * m22;
+    dst[ 7] = r10 * m03 + r11 * m13 + r12 * m23;
+    dst[ 8] = r20 * m00 + r21 * m10 + r22 * m20;
+    dst[ 9] = r20 * m01 + r21 * m11 + r22 * m21;
+    dst[10] = r20 * m02 + r21 * m12 + r22 * m22;
+    dst[11] = r20 * m03 + r21 * m13 + r22 * m23;
+
+    if (m !== dst) {
+      dst[12] = m[12];
+      dst[13] = m[13];
+      dst[14] = m[14];
+      dst[15] = m[15];
+    }
+
+    return dst;
+  }
+
+  /**
+   * Makes a scale matrix
+   * @param {number} sx x scale.
+   * @param {number} sy y scale.
+   * @param {number} sz z scale.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function scaling(sx, sy, sz, dst) {
+    dst = dst || new MatType(16);
+
+    dst[ 0] = sx;
+    dst[ 1] = 0;
+    dst[ 2] = 0;
+    dst[ 3] = 0;
+    dst[ 4] = 0;
+    dst[ 5] = sy;
+    dst[ 6] = 0;
+    dst[ 7] = 0;
+    dst[ 8] = 0;
+    dst[ 9] = 0;
+    dst[10] = sz;
+    dst[11] = 0;
+    dst[12] = 0;
+    dst[13] = 0;
+    dst[14] = 0;
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  /**
+   * Multiply by a scaling matrix
+   * @param {Matrix4} m matrix to multiply
+   * @param {number} sx x scale.
+   * @param {number} sy y scale.
+   * @param {number} sz z scale.
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function scale(m, sx, sy, sz, dst) {
+    // This is the optimized version of
+    // return multiply(m, scaling(sx, sy, sz), dst);
+    dst = dst || new MatType(16);
+
+    dst[ 0] = sx * m[0 * 4 + 0];
+    dst[ 1] = sx * m[0 * 4 + 1];
+    dst[ 2] = sx * m[0 * 4 + 2];
+    dst[ 3] = sx * m[0 * 4 + 3];
+    dst[ 4] = sy * m[1 * 4 + 0];
+    dst[ 5] = sy * m[1 * 4 + 1];
+    dst[ 6] = sy * m[1 * 4 + 2];
+    dst[ 7] = sy * m[1 * 4 + 3];
+    dst[ 8] = sz * m[2 * 4 + 0];
+    dst[ 9] = sz * m[2 * 4 + 1];
+    dst[10] = sz * m[2 * 4 + 2];
+    dst[11] = sz * m[2 * 4 + 3];
+
+    if (m !== dst) {
+      dst[12] = m[12];
+      dst[13] = m[13];
+      dst[14] = m[14];
+      dst[15] = m[15];
+    }
+
+    return dst;
+  }
+
+  /**
+   * creates a matrix from translation, quaternion, scale
+   * @param {Number[]} translation [x, y, z] translation
+   * @param {Number[]} quaternion [x, y, z, z] quaternion rotation
+   * @param {Number[]} scale [x, y, z] scale
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   */
+  function compose(translation, quaternion, scale, dst) {
+    dst = dst || new MatType(16);
+
+    const x = quaternion[0];
+    const y = quaternion[1];
+    const z = quaternion[2];
+    const w = quaternion[3];
+
+    const x2 = x + x;
+    const y2 = y + y;
+    const z2 = z + z;
+
+    const xx = x * x2;
+    const xy = x * y2;
+    const xz = x * z2;
+
+    const yy = y * y2;
+    const yz = y * z2;
+    const zz = z * z2;
+
+    const wx = w * x2;
+    const wy = w * y2;
+    const wz = w * z2;
+
+    const sx = scale[0];
+    const sy = scale[1];
+    const sz = scale[2];
+
+    dst[0] = (1 - (yy + zz)) * sx;
+    dst[1] = (xy + wz) * sx;
+    dst[2] = (xz - wy) * sx;
+    dst[3] = 0;
+
+    dst[4] = (xy - wz) * sy;
+    dst[5] = (1 - (xx + zz)) * sy;
+    dst[6] = (yz + wx) * sy;
+    dst[7] = 0;
+
+    dst[ 8] = (xz + wy) * sz;
+    dst[ 9] = (yz - wx) * sz;
+    dst[10] = (1 - (xx + yy)) * sz;
+    dst[11] = 0;
+
+    dst[12] = translation[0];
+    dst[13] = translation[1];
+    dst[14] = translation[2];
+    dst[15] = 1;
+
+    return dst;
+  }
+
+  function quatFromRotationMatrix(m, dst) {
+    // http://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/index.htm
+
+    // assumes the upper 3x3 of m is a pure rotation matrix (i.e, unscaled)
+    const m11 = m[0];
+    const m12 = m[4];
+    const m13 = m[8];
+    const m21 = m[1];
+    const m22 = m[5];
+    const m23 = m[9];
+    const m31 = m[2];
+    const m32 = m[6];
+    const m33 = m[10];
+
+    const trace = m11 + m22 + m33;
+
+    if (trace > 0) {
+      const s = 0.5 / Math.sqrt(trace + 1);
+      dst[3] = 0.25 / s;
+      dst[0] = (m32 - m23) * s;
+      dst[1] = (m13 - m31) * s;
+      dst[2] = (m21 - m12) * s;
+    } else if (m11 > m22 && m11 > m33) {
+      const s = 2 * Math.sqrt(1 + m11 - m22 - m33);
+      dst[3] = (m32 - m23) / s;
+      dst[0] = 0.25 * s;
+      dst[1] = (m12 + m21) / s;
+      dst[2] = (m13 + m31) / s;
+    } else if (m22 > m33) {
+      const s = 2 * Math.sqrt(1 + m22 - m11 - m33);
+      dst[3] = (m13 - m31) / s;
+      dst[0] = (m12 + m21) / s;
+      dst[1] = 0.25 * s;
+      dst[2] = (m23 + m32) / s;
+    } else {
+      const s = 2 * Math.sqrt(1 + m33 - m11 - m22);
+      dst[3] = (m21 - m12) / s;
+      dst[0] = (m13 + m31) / s;
+      dst[1] = (m23 + m32) / s;
+      dst[2] = 0.25 * s;
+    }
+  }
+
+  function decompose(mat, translation, quaternion, scale) {
+    let sx = m4.length(mat.slice(0, 3));
+    const sy = m4.length(mat.slice(4, 7));
+    const sz = m4.length(mat.slice(8, 11));
+
+    // if determinate is negative, we need to invert one scale
+    const det = determinate(mat);
+    if (det < 0) {
+      sx = -sx;
+    }
+
+    translation[0] = mat[12];
+    translation[1] = mat[13];
+    translation[2] = mat[14];
+
+    // scale the rotation part
+    const matrix = m4.copy(mat);
+
+    const invSX = 1 / sx;
+    const invSY = 1 / sy;
+    const invSZ = 1 / sz;
+
+    matrix[0] *= invSX;
+    matrix[1] *= invSX;
+    matrix[2] *= invSX;
+
+    matrix[4] *= invSY;
+    matrix[5] *= invSY;
+    matrix[6] *= invSY;
+
+    matrix[8] *= invSZ;
+    matrix[9] *= invSZ;
+    matrix[10] *= invSZ;
+
+    quatFromRotationMatrix(matrix, quaternion);
+
+    scale[0] = sx;
+    scale[1] = sy;
+    scale[2] = sz;
+  }
+
+  function determinate(m) {
+    var m00 = m[0 * 4 + 0];
+    var m01 = m[0 * 4 + 1];
+    var m02 = m[0 * 4 + 2];
+    var m03 = m[0 * 4 + 3];
+    var m10 = m[1 * 4 + 0];
+    var m11 = m[1 * 4 + 1];
+    var m12 = m[1 * 4 + 2];
+    var m13 = m[1 * 4 + 3];
+    var m20 = m[2 * 4 + 0];
+    var m21 = m[2 * 4 + 1];
+    var m22 = m[2 * 4 + 2];
+    var m23 = m[2 * 4 + 3];
+    var m30 = m[3 * 4 + 0];
+    var m31 = m[3 * 4 + 1];
+    var m32 = m[3 * 4 + 2];
+    var m33 = m[3 * 4 + 3];
+    var tmp_0  = m22 * m33;
+    var tmp_1  = m32 * m23;
+    var tmp_2  = m12 * m33;
+    var tmp_3  = m32 * m13;
+    var tmp_4  = m12 * m23;
+    var tmp_5  = m22 * m13;
+    var tmp_6  = m02 * m33;
+    var tmp_7  = m32 * m03;
+    var tmp_8  = m02 * m23;
+    var tmp_9  = m22 * m03;
+    var tmp_10 = m02 * m13;
+    var tmp_11 = m12 * m03;
+
+    var t0 = (tmp_0 * m11 + tmp_3 * m21 + tmp_4 * m31) -
+        (tmp_1 * m11 + tmp_2 * m21 + tmp_5 * m31);
+    var t1 = (tmp_1 * m01 + tmp_6 * m21 + tmp_9 * m31) -
+        (tmp_0 * m01 + tmp_7 * m21 + tmp_8 * m31);
+    var t2 = (tmp_2 * m01 + tmp_7 * m11 + tmp_10 * m31) -
+        (tmp_3 * m01 + tmp_6 * m11 + tmp_11 * m31);
+    var t3 = (tmp_5 * m01 + tmp_8 * m11 + tmp_11 * m21) -
+        (tmp_4 * m01 + tmp_9 * m11 + tmp_10 * m21);
+
+    return 1.0 / (m00 * t0 + m10 * t1 + m20 * t2 + m30 * t3);
+  }
+
+  /**
+   * Computes the inverse of a matrix.
+   * @param {Matrix4} m matrix to compute inverse of
+   * @param {Matrix4} [dst] optional matrix to store result
+   * @return {Matrix4} dst or a new matrix if none provided
+   * @memberOf module:webgl-3d-math
+   */
+  function inverse(m, dst) {
+    dst = dst || new MatType(16);
+    var m00 = m[0 * 4 + 0];
+    var m01 = m[0 * 4 + 1];
+    var m02 = m[0 * 4 + 2];
+    var m03 = m[0 * 4 + 3];
+    var m10 = m[1 * 4 + 0];
+    var m11 = m[1 * 4 + 1];
+    var m12 = m[1 * 4 + 2];
+    var m13 = m[1 * 4 + 3];
+    var m20 = m[2 * 4 + 0];
+    var m21 = m[2 * 4 + 1];
+    var m22 = m[2 * 4 + 2];
+    var m23 = m[2 * 4 + 3];
+    var m30 = m[3 * 4 + 0];
+    var m31 = m[3 * 4 + 1];
+    var m32 = m[3 * 4 + 2];
+    var m33 = m[3 * 4 + 3];
+    var tmp_0  = m22 * m33;
+    var tmp_1  = m32 * m23;
+    var tmp_2  = m12 * m33;
+    var tmp_3  = m32 * m13;
+    var tmp_4  = m12 * m23;
+    var tmp_5  = m22 * m13;
+    var tmp_6  = m02 * m33;
+    var tmp_7  = m32 * m03;
+    var tmp_8  = m02 * m23;
+    var tmp_9  = m22 * m03;
+    var tmp_10 = m02 * m13;
+    var tmp_11 = m12 * m03;
+    var tmp_12 = m20 * m31;
+    var tmp_13 = m30 * m21;
+    var tmp_14 = m10 * m31;
+    var tmp_15 = m30 * m11;
+    var tmp_16 = m10 * m21;
+    var tmp_17 = m20 * m11;
+    var tmp_18 = m00 * m31;
+    var tmp_19 = m30 * m01;
+    var tmp_20 = m00 * m21;
+    var tmp_21 = m20 * m01;
+    var tmp_22 = m00 * m11;
+    var tmp_23 = m10 * m01;
+
+    var t0 = (tmp_0 * m11 + tmp_3 * m21 + tmp_4 * m31) -
+        (tmp_1 * m11 + tmp_2 * m21 + tmp_5 * m31);
+    var t1 = (tmp_1 * m01 + tmp_6 * m21 + tmp_9 * m31) -
+        (tmp_0 * m01 + tmp_7 * m21 + tmp_8 * m31);
+    var t2 = (tmp_2 * m01 + tmp_7 * m11 + tmp_10 * m31) -
+        (tmp_3 * m01 + tmp_6 * m11 + tmp_11 * m31);
+    var t3 = (tmp_5 * m01 + tmp_8 * m11 + tmp_11 * m21) -
+        (tmp_4 * m01 + tmp_9 * m11 + tmp_10 * m21);
+
+    var d = 1.0 / (m00 * t0 + m10 * t1 + m20 * t2 + m30 * t3);
+
+    dst[0] = d * t0;
+    dst[1] = d * t1;
+    dst[2] = d * t2;
+    dst[3] = d * t3;
+    dst[4] = d * ((tmp_1 * m10 + tmp_2 * m20 + tmp_5 * m30) -
+          (tmp_0 * m10 + tmp_3 * m20 + tmp_4 * m30));
+    dst[5] = d * ((tmp_0 * m00 + tmp_7 * m20 + tmp_8 * m30) -
+          (tmp_1 * m00 + tmp_6 * m20 + tmp_9 * m30));
+    dst[6] = d * ((tmp_3 * m00 + tmp_6 * m10 + tmp_11 * m30) -
+          (tmp_2 * m00 + tmp_7 * m10 + tmp_10 * m30));
+    dst[7] = d * ((tmp_4 * m00 + tmp_9 * m10 + tmp_10 * m20) -
+          (tmp_5 * m00 + tmp_8 * m10 + tmp_11 * m20));
+    dst[8] = d * ((tmp_12 * m13 + tmp_15 * m23 + tmp_16 * m33) -
+          (tmp_13 * m13 + tmp_14 * m23 + tmp_17 * m33));
+    dst[9] = d * ((tmp_13 * m03 + tmp_18 * m23 + tmp_21 * m33) -
+          (tmp_12 * m03 + tmp_19 * m23 + tmp_20 * m33));
+    dst[10] = d * ((tmp_14 * m03 + tmp_19 * m13 + tmp_22 * m33) -
+          (tmp_15 * m03 + tmp_18 * m13 + tmp_23 * m33));
+    dst[11] = d * ((tmp_17 * m03 + tmp_20 * m13 + tmp_23 * m23) -
+          (tmp_16 * m03 + tmp_21 * m13 + tmp_22 * m23));
+    dst[12] = d * ((tmp_14 * m22 + tmp_17 * m32 + tmp_13 * m12) -
+          (tmp_16 * m32 + tmp_12 * m12 + tmp_15 * m22));
+    dst[13] = d * ((tmp_20 * m32 + tmp_12 * m02 + tmp_19 * m22) -
+          (tmp_18 * m22 + tmp_21 * m32 + tmp_13 * m02));
+    dst[14] = d * ((tmp_18 * m12 + tmp_23 * m32 + tmp_15 * m02) -
+          (tmp_22 * m32 + tmp_14 * m02 + tmp_19 * m12));
+    dst[15] = d * ((tmp_22 * m22 + tmp_16 * m02 + tmp_21 * m12) -
+          (tmp_20 * m12 + tmp_23 * m22 + tmp_17 * m02));
+
+    return dst;
+  }
+
+  /**
+   * Takes a  matrix and a vector with 4 entries, transforms that vector by
+   * the matrix, and returns the result as a vector with 4 entries.
+   * @param {Matrix4} m The matrix.
+   * @param {Vector4} v The point in homogenous coordinates.
+   * @param {Vector4} dst optional vector4 to store result
+   * @return {Vector4} dst or new Vector4 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function transformVector(m, v, dst) {
+    dst = dst || new MatType(4);
+    for (var i = 0; i < 4; ++i) {
+      dst[i] = 0.0;
+      for (var j = 0; j < 4; ++j) {
+        dst[i] += v[j] * m[j * 4 + i];
+      }
+    }
+    return dst;
+  }
+
+  /**
+   * Takes a 4-by-4 matrix and a vector with 3 entries,
+   * interprets the vector as a point, transforms that point by the matrix, and
+   * returns the result as a vector with 3 entries.
+   * @param {Matrix4} m The matrix.
+   * @param {Vector3} v The point.
+   * @param {Vector4} dst optional vector4 to store result
+   * @return {Vector4} dst or new Vector4 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function transformPoint(m, v, dst) {
+    dst = dst || new MatType(3);
+    var v0 = v[0];
+    var v1 = v[1];
+    var v2 = v[2];
+    var d = v0 * m[0 * 4 + 3] + v1 * m[1 * 4 + 3] + v2 * m[2 * 4 + 3] + m[3 * 4 + 3];
+
+    dst[0] = (v0 * m[0 * 4 + 0] + v1 * m[1 * 4 + 0] + v2 * m[2 * 4 + 0] + m[3 * 4 + 0]) / d;
+    dst[1] = (v0 * m[0 * 4 + 1] + v1 * m[1 * 4 + 1] + v2 * m[2 * 4 + 1] + m[3 * 4 + 1]) / d;
+    dst[2] = (v0 * m[0 * 4 + 2] + v1 * m[1 * 4 + 2] + v2 * m[2 * 4 + 2] + m[3 * 4 + 2]) / d;
+
+    return dst;
+  }
+
+  /**
+   * Takes a 4-by-4 matrix and a vector with 3 entries, interprets the vector as a
+   * direction, transforms that direction by the matrix, and returns the result;
+   * assumes the transformation of 3-dimensional space represented by the matrix
+   * is parallel-preserving, i.e. any combination of rotation, scaling and
+   * translation, but not a perspective distortion. Returns a vector with 3
+   * entries.
+   * @param {Matrix4} m The matrix.
+   * @param {Vector3} v The direction.
+   * @param {Vector4} dst optional vector4 to store result
+   * @return {Vector4} dst or new Vector4 if not provided
+   * @memberOf module:webgl-3d-math
+   */
+  function transformDirection(m, v, dst) {
+    dst = dst || new MatType(3);
+
+    var v0 = v[0];
+    var v1 = v[1];
+    var v2 = v[2];
+
+    dst[0] = v0 * m[0 * 4 + 0] + v1 * m[1 * 4 + 0] + v2 * m[2 * 4 + 0];
+    dst[1] = v0 * m[0 * 4 + 1] + v1 * m[1 * 4 + 1] + v2 * m[2 * 4 + 1];
+    dst[2] = v0 * m[0 * 4 + 2] + v1 * m[1 * 4 + 2] + v2 * m[2 * 4 + 2];
+
+    return dst;
+  }
+
+  /**
+   * Takes a 4-by-4 matrix m and a vector v with 3 entries, interprets the vector
+   * as a normal to a surface, and computes a vector which is normal upon
+   * transforming that surface by the matrix. The effect of this function is the
+   * same as transforming v (as a direction) by the inverse-transpose of m.  This
+   * function assumes the transformation of 3-dimensional space represented by the
+   * matrix is parallel-preserving, i.e. any combination of rotation, scaling and
+   * translation, but not a perspective distortion.  Returns a vector with 3
+   * entries.
+   * @param {Matrix4} m The matrix.
+   * @param {Vector3} v The normal.
+   * @param {Vector3} [dst] The direction.
+   * @return {Vector3} The transformed direction.
+   * @memberOf module:webgl-3d-math
+   */
+  function transformNormal(m, v, dst) {
+    dst = dst || new MatType(3);
+    var mi = inverse(m);
+    var v0 = v[0];
+    var v1 = v[1];
+    var v2 = v[2];
+
+    dst[0] = v0 * mi[0 * 4 + 0] + v1 * mi[0 * 4 + 1] + v2 * mi[0 * 4 + 2];
+    dst[1] = v0 * mi[1 * 4 + 0] + v1 * mi[1 * 4 + 1] + v2 * mi[1 * 4 + 2];
+    dst[2] = v0 * mi[2 * 4 + 0] + v1 * mi[2 * 4 + 1] + v2 * mi[2 * 4 + 2];
+
+    return dst;
+  }
+
+  function copy(src, dst) {
+    dst = dst || new MatType(16);
+
+    dst[ 0] = src[ 0];
+    dst[ 1] = src[ 1];
+    dst[ 2] = src[ 2];
+    dst[ 3] = src[ 3];
+    dst[ 4] = src[ 4];
+    dst[ 5] = src[ 5];
+    dst[ 6] = src[ 6];
+    dst[ 7] = src[ 7];
+    dst[ 8] = src[ 8];
+    dst[ 9] = src[ 9];
+    dst[10] = src[10];
+    dst[11] = src[11];
+    dst[12] = src[12];
+    dst[13] = src[13];
+    dst[14] = src[14];
+    dst[15] = src[15];
+
+    return dst;
+  }
+
+  return {
+    copy: copy,
+    lookAt: lookAt,
+    addVectors: addVectors,
+    subtractVectors: subtractVectors,
+    scaleVector: scaleVector,
+    distance: distance,
+    distanceSq: distanceSq,
+    normalize: normalize,
+    compose: compose,
+    cross: cross,
+    decompose: decompose,
+    dot: dot,
+    identity: identity,
+    transpose: transpose,
+    length: length,
+    lengthSq: lengthSq,
+    orthographic: orthographic,
+    frustum: frustum,
+    perspective: perspective,
+    translation: translation,
+    translate: translate,
+    xRotation: xRotation,
+    yRotation: yRotation,
+    zRotation: zRotation,
+    xRotate: xRotate,
+    yRotate: yRotate,
+    zRotate: zRotate,
+    axisRotation: axisRotation,
+    axisRotate: axisRotate,
+    scaling: scaling,
+    scale: scale,
+    multiply: multiply,
+    inverse: inverse,
+    transformVector: transformVector,
+    transformPoint: transformPoint,
+    transformDirection: transformDirection,
+    transformNormal: transformNormal,
+    setDefaultType: setDefaultType,
+  };
+
+}));
+</script>
+
+
+<div id="picHexDiv" style="visibility:hidden;">
+FF D8 FF E0 00 10 4A 46 49 46 00 01 01 01 00 60 00 60 00 00 FF E1 00 5A 45 78 69 66 00 00 4D 4D 00 2A 00 00 00 08 00 05 03 01 00 05 00 00 00 01 00 00 00 4A 03 03 00 01 00 00 00 01 00 00 00 00 51 10 00 01 00 00 00 01 01 00 00 00 51 11 00 04 00 00 00 01 00 00 0E C3 51 12 00 04 00 00 00 01 00 00 0E C3 00 00 00 00 00 01 86 A0 00 00 B1 8F FF DB 00 43 00 02 01 01 02 01 01 02 02 02 02 02 02 02 02 03 05 03 03 03 03 03 06 04 04 03 05 07 06 07 07 07 06 07 07 08 09 0B 09 08 08 0A 08 07 07 0A 0D 0A 0A 0B 0C 0C 0C 0C 07 09 0E 0F 0D 0C 0E 0B 0C 0C 0C FF DB 00 43 01 02 02 02 03 03 03 06 03 03 06 0C 08 07 08 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C 0C FF C0 00 11 08 00 C1 00 E5 03 01 22 00 02 11 01 03 11 01 FF C4 00 1F 00 00 01 05 01 01 01 01 01 01 00 00 00 00 00 00 00 00 01 02 03 04 05 06 07 08 09 0A 0B FF C4 00 B5 10 00 02 01 03 03 02 04 03 05 05 04 04 00 00 01 7D 01 02 03 00 04 11 05 12 21 31 41 06 13 51 61 07 22 71 14 32 81 91 A1 08 23 42 B1 C1 15 52 D1 F0 24 33 62 72 82 09 0A 16 17 18 19 1A 25 26 27 28 29 2A 34 35 36 37 38 39 3A 43 44 45 46 47 48 49 4A 53 54 55 56 57 58 59 5A 63 64 65 66 67 68 69 6A 73 74 75 76 77 78 79 7A 83 84 85 86 87 88 89 8A 92 93 94 95 96 97 98 99 9A A2 A3 A4 A5 A6 A7 A8 A9 AA B2 B3 B4 B5 B6 B7 B8 B9 BA C2 C3 C4 C5 C6 C7 C8 C9 CA D2 D3 D4 D5 D6 D7 D8 D9 DA E1 E2 E3 E4 E5 E6 E7 E8 E9 EA F1 F2 F3 F4 F5 F6 F7 F8 F9 FA FF C4 00 1F 01 00 03 01 01 01 01 01 01 01 01 01 00 00 00 00 00 00 01 02 03 04 05 06 07 08 09 0A 0B FF C4 00 B5 11 00 02 01 02 04 04 03 04 07 05 04 04 00 01 02 77 00 01 02 03 11 04 05 21 31 06 12 41 51 07 61 71 13 22 32 81 08 14 42 91 A1 B1 C1 09 23 33 52 F0 15 62 72 D1 0A 16 24 34 E1 25 F1 17 18 19 1A 26 27 28 29 2A 35 36 37 38 39 3A 43 44 45 46 47 48 49 4A 53 54 55 56 57 58 59 5A 63 64 65 66 67 68 69 6A 73 74 75 76 77 78 79 7A 82 83 84 85 86 87 88 89 8A 92 93 94 95 96 97 98 99 9A A2 A3 A4 A5 A6 A7 A8 A9 AA B2 B3 B4 B5 B6 B7 B8 B9 BA C2 C3 C4 C5 C6 C7 C8 C9 CA D2 D3 D4 D5 D6 D7 D8 D9 DA E2 E3 E4 E5 E6 E7 E8 E9 EA F2 F3 F4 F5 F6 F7 F8 F9 FA FF DA 00 0C 03 01 00 02 11 03 11 00 3F 00 FC 7F B4 B1 5C 64 F7 ED 5A 90 69 48 F1 F4 FA D7 3F 6F AB 86 97 15 BB 67 A9 A8 B4 FE BE 95 F0 F5 A1 34 79 52 4C AB A9 C4 8B 9E 05 60 DD 34 71 82 47 06 B4 75 6B EF 30 36 DA E6 EF 66 6D D5 D7 86 A6 ED A9 50 36 B4 79 D7 3C D7 47 A7 EA 61 47 B7 AD 71 5A 2B B3 9F EB 5B 66 E4 45 1E 33 CF 5A 8C 45 15 27 63 4E 5B 9D 9E 91 28 90 E7 A9 35 AD 6D 70 C8 DF 2D 71 5A 06 BC B0 A0 DC 71 8A EA 34 DD 5D 2E 64 42 A7 83 D7 9A F1 EB D0 94 5E C0 E9 B4 74 90 24 D7 D6 EC D8 62 AA 06 48 1D 2B 0B 50 D2 16 E1 D8 30 3C 9E A6 BE 93 F1 27 87 A3 F8 35 FB 35 7C 32 D6 6D 21 B6 13 78 E7 FB 4A F7 50 BB C2 C8 D2 A4 33 2C 30 C3 93 90 A0 28 66 C7 72 FC D6 76 8D E0 1F 0A 7C 53 B7 58 4C BF D9 37 B2 B1 78 A7 89 3F 76 DE B9 4F F3 D6 BD 2A 19 05 79 E1 E3 5E 94 95 DE B6 34 F6 52 47 CE AD E1 38 DA 1C 8A 8B 4D D2 92 DE EB 95 AF 52 F8 D9 FB 3C 78 8F E0 EE 9A 97 B3 40 6F 74 89 CE 12 FA DC 6E 88 1C 67 0D 8F BA 7E B5 E4 57 1A E8 43 B9 B8 35 E5 D4 A3 88 84 9D 3A 89 A6 4B 8B D9 9D DE 8D 6B 6E EB 8C 00 48 E2 A5 B9 B0 40 5B A1 FC 6B 80 83 C6 4C B2 7C AD D2 B5 ED 7C 5A 6E 78 24 7D 49 AE 09 61 6A 27 73 3E 5E 83 3C 4B A3 09 43 15 5A E3 7C 4F A4 AC 30 91 8E DE 95 D8 DF EB AB 22 FD 7F 0C D6 0E A1 3A 6A 09 B5 BA FA FA D7 A7 85 9C E3 6B 8E 3A 33 83 8E E2 4D 3E 7F 97 38 AD 08 3C 45 70 8E 36 02 31 EF 56 EF 7C 38 D3 39 3B 78 F6 A8 E3 B4 FB 27 DE 1D 2B D7 95 5A 72 47 5C 66 CB DA 56 B7 73 3E A2 BF 36 DE 46 45 7D 21 F0 9E 4F 2B C3 B1 48 C7 25 C7 53 5F 2F 2C BF BD DC 03 67 B1 CD 7B 27 C1 CF 88 9F 6C D0 7E C1 34 9B 6E 6D C9 2A 1B 8D EB ED 5E 06 77 41 CA 9A 94 56 C7 4E 16 A2 53 D4 F5 6D 57 53 0A AD 93 9E C0 67 9A E0 3C 59 71 14 F0 B8 70 1D 58 1C 83 DE AC EA FA B6 F4 E5 9B F1 AE 27 C5 FA F6 C8 5D 43 75 06 BC 8C 1D 16 E4 AC 7A 33 9A 68 F1 1F 88 36 AB A3 F8 96 68 E2 FF 00 54 C7 72 0F 4F 6A A1 60 E6 52 3E F7 3E 95 D7 D9 FC 30 D7 BE 31 F8 B8 DA E8 5A 5D E6 A5 34 28 CC FE 4A 64 27 19 F9 8F 41 F8 D7 B1 7E CF BF B1 94 7A F7 C4 7F 0D 68 5A B4 E2 FF 00 5C D6 F5 28 2C A3 D2 AC 9C 39 8F 7B 85 66 79 06 46 14 64 90 3A 6D 3C D7 E9 B8 6A 13 A9 4D 25 DB 56 78 D3 DE C8 F0 38 1D 95 38 CD 69 E9 FB 9C F7 35 BD F1 77 C1 16 5F 0E FE 31 78 A7 C3 D6 53 4D 71 63 A1 EA F7 76 16 D3 4A 00 92 68 A2 99 91 1D 80 E0 12 AA 09 C7 AD 56 D3 74 F5 CA F1 5E 5D 59 A4 AE 72 CD D9 D9 97 61 76 16 C0 01 DA 89 34 E3 2C 67 23 9A D6 D3 F4 E0 36 E4 75 1C 7B 56 FD 9F 87 95 E3 04 8E BD AB C5 A9 8A 50 12 67 13 0F 87 0B AF 4A 2B BE 8F C3 AA 07 DD 1F 95 15 CF FD A0 D9 B7 33 3E 7F B7 D7 36 74 FE 75 AF A6 EB E6 55 2B CF 23 F2 AE 3A 17 CB 0A DB D3 3E EF BD 7D A5 5A 31 B0 4A 28 E8 E3 02 53 81 CE 7A D5 88 BC 24 F7 FF 00 75 4D 43 E1 F8 7C F9 40 F7 FC AB D4 3C 37 A5 45 15 92 F0 0B 63 9A F0 F1 78 97 4B E1 39 65 B9 E7 96 BE 0D 9A C5 CF CB 49 73 A2 48 09 F9 70 6B D5 86 9D 1C C8 72 07 03 8A E7 FC 43 67 1D B0 38 51 9A E5 A5 8E 94 A5 A9 D3 49 E8 70 D0 E9 8C 0F D2 B5 2C 6E 64 D3 67 43 C9 C1 C9 19 EB ED 4C 32 ED B8 27 F4 C5 3A 59 46 03 7A F1 D6 BA A5 27 2D CD DD B6 3F 5C B4 AF 81 F6 5F B7 5F FC 13 1B C3 67 48 8A 0B 7F 11 F8 56 DD E4 D3 A2 8A 44 C3 DC 2E 0C D0 A0 EB B7 69 00 93 FC 40 64 F1 5F 02 68 B7 B7 7E 05 F1 04 9A 7E A8 A6 CD AD DC C3 22 84 DB 24 6E A4 82 A4 7A E7 3C 1F 43 F5 AF B8 FF 00 E0 DD EF 8A B1 DD F8 5B C4 BE 14 7B 98 AD E6 33 F9 B1 45 08 1F 69 BC 8F 69 DC A5 98 9C 28 FE EA F1 C9 20 67 71 AF 47 FF 00 82 91 7F C1 38 BC 3F FB 46 6A DA 8F 89 7C 0D 77 A6 78 57 C7 F6 C4 0B 9D 32 6B D1 15 BF 88 48 DA 13 2C F8 FB 35 C6 7E 50 64 F9 1D B6 86 65 3F 35 7D 3E 15 C9 D0 8C 91 BC 6D 2D 1E E7 87 7C 05 F8 9D 67 27 87 E3 B6 BC 8A 0B 8D 39 D4 45 71 1C E0 B2 49 BB 3C 30 C3 0C B6 1B 82 39 DA 48 24 0C D7 19 FB 5F FF 00 C1 24 63 F1 57 86 6F 3C 5B F0 8F 32 CC 91 1B 89 BC 3D BB CC F3 7A B3 1B 76 CF 61 FC 07 E8 0F 6A F0 9D 6E DF E2 5F EC 91 E2 8B BD 2B C5 3A 26 BF E1 8D 4A CA 47 80 DB 5C 40 3C CC 79 6A EE BB 48 61 20 F2 A5 89 88 52 41 0E A7 9C 8A FA A3 F6 50 FD A0 FC 49 F1 52 EE EA FF 00 47 4B 5D 2D EC 6E 43 79 4B 2B 62 1B 56 8D 1D 24 40 EC 59 E3 DC C4 60 96 91 46 D2 C4 E4 B0 27 1A 75 55 AA 23 49 41 49 59 9F 97 1A 8C 17 9E 1F D4 E6 B3 BC 82 7B 7B AB 67 31 CB 0C A8 51 E2 60 70 C0 A9 C1 04 1C 8C 1A BF 61 7E F0 E0 67 39 55 6F CC 03 FD 6B F7 07 E2 6F C3 5F 86 5E 38 D3 D3 4F F8 AF 63 E1 6D 4F 53 D7 25 8A DC 39 D1 96 D7 50 77 77 28 24 33 80 AF C6 73 9C F4 C7 AE 2B E6 4F 12 7F C1 2D BE 01 78 7B C5 5A AE 9F 1F 8D FC 6D 39 B5 B1 FB 73 6E 82 08 C4 08 CC 76 80 4A E1 88 DA 49 E4 60 11 90 0E 6B 82 AE 53 52 5A 42 CC E6 95 3B 1F 9D 26 E1 A4 4E 7F 2A D1 F0 D7 86 E6 D7 6E 78 5E 3D 71 D6 BE D2 D3 3F E0 9F 1F 0A 6F FC 08 35 C6 D7 3C 63 6D 06 AB 91 A7 12 B6 EC CC 06 70 56 3C 6E 7F BA DC F4 38 E2 B6 6D FF 00 E0 9F 3E 13 F0 8E A1 E1 DD 3E D3 C6 7A 8F DB BC 55 2E DB 28 A7 D1 FF 00 7B 21 39 3F 75 5F 85 50 0B 13 E8 0F 4C 1A F3 F1 99 0E 65 1A 7F B8 82 6F D5 7E AC C1 46 2D EA 7C 91 0F C2 C6 58 17 85 63 8E 86 B3 75 8F 85 AD 22 E0 C0 C9 FE D2 8C 8A FB 6F FE 18 72 DA C6 EA EA DF FE 13 8D 0A 69 AD 63 33 C9 08 B7 97 7A A8 04 9E 80 E4 E3 15 A9 A3 7E C8 9A 0D EF 86 2F 26 B8 D7 9E 49 6D 22 63 27 D9 EC 19 D6 31 8C AB F2 41 0B EA 71 8C 77 AF 97 8E 41 C4 9C F7 F6 3F F9 34 7F CC EB 8F B0 B6 E7 E6 EE AF E0 9B 8D 1E F0 A3 47 EE 30 3A D3 AC AD 24 B1 65 91 72 92 2F 20 81 8E 2B F4 5B 4C FF 00 82 68 E9 3F 12 34 DB 6D 4C 78 EB C3 F6 96 77 72 0B 6B 58 A6 8D C4 D2 4E 5F CB DA 41 18 EB 93 8C EE E3 A6 39 AD CB 0F F8 23 57 85 34 8D 55 AF 35 FF 00 1D 59 EA F6 1A 72 6D 9A C3 4C 4F B2 CE 0E F9 23 3B DE 50 30 77 C7 29 C0 05 86 C2 06 42 F3 EC D1 CB 33 59 C5 46 BD 2E 57 D7 55 FE 66 4E 0A FE E3 3F 37 ED FC 51 A8 5E 5D 47 04 71 BD CB BB 04 48 94 12 D2 37 65 00 73 FF 00 EB AF A6 7E 1E FF 00 C1 38 6E 74 8D 1A CF C4 BF 17 35 35 D0 B4 F9 51 6E 21 F0 FD B4 99 D4 2F 01 19 0B 33 F4 80 63 1F 2F 2E 72 78 43 5E F8 DE 24 F8 2D FB 0B A2 9F 0C 78 75 35 2F 14 DC EF F2 B5 0B F9 12 F3 50 88 2B 00 4E 08 51 10 07 07 E5 4D C4 B7 27 93 5F 2B 7C 79 FD AD 35 BF 8E 1A B4 F2 4D A9 C9 72 D2 FC F3 A4 2E CA 70 DC 94 66 24 15 E0 60 F5 CE 39 38 5E 7D 9C 16 53 46 97 BD 53 59 76 5B 1A A8 C9 2F 78 D9 F8 E1 F1 8F 4A D3 74 A8 BC 3D E0 FB 2B 2D 0F C3 D1 99 11 6D AC 62 C1 97 E6 1C BB 82 5A 43 FE D1 E4 92 7D 2B EB CF F8 25 F7 EC 45 27 C2 4D 3A EB E2 5F 8A B4 FF 00 37 C4 6D 62 F3 E9 F6 73 4F E4 2E 91 6E 53 73 BC F2 90 7C 89 9D 78 C9 1F 22 93 FD E3 8E 5F FE 09 BD FF 00 04 F3 D4 F4 CD 7F 43 F1 C7 8F 46 9B 67 AA CC D1 DE 78 6B 43 D6 5C 47 2C C0 2A 95 BA 78 88 2D 9C BA F9 6A C1 4E 59 5C F5 5C FD EF FB 42 69 56 9F 0F BF 66 DF 12 EA 10 C3 14 1A DE 95 65 2D FC 96 57 37 45 2E 58 28 2E D3 43 3A 4A B2 A3 01 B8 82 AE 09 DB DF 00 1F 73 57 1B 2D 90 EF CB EF 75 E9 E4 7E 04 7E D9 3A 5F 9B FB 52 78 AA E4 5B 5E 5B 2E A5 76 D7 61 2E 6E D6 ED DB 79 3F 3F 9C AA AB 2A 9C 64 3A 82 0F 66 6F BC 79 0D 36 C0 C6 3E 9C D6 7E B3 E2 C1 E2 4F 1B EA 97 BB D9 85 D5 E4 B2 80 D1 AC 64 6E 72 C4 6C 55 45 5E 49 E1 51 47 5F 95 7A 57 51 A0 40 2E 91 4E DE B5 F2 18 FA 8E 1B 9E 5B BB 65 CB 05 2D B2 BA 0D 32 6D 8D 8F CB 26 92 0D 1F C8 65 62 B9 0A 33 C5 4B 30 8E D9 F2 38 C7 5A F9 8A B5 94 F4 46 CA 16 2C 4E 4A 36 36 B1 EF C5 15 5E E7 5A 48 9C 6D 60 78 A2 B1 4A 56 1D 8F 95 22 19 15 7E D2 E7 CA 23 9A 88 58 B0 6E 9F 95 48 2C D9 57 A1 AF D4 64 D3 29 B3 AF F0 86 A4 8B 3A F3 5E 91 A1 EB 8A E9 8D DF 8F 6A F0 FD 36 57 B5 9B 39 3B 7B D7 65 A1 78 9B CB 41 D7 F3 EB 5E 2E 37 07 CC F9 91 84 A1 A9 E9 9F DB 5E 4B 63 70 FA D6 66 B5 71 F6 CE 37 6E 3E D5 C9 5D 78 A0 E7 20 9A 7E 99 AD 19 EE 37 37 5C D7 0C 30 8E 3E F0 24 D1 AF 06 81 E7 B1 35 05 FE 90 21 43 D7 AD 6F E9 CE 64 B6 E3 E9 9A 8E 7D 31 A7 27 3F AD 4B AC D3 D4 DD 1E E7 FF 00 04 C0 FD A2 B4 1F D9 A7 E2 4E A1 75 AD 42 7C ED 5C C5 63 A6 CD 67 0A BD F2 CE EC 06 79 38 31 AF 07 12 7E EC 12 49 0E 40 15 FB 5D F0 DB 4E D0 FF 00 B0 63 6D 4D EF 24 BA BA DE D1 7F 68 20 96 7B BD E1 B7 AE 57 0B B4 86 38 52 A0 10 DD 00 AF E7 BB E1 CE B5 FF 00 0A DB E2 0E 95 AE 2A 19 5F 4B B8 59 C2 86 65 24 8F 70 47 F9 35 FA 5F FB 1C 7F C1 41 B5 FF 00 DA 27 C7 5A 20 97 C3 DE 6C 10 C8 B6 F7 72 DE 6A 51 32 65 43 30 16 96 64 11 1A AA 8C B3 03 93 8C B1 62 72 7D 8C B3 34 A7 17 C9 51 EF B1 B4 53 7B 1F 41 7C 73 D0 65 F0 8E BE 3C 2D E2 8D 2A DB C6 FE 0A D7 A5 5B 0D 26 3D 7A C6 6B D9 2D 20 91 94 4B 1F 9C A7 CF 8E 4E 21 11 CA AC 36 B2 06 DD B9 80 3F 18 78 B3 E0 8F 83 BE 17 6B D1 DD F8 2A DB C5 57 7A 5C F7 AB 7D 69 A6 CB A9 34 5A A5 99 F2 84 92 04 CE D6 92 2D AE 80 33 C2 CC 4A F2 59 0C AA 3F 52 BC 33 6D 07 ED 2D E0 0D 4E CB C4 1A 76 A7 A5 46 F7 02 08 2D CC 8D 67 A8 2C 64 90 48 01 B2 AA 50 1E 18 E1 87 04 73 5E 51 FB 41 FF 00 C1 39 21 B3 B4 74 D3 EE D2 DE D2 F4 DB E0 C3 1C 50 34 4B 14 88 E5 14 43 1C 4A A9 36 DF 9C 61 97 71 18 55 DC 6B DD A9 06 D7 34 36 3A A3 28 BF 8B 73 F3 BB C2 1F 0A AF 7E 25 78 EB 53 D4 7C 31 6B F1 03 4C B8 D0 74 98 9A 05 B9 16 F7 50 C3 7E C2 E5 9E 4F 31 C2 80 19 6D ED E5 04 80 23 F3 A5 5D A5 11 64 3D EE BB FB 2B A7 83 FF 00 64 FF 00 1D 7C 43 9B C5 57 1A A5 8C 6F 6E 6D 6D 6F 2D 0D 95 E3 CD 27 D9 C2 83 FB D7 06 25 37 0E BB BE 52 D2 11 B7 2A 40 3F 4F 78 AB E0 5E A9 61 69 A4 F8 7A EE 5D 5B C6 37 57 53 C3 73 35 9C 92 5E 4B 6B 74 21 95 2F 19 26 90 4C FE 44 9C 46 B1 4A D9 52 B3 36 E9 01 48 84 5B 7F 14 FE 1B 7C 3A F0 E6 8B E2 1D 1B C4 9A AE 9F AB 78 5F 48 B6 6B 9B EB 4B F7 BC 51 7A 0C 32 DB DA 46 25 08 0B CA 2D 5E E9 94 A0 79 5A 4F B3 B8 31 A8 92 46 AA 33 71 97 31 95 54 B6 67 CB BF 08 7C 05 2F 89 7F 60 1D 1B 50 D2 B5 F5 8F E2 03 C8 75 ED 62 CA 2D 87 53 B1 F0 FB CA F6 D6 F0 DB C6 CA C5 10 EC 90 99 38 2C 23 70 38 C3 8E 1F C5 DA 3E AD F1 27 5B F1 37 C4 DD 41 75 04 5D 2B C5 3E 1E F0 1D 93 8B DF 36 09 AE AF FC B9 F5 1B B4 4D AC DE 53 41 35 97 97 8D CA 52 59 36 92 18 01 F5 2F EC 21 F0 03 E1 EE 9D F1 E3 C4 D7 5E 0E D5 27 BA D2 75 2B B7 D2 2F 93 57 BC 86 CE D2 03 14 ED 05 AD 94 3E 41 30 95 97 C9 17 1B 14 61 6D 25 B6 92 32 DF BF 8E 3F 2E D0 7E 0D DC 78 CB E1 17 C5 BF 16 EA 7A D8 D6 3C 75 AC F8 86 E3 4C B3 9F 51 44 87 FE 11 6B 4B AF EC 88 AC 6F 56 DD 98 B2 C8 6D 0C 88 4C 7B 88 83 6A C3 E6 16 53 3F A4 AA B7 A9 CB D2 C7 3B E1 5D 7D ED BF 6C 2F 06 41 A3 CD 73 04 92 78 83 C5 3E 04 36 F2 47 E6 69 F2 6A 89 67 6F 3E 9A EE 36 B3 2C 52 4D 3C 8A 77 1C 6D 84 95 03 0D 9B 5F B5 07 C6 3F 0E 7C 30 FD 92 BC 0D 7F A0 7D 82 5F 1A 78 A6 5B F8 35 86 4D 43 64 6B 2C 57 B7 31 4F 08 8C 3E 13 61 59 C8 21 17 0B 12 29 00 67 77 B8 7E CA 3F 0E 6F F5 6F 8E 1F 19 F5 AB FD 62 D6 6F 02 F8 03 E2 2E A9 A8 1D 0B 58 D3 C6 A3 73 A3 CD 0E 98 23 89 E0 98 ED 28 82 DD 2D E3 89 8C 2D BC A3 00 17 63 33 7C C7 FB 3A 78 6B E1 FF 00 8E BC 6F E2 BD 56 F7 5B D5 57 4B F1 7E BD 7E D7 56 7A BC 46 53 A8 EA 02 54 86 4B 01 1A 06 49 56 2B 79 E6 61 23 3C 7E 74 ED 6E 59 53 E5 52 AA 57 6B 54 25 74 7A A6 BB FB 1D F8 A7 44 FD 99 3E 1C E9 33 6B 7A 5D B2 78 C7 54 B7 BA BE 7B DB 96 32 69 71 C7 11 BD 59 AD E7 89 66 55 F9 62 70 77 46 CB F7 C8 3D 33 F2 87 C7 AD 37 E2 6D FF 00 C5 3B ED 2F 4E F1 1F 85 7F B3 34 B8 E1 8A 6B 8B 6B C1 03 DF 33 DF 93 71 2A C5 B1 3C A7 2F 03 83 0B 0C 42 AA 91 82 EC BE 63 7D FD E2 3F 84 FA FF 00 C2 1F 04 6A BA 8C BA 27 8A EE B4 F5 B2 FB 26 8E B6 3A D8 BE 36 D1 5D 33 5D 49 3A FC C3 EC C9 2D E4 51 6C 48 A1 21 85 A5 B2 24 6A 64 B8 53 E4 AF F0 8B C1 5F B5 66 99 79 A9 7C 38 D4 3C 3B 7B AD 9D 39 E6 BB B1 DA 2D F5 1B 99 22 F2 62 30 A4 EF 3A BB 07 91 81 02 75 70 C4 88 EE 1A 33 E6 39 F3 AB D6 72 77 3A 69 C6 E8 F8 AF 43 FD 91 BE 2E FC 7F F1 CD D4 F7 7A 7E 93 06 9D 69 74 CF AE F8 8E 4D 66 08 F4 8D 0E DD 72 5E 53 28 2C 5D 55 03 31 D8 AF 2C 80 00 A9 CE 6B EA CF D8 23 F6 28 F0 07 87 3E 2D 5D 6A 68 D6 BF 12 75 0F 09 5C 2B 3D E5 FD AC 9A 7E 91 A7 49 E4 25 CA 4B 65 03 C7 27 DA 1D 92 58 DB CD 99 C6 CC AE D8 58 BA 4E B8 BE 39 FD 8A FE 39 45 6D 67 A6 4E A4 D9 5B DC C1 70 62 D3 23 8A DE D9 67 C4 AA AC B7 50 5B 14 8F 08 27 12 05 43 B5 9D 11 25 24 E5 BE 9C FD 8B 7C 11 17 EC F9 F0 D6 C2 DA DB 4F 9E 39 2E 0A DC 8B 6B F4 4B 29 1B 20 06 76 2B 1B 00 48 DA 47 1E 98 EA 6B 8E 55 79 5A 4D 1D 54 68 F3 5D DC F5 E7 B3 B9 D2 F5 5B AD 76 3B 78 FC 67 A1 C9 8B 8B D1 35 FA 45 E5 A6 0B 4B 20 26 37 77 50 DB 9B 6B 8C 67 3C 80 38 F8 EB FE 0B 13 FB 6B 78 23 C7 7F B3 1B E9 1E 07 D4 F4 FD 59 88 6B 67 16 F7 16 F3 CD A6 48 BB 7C C8 A7 80 EE 92 D6 45 5D A6 39 E0 26 37 0A 54 EC C0 35 F7 47 C4 DF 8F F6 3F B3 DC 8F A8 59 5A 78 68 8B 88 96 F2 EE D6 6D 5E 38 6F 5A 0F 2B 73 49 04 5B 31 39 50 09 21 9D 78 07 04 74 3F 80 FF 00 B7 AF C5 7D 1B F6 8B FD A6 B5 BF 17 68 96 87 4E 87 54 7F DE 5A 9B 55 B7 30 3A 9C 1E 17 83 9E 79 C2 F7 CA 8E EB 1B 89 54 E1 CA 9E E7 15 43 C2 7C 3F E1 EF 2D 97 04 FA D7 A6 78 2A D5 ED 99 37 1E 38 E6 AA F8 2F C1 A6 64 0C 57 F0 F6 AE EE CB C3 5F 67 88 00 30 7E 95 F0 B9 9E 60 A4 F9 09 8D 2B EA 68 DA C7 1C D6 7C E3 A7 A5 73 7E 21 06 37 3B 4F 15 D5 45 A2 BA 5A E7 A0 C7 A5 64 6A 7A 27 DA B7 75 38 AF 9D A3 51 46 77 34 E4 67 9F DD DD 4C 66 3C B7 5A 2B B7 B6 F0 83 2C 7C C6 C4 9F 40 78 A2 BD 4F ED 0A 6B 4B 0D 50 93 57 3C 51 3C 2A 5C 67 F1 AA D7 5E 1F DA 71 81 5D 86 98 CB 2C 78 A6 CD A2 79 D2 67 A0 F7 AF AA 78 A9 45 EA 79 77 67 09 2E 90 62 1C 8A 7D A4 3B 1B 15 DA DF 78 65 64 8F E5 15 42 2F 0A B9 7C E2 A9 63 E2 D6 A6 AA 6A C6 4C 76 85 C7 F8 F6 AB FA 65 9E 26 5A D3 8B C3 AD 14 5C D3 A1 D3 DA 37 1F 29 EB 8E 3B D6 0F 14 A5 A2 25 C8 EB BC 3D 12 B5 A0 F7 15 7E 6B 3D C3 20 76 AC DF 03 F8 5F 58 D7 F5 98 2C EC 6C E5 9E 5B 86 0A 91 85 E5 89 AF BE 7F 66 8F F8 24 9E B3 F1 03 C3 B1 5E F8 95 9F 4D F3 86 52 25 E5 C0 F7 AE 6A 38 0A D8 89 DA 9A B9 B4 1D F4 3E 08 7D 3C F9 F1 83 DC F1 C7 5A FA 6B F6 43 FD B5 7C 51 FB 34 78 AC DC E9 D0 C3 AC AB 42 63 4B 5B AF 95 37 81 88 F2 CB 87 28 1B 04 AE 70 DB 47 E1 F4 EF C5 8F F8 23 46 97 A3 F8 45 AE 74 EB C9 96 EA 05 0D B9 DB 82 7E 95 E3 BF 09 7F 65 A8 BC 0F AF 4E B7 AF BE 50 C2 1D E0 67 0D B8 01 F2 9C E7 9C 7A F3 5B AC 83 30 58 88 FB 3D 3C FB 1E B6 1E AD 28 41 B9 A3 EA 9F D9 87 F6 C9 F8 B1 F0 F3 C1 4F E2 9F 13 A5 9E AD 6B AC DC 9B AB D3 29 8E 39 E0 F3 A4 C7 99 1A 05 3F 20 4D 81 22 CE F6 3B 8E 71 81 5A 1E 37 F8 D7 E3 ED 7F C7 7E 27 F1 2E B6 FE 22 B7 F0 DC B6 F6 3A 7E 89 1C CF 34 16 96 F7 72 4C 54 CB 28 1B 61 2A 7C D8 95 37 BA 33 1D F1 80 58 16 5D 68 BC 32 3F B6 3C 27 A3 4B 6D 64 F0 49 24 56 E7 24 79 CB 10 46 DD 2B A0 1B C7 0A 49 65 2C 30 30 54 01 4E BE F1 5F 84 75 2F DA 3B 4D D6 FF 00 E1 21 B4 B4 D1 F4 22 D1 5B 5D AD C4 7B A6 DB 85 9E 21 0C 2F BC 64 AC 89 99 83 01 B1 C1 66 DF 91 F5 4A 83 85 35 4F 99 BB 77 7B 93 CE B9 B9 AC 55 B4 F8 C3 0F EC BB F0 C7 4F 83 59 96 FD 35 9F 11 DF 5C DF 4B A9 DD A5 C0 4B 0B 70 88 A5 5E 76 0C AD 3B 45 1B 34 71 46 8C 92 F9 72 C6 60 55 E9 E7 1A E7 C5 69 BC 5D FB 0D F8 83 C4 76 B0 41 E2 83 04 53 59 59 59 DF 41 71 6B 6B 73 6A A1 1C 59 18 A0 98 AB 05 79 EC EF 77 5B EC 8B EC A8 EA B1 20 3E 51 B9 FF 00 05 00 FD A1 7E 10 CF E2 CB 0F 0B 5B 7C 4B F0 DD AB DB 35 BD D5 F4 03 FB 5B 58 68 E2 5B A8 0D D2 BD 8D 8D BC EA 81 A0 45 50 23 96 D5 E2 3B 79 91 72 2D FC CF E0 D7 89 FC 31 F1 9F F6 4A F8 95 E0 3F 0A F8 A3 C1 5A AB F8 A7 43 97 EC B6 3A 6C 9A 85 A7 D9 49 0D 24 70 4F 61 2C 0A 21 8A 19 8C 96 F0 CA F0 46 4A 24 6F 14 6A AC 02 E8 92 8B B5 CC DE A7 81 FC 27 F8 85 A8 FC 1F FD 8F F4 CF 8C DE 15 D7 B5 38 E5 B6 F8 93 65 67 AD CB 15 BF EE B4 6B 2B 6D 36 EA 0B 59 A7 8E DE 58 A6 BA 78 7E D6 D2 60 18 97 CC 9A 36 7C 90 64 93 D2 BF 68 9F 8C 5A E6 AD A8 6A 1A DC 4D AC 41 E1 BF 1D 78 85 75 FD 1B 4A F3 A1 D4 A4 F1 2A C3 A7 B3 DA AD B9 16 D1 48 36 C5 06 97 03 5B 94 3B 8C 56 7F B9 93 37 5E 4F 98 7E CA 42 6D 4F FE 09 87 AC FC 3B D7 A7 B0 D2 B5 5F 11 F8 8E 2B 78 6C 75 19 BE CD 75 74 AB 3C 6E DF 34 91 4C 16 38 FE D1 3C AE F8 4C C5 B4 23 3B C8 EF 17 A1 7C 43 B2 D5 35 3B 9D 0E C3 FE 12 7B 2B 18 3C 05 A0 5C FF 00 C2 39 E2 0B 5D 36 48 01 8D 1E DE 54 18 68 8C 96 30 5B 47 0D C4 00 48 36 6D 8E E6 05 70 00 DE E3 3D 74 17 B3 5C BA 9A 1F B4 97 C4 8F 13 FC 0D FD 91 B5 1B 4B 5F 17 0B 9F 13 78 BB C5 F7 90 EA 96 7A 44 D7 DF DB 77 13 EA 16 F6 97 16 11 DC CE 11 55 C0 66 7B 90 A0 90 56 F1 16 12 C8 58 0F 17 FD A8 7C 1F AE FE C5 FF 00 1A 3C 3F A7 43 A8 69 D7 DE 27 F1 5E 97 A7 9D 60 5E 4E 8D 69 7B 7C 93 87 2F 37 98 11 ED A2 06 0B 53 E5 48 D1 C6 DF 64 52 03 EF 91 53 D4 7E 21 6B 16 1F 14 B5 BF 0F 47 E2 26 D5 6C 2D 7C 24 92 EA 7E 29 D2 6D 7C 98 EC 74 FB AB 67 D4 5A CE E9 61 9C 32 C5 34 B7 57 38 4F 33 CF 96 5F B5 3A C6 67 63 35 C3 F3 BF F0 50 1D 46 3F DA AF F6 C2 F8 05 6F E1 F5 D2 BC 40 C6 CD FE D7 AA 58 45 0C 96 B6 B0 47 7F 28 F2 DE 50 A9 0C D6 F0 5B C1 6C 91 34 A8 B9 58 E4 2E A5 19 15 66 53 F7 AC 1C 8A C7 D3 FE 35 F8 97 75 F0 37 C2 DF 0F 67 BE D7 B4 2F 09 F9 43 4E D6 EF EE 85 B5 DC BA 75 C5 C4 B1 01 6F 67 64 B1 CA 26 92 48 64 92 20 24 BA 2A CC A1 83 3C B2 34 9E 57 33 F1 81 BC 3F F1 77 C0 09 E2 BF 0B CF A3 C1 E2 E8 AF ED ED E0 93 4E B3 92 5B AF ED 07 43 B9 44 04 A2 BA 61 A6 64 92 48 D2 3F 34 87 61 B6 38 E6 18 DF F0 51 08 20 F1 C7 C4 AD 42 EA E2 EF 52 D1 FC 13 A3 59 47 67 0D E6 A9 7D 6D 6E 2F 64 5B 6C D9 DF 2A 7D AA 02 B6 9E 70 48 4B 4D 70 CC 12 E1 1D 22 0D 03 C7 5F 4F FE CF 3F B3 EE 9B F1 2F F6 70 D3 ED B5 5D 3A D2 C6 D7 EC B2 19 A0 D3 6D D2 FA 52 B2 8D C1 65 9C 0D 92 C8 CC CF 9D 91 3C 6E 5F CD 8C 79 62 01 0E 75 62 E5 A4 4D 20 92 DC F3 7F 81 DF F0 52 AF 1C FC 11 9A D2 D3 C4 56 49 E2 5F 08 6A 37 CD 6A AF 6C D6 A6 55 5F 39 62 8D D3 E5 49 0C 79 28 AC F2 47 1A B3 FD C0 C0 9D 9E 95 FB 67 7E D3 DF 08 F4 2F 06 68 DA 95 F6 8F A9 5F 7F C2 4D 71 68 C9 25 A5 CC 6A 60 69 B2 55 D0 88 B3 FC 25 8E 78 60 A4 60 E7 69 F3 F1 F0 93 4E F1 DF C4 3D 56 F6 D3 56 99 BC 39 74 A2 6B 99 B4 FB EB 63 2D C9 69 02 C9 3B 00 A7 7E 10 88 8B FC E1 91 E4 3B 5B E6 23 CD BC 61 FB 38 FF 00 C2 6B E3 B5 D1 F5 B6 BE BC B9 F0 9D C1 97 4B 98 7C 8B 79 06 FF 00 BB 24 38 27 76 71 C6 D0 EA 62 E9 B4 0C 63 7A BC BC BB A3 4F 75 4A FD 4F 8C BF E0 A9 7F B4 FD 8F C7 4F DA 6D 35 0D 1E E2 F6 CE 5F 0E DB 41 A3 A4 66 1F 22 54 5B 66 76 49 19 D4 95 94 EE 72 F1 CA AD B8 23 E3 8E 83 C3 B4 B8 3F E1 27 D5 5A E1 D2 08 9A 56 0C EB 0C 62 34 CF 72 14 7C AB 9E B8 50 00 EC 00 E2 BB EF F8 28 F9 B5 D4 3F 68 FB BB FB 5B 48 B4 C6 6B 68 62 9E DD 22 F2 FC B9 A3 5D 92 23 28 2D F3 86 18 39 6F CB A5 79 6F 81 35 97 86 E5 7E B5 E2 E6 54 A5 66 E3 B9 C1 37 79 6A 7B 7F 85 3C 2F 14 36 A8 15 78 C0 CF BD 74 F1 E8 31 24 4A 1B AF 15 8B E0 1D 6D 6F 6C 90 10 33 DF F2 AD 8D 72 E8 C5 08 20 F4 E4 13 D2 BE 02 AD 39 B9 D9 9D F0 87 BA 4F A8 69 28 2D 4A A1 E0 75 C7 B5 61 58 58 2C D7 0E B8 04 03 8A 7C DE 2C 48 ED CF CD DB 15 57 C3 9A DA B5 D1 3C 63 39 AE 59 E1 E7 14 D9 13 B5 CE DA D3 C1 F1 4F 67 19 DA BD 07 27 BD 15 26 95 E2 18 E3 B6 C6 73 E9 CE 31 45 78 B2 75 13 3B 23 28 D8 F8 FB 42 D6 17 CA EB DB 9A D7 B6 D5 BE D0 C0 0A F2 ED 3F 5A 64 97 00 F1 DF 9A EB 34 0D 75 4B 81 5F B3 E2 B0 96 D5 1F 3F EC BA 9E 8F A2 DB 0B A5 C5 6C 45 A2 42 D1 9C 7D EC 7A 56 17 87 2F F7 42 0F 7C 71 5B 76 32 FC D9 91 88 EF 81 D6 BE 47 13 19 29 18 FB 27 7D 0C BD 66 25 84 15 51 8A D4 F0 27 84 DF 52 9A 11 1C 0D 71 73 72 FB 62 45 5C 9F CA B3 BC 59 18 D9 E6 40 C4 FA AB 1E BF 4A FB 7B FE 08 FD F0 4A C3 C6 3A D5 FF 00 89 B5 38 C4 BF 62 3E 54 2A E3 70 1C 64 D7 A1 96 E0 65 8A 71 A7 17 6B EE 6F 42 9F 23 E6 92 3D 9F F6 16 FD 96 6C 7E 0D F8 42 DB C4 DE 23 B1 88 6A 72 27 99 87 50 4C 5D FB F7 AF A7 74 FF 00 8C 77 7A D4 AC D6 B0 8B 5B 28 54 28 3F 77 75 70 BF 11 3C 4D 27 8B 64 7D 3B 4E C5 AA DB 9C F4 EB 8E 2B 16 C1 B5 8B 9F 0D DC DA DB 02 F2 C1 95 2D 1F 2A 38 CF CC 7A 0A FD 2F 0F 87 85 1A 6A 95 3D 91 D4 97 56 74 FF 00 10 BF 68 69 A0 49 2D A6 97 65 BB 82 03 13 D7 B5 79 5F 83 A7 B5 D4 7E 29 E9 77 4C D0 AD 82 CE D3 5C 48 D7 2B 08 C2 82 43 12 78 DA 1B 04 F4 E0 1E 6B 57 C0 7F 0E 6E 7E 25 6B CD FD B9 3D 8C 16 56 47 2C AB 39 9B 3F 8C 41 87 FE 3D DE AF FC 59 F0 17 86 6F BC 47 E1 FD 26 1B 7B 79 E0 BA B8 4B 60 27 D3 F1 09 8C B0 59 0B C9 E6 A0 DB D3 A8 CF 5C 06 3C 57 65 F9 62 C9 B5 D9 E3 FF 00 1B BF 69 FD 3B E3 1F 8F ED BC 27 F0 BE 03 7D E2 BD 4E F5 F4 B9 AF 2C D4 A4 76 0B 20 55 79 3C E3 28 03 E5 50 4B 7D D1 80 37 20 60 69 9F 08 3F E0 94 7F 0B 2F BC 74 F6 FA C7 8D 3C 6B A5 3C 3A 8C 50 5F 58 4F E2 77 D2 8F 9C A8 4C D1 B2 94 19 2D E6 33 E1 5D 89 32 8C EC C1 12 7D AB F0 B7 F6 4E D0 3E 14 F8 A9 2C FC 37 61 1E 81 1A B3 5E CF 24 30 44 8F 77 B9 76 8F 9D 1B 24 6E CE 59 9B B9 1B 7B 8F 9B BF 6F 7F 83 FE 31 F0 B5 A5 D5 DF 86 6C B5 9D 42 E7 5A 0A 92 BE 91 A2 7F C8 44 C5 B9 82 95 13 0F 2D D5 65 93 CB 97 E6 25 5D 80 68 D4 7E EF CB AD 17 6B B4 6D 0B 37 E6 7A 27 EC F7 E1 4F 0F 7E C7 DF F0 50 6F 8D 7E 1A 7D 1E D3 77 C5 2D 33 4C D6 BC 13 F2 C7 F6 09 F4 E8 61 11 DE 5A C3 13 2E C5 96 29 23 8D 8A 8F BC 80 E4 05 4F 9B C2 7F 6A FF 00 D9 4B 5B FD A5 BF 68 BD 66 EE CF 42 D3 FC 2D AE 59 6B D6 63 C2 FA 9F 87 AC 56 CA FC DA 2D 95 AB DC 4F 2C 88 A1 5E 33 3B 4F 18 49 3F 8D 1F 20 AB 2D 79 85 CF ED DF E2 FF 00 15 FC 26 D1 B4 5F 1B F8 22 DF C7 FA 25 AE DB D8 2D 2E 23 BB D1 B5 5D 0E E1 87 9F 04 D6 37 69 1A DC AB 60 B2 C5 E5 46 37 A4 47 E7 4F 30 05 F4 DF 85 BF B4 6F 86 BE 33 F8 72 EE DE D7 E3 1F ED 03 E1 7D 2D EC F7 5F 8D 53 4F D1 EF 26 68 DE 37 DD 03 6A 82 D6 59 A1 27 80 AD 34 EB 23 09 22 F2 C7 CD B8 E3 5E 51 94 2C B6 26 11 93 9E 8F 50 F0 77 EC F7 A2 FE D1 9F 05 BE 24 DF 79 B6 E9 F1 03 E0 3E B3 F6 09 B5 7B 47 89 BE DF E4 22 5E 44 43 C9 96 0A 4A 36 D5 F3 14 A9 8D 8B B9 89 C9 AF 9E 93 C5 3A F5 FE 8F 69 6E FA A5 D5 99 BA D3 45 EC 6B 71 E6 6F B4 9A 19 54 47 77 74 0A B1 02 75 B9 9A 79 11 4F 94 23 B9 74 F2 9D 2E 04 30 F2 BF B0 E7 C7 DD 6B F6 79 FD A2 FC 51 F0 D7 C1 BE 1F D5 35 2B 5F 89 F7 57 71 6B 57 3A AA 4B E7 59 84 93 E5 BB 76 12 8D DB 22 79 3C C6 2A 0F EF 19 86 E0 42 8F AE BC 67 FB 2F 47 E2 D9 EC 6E 6C AD 5F 4B B6 D4 C0 81 61 81 1D ED ED 62 32 5B E1 D8 9F 9A 4D C1 26 3B 7C B2 8D E7 80 5F E6 1B B9 E9 AE 47 68 ED 64 CE D6 B9 E3 77 BD EC 7C 6B E3 DF 85 BA BF ED 0F F1 75 34 4D 22 51 A7 47 E2 2B D1 1D ED DD A5 C5 FB 69 FA 8C 44 AC 7E 6A 16 F3 76 97 80 46 DF BE 2C CD B5 89 CE C8 CB 33 F6 8F F0 BF 89 BE 15 7C 7F B3 F8 0B F0 F6 FF 00 EC BA B5 BD A8 BB B9 BE 62 89 24 05 CB 32 24 7C 95 8D DF E5 DA 17 1C BA E3 E6 90 6D FA 2F E2 DC E3 F6 07 BD B6 F1 E6 87 E1 8B 4D 66 FF 00 43 B6 6B 4B DB 3D 3D 5E D8 42 0B 3C 92 46 06 E7 06 23 1E F6 C6 36 B6 24 C1 8F 02 47 F0 EF D8 B7 C1 52 7E DC FF 00 B5 CF 88 7E 2F 6A 3E 22 B8 F8 6D AC 5C 33 DC DD 6B 91 C0 AD A6 C5 73 31 45 8E D1 A3 9B 74 52 C2 50 9F 9B CC 57 0C 23 3B 91 C2 93 94 AF 2E 67 2E 84 CA 8A 4D 45 6E CB 9E 0D FD 87 62 D6 BE 2B F8 33 42 96 D6 FC 1B ED 3A F3 51 D5 FC 47 AD DF FF 00 6B EA 22 F6 D8 D9 A3 A3 34 B1 AC 29 6E D2 5C 39 58 B0 59 95 50 BB B9 43 BB D0 7C 17 FB 35 78 CF C6 7F B5 DF C6 2B AF 83 32 45 F0 C9 65 F0 EA 6B 97 1A 5E 86 66 B3 F0 F2 DF 4E 42 DB DB 7D 9B E7 68 BC C4 59 9C 03 99 15 1D 19 06 38 AF 5B F8 A1 FB 5E 78 1C DF EA 16 CB F1 0E EB 5A F3 D5 E2 6B AF 01 78 01 16 E2 E0 A4 4E EB E5 DC DF DC C9 6B 37 20 65 63 8F 71 C8 07 6E 3E 78 BE 1F 7F C1 49 BE 1F FC 20 F0 2E B1 E1 EF 0A 78 62 14 B5 FE D3 9B ED 3A AE B5 A9 C1 A9 EA 3E 28 BA 31 C7 28 D4 6E 95 D3 CD 2B 2C 6D 32 16 93 6C 39 62 BB D0 3A F9 9A C2 9F 5A 92 39 D7 BB 2F 74 F0 F9 BE 33 FC 7F FD 96 F5 AB 7D 6B C7 1F 0E 7C 25 E3 2D 0F 4C 75 6D 5E EA 10 B7 B3 5B A6 FF 00 30 A9 9A 45 92 34 3F 2C 84 CA 81 94 8F 95 C9 3B C1 FA DF 42 F1 56 81 E2 CF 88 1A B6 A3 A6 C9 0B 5A CB 14 7A 8D 94 91 2A F9 17 56 53 AC 41 43 48 65 69 19 90 EE 56 0C EC 9B C0 D8 06 0B 2F 9E 7C 11 F0 CC BF B4 17 8F 2F 35 3F 1E 6B 16 D7 53 5A 96 FB 6E 89 1D A4 6F 6F 7B 11 0D B2 51 B4 AC 9E 48 12 F9 A8 A1 B3 B5 89 68 51 18 95 F1 DF 83 FF 00 1B 34 0F D9 A3 E3 85 C7 80 7C 42 35 7D 37 C2 16 BA 8C F0 E8 9A CE A1 0C 91 B9 8F 66 D8 9D 4E 24 8D 46 14 2B B2 3A E7 CC F9 94 02 D8 70 BB 8D 8B 93 51 95 D9 E5 DF F0 5A 7F 87 29 E1 CF 8E F0 6B 58 78 8E BD 68 97 2E CA 00 12 B8 1B 4E E0 A0 0D DC 72 42 8E D9 AF 91 BC 25 17 D9 E4 0C 73 81 D3 35 F6 AF FC 16 17 C6 16 DE 29 F1 3F 87 E0 4F B3 DE 1D 3E C1 A3 37 AC CE 4C C7 CC 63 80 30 36 E0 F5 C9 E7 B7 15 F1 3E 8D 21 8A 02 38 38 AF 3F 31 DC E5 4D 7B 46 8F 50 F0 77 8B 16 D1 00 DD CF A5 6F 6B 1E 3C 1F 66 27 77 38 C7 D6 BC 75 75 79 2D 0E 46 EF F0 A6 DC 78 9A 79 C7 CC 70 3D 01 AF 9E 78 05 29 73 1D 8A B2 4A C7 53 AB 78 D1 FE D7 C3 7C B9 E4 66 A7 D3 3E 21 AD BB 1C 37 A7 7A F3 4D 5F 5E F9 F1 D3 F1 AA 96 FA 84 AD 2E 41 38 15 D5 3C B2 13 8E A7 0C EA 6A 7D 01 A3 7C 42 2D 6D F7 F1 E9 96 A2 BC 86 C3 C4 CF 14 18 DD F9 D1 5E 24 F2 38 F3 13 ED 99 E6 36 89 B5 AB 46 C6 F9 AD A5 06 AB 5A C1 F3 74 FD 2A EC 56 26 41 D3 8F A5 7D ED 49 2E A5 29 2B 1D CF 83 3C 42 D3 32 FA 0E B5 D3 4F AE 94 39 CF FF 00 5E BC E7 C3 AC DA 7D C8 EB 83 C5 74 8C D2 15 CF 35 F3 D8 BA 10 75 2E 3B AE 86 AC 9A CB 6A 33 08 C1 39 27 02 BF 5D 3F E0 97 3F 0B FF 00 E1 08 FD 9E C5 DB FE E9 EF 17 CD 6D DF C5 C5 7E 54 7C 00 F0 13 FC 41 F8 A1 A6 D8 B2 93 11 94 3C 87 B6 05 7E CC 7C 3F 11 F8 0F E0 D5 AD A4 24 45 04 50 05 6D A7 1D AB E8 32 1C 34 63 7A 88 B5 A9 8D AA 78 C2 DF 44 D5 AF 5A 34 90 98 F7 2E 57 92 3F 0E F5 C7 7C 3E F8 95 A8 78 B7 C7 77 96 4E B2 49 0A FC C1 08 38 1D B9 1D 39 FF 00 1A CE F1 0F C4 9B 6D 1B 49 D5 2F C8 26 34 C8 8D 89 07 3D AA 0F D9 73 5E 6B FB 1D 43 5A 9D 04 46 72 70 A1 7F 87 DE BE 85 6E 0F 7B 1E DB E1 5F 17 7D B6 39 B4 8B 3B 63 12 C5 BB CE 95 46 0A FB 7F 9F 6A F3 2F 8E 2B FF 00 09 3D BC 76 57 11 C7 79 67 2C 86 D8 79 A7 CB F2 9C AB 15 6D FB 4F 3B 86 33 8C FB 8E 4D 7A 97 C3 DF 11 69 96 7A 7D C6 C8 F7 CB 7E 49 91 B6 E0 8A E7 FC 7F E1 AB BF 11 45 F6 0D 23 4E 48 E3 B6 73 7C 67 BB F2 A2 85 99 79 09 E6 4B B4 02 7D 77 0C 77 22 89 AE 68 B4 52 D1 9E 6F 0F ED 4D F1 23 4F F0 25 86 9A D1 5B D9 AC 36 8F A7 C3 AA B1 9E F3 CF 55 C2 AC 6C E8 AD 2C 4F 1F 66 3F BB CA AE 41 DB B4 F5 DF 02 7C 43 F1 43 5D B6 BF BB B5 F8 BD E0 AD 71 2F B2 B2 69 FA 92 A5 D5 BC 32 B4 CC 42 C6 EB 18 DC 4B E5 24 27 07 E5 E4 A8 43 BF D1 7C 4F E0 2B 6F F8 45 D3 56 B6 D4 B4 5D 43 48 D4 AD DE 3D 6F 4C 63 73 22 2E F0 30 F1 18 55 80 94 6D 3C 82 17 83 F3 77 AF 15 9B E0 4F C3 1B 2F 89 3E 1D BE D3 B5 6D 4D 35 9B A6 96 E2 C3 4D 3A 7C 97 B0 46 92 9D C2 56 8B ED 10 98 A2 2A 18 6E 54 08 C3 25 89 3C D7 8E DC D4 B7 FC 4E CE 58 F2 9C DF C5 8F D8 E7 5E D2 2E A3 F1 17 C4 2D 7B C3 3A 16 93 A0 59 CD 77 AB DD F8 52 E6 F2 DA CE EE 2E 19 91 15 E7 FB 3C 72 48 C2 34 02 78 46 4C 62 35 66 DD 08 6F 9E FC 43 E0 1D 4B 5F D4 2E F4 1D 72 66 96 FE D6 E0 AD 88 17 31 25 C5 94 AB F6 E8 DD 05 B4 4A DE 5C 33 31 91 0E C9 FC 91 10 4F 2E 4B 86 70 87 F4 D7 E0 CF C2 FB CD 4E 0B 1B 38 AC 7C 49 1D BF 9C EF 0C 76 76 B1 41 69 37 95 83 15 CA 30 B8 31 84 56 5D CA D1 FC E3 60 F9 7E 41 5E 35 E1 FF 00 83 5E 2D FD 97 3E 24 BD D4 DF F0 A4 EF 24 B6 94 C5 05 DD C7 88 BF B3 AF 6D D5 2D A3 92 00 9E 65 A8 B5 B4 FD F5 BD B4 21 40 04 A8 8C C5 27 0C 06 97 B6 AC C7 D9 5D D9 1F 31 DB FE C7 BA DF C0 5F 8C 3E 0F 92 0D 22 FF 00 FE 12 2D 42 F6 F2 7B D7 67 B0 9E 48 A4 65 93 62 5C 32 8E 43 33 4C C6 34 26 34 69 22 C9 FD D0 65 FB DF 4F F8 91 E1 9D 02 08 2D ED DA CE 58 EC 89 B6 B8 95 36 1D A7 0E AC A3 61 55 5E 59 54 8E 33 BC 85 FB BF 35 EF 1A FE C9 3A B7 C7 7F D9 D3 40 D4 B4 99 0F 85 BC 49 A1 C7 F6 A6 D0 26 D4 0C DA 75 DE FB 67 56 B2 BA 9E 0C 6F 08 D2 AB 2C EB BB 12 42 49 2E 0B 13 F9 29 AC 5C EB 5F 0C 75 0D 43 40 F1 9F 85 EE F4 3F 13 C1 AA 5D E9 17 36 D1 6B 97 45 A3 BC 86 38 E6 92 48 88 7F 31 B2 27 8F AE 0E 59 C0 CE 01 3C 75 EA B8 27 52 69 D9 DB 6D 4F 5B 07 42 35 1F B2 A7 25 7D 77 BA FD 19 F5 8F FC 16 0E 7B 3F 12 F8 2F C3 69 A1 C1 7F 75 6D AA 4C 76 DE 68 B1 45 34 D6 4C 92 29 1F 21 2B F2 06 27 7E 1B 3B 77 A9 DA AE C2 BC 88 FC 12 D6 7F 65 8F ED 21 AB 69 90 5A DB 78 86 24 B9 76 69 18 C3 6E 15 A3 89 E5 88 C5 1B A4 C9 6A 97 92 DB C6 D9 2C A4 6E DD 1B 3C 2B 2E E7 FC 12 E3 F6 43 F8 91 FB 52 78 52 CF 5D D5 67 BE F0 07 C3 89 EF 60 D5 A1 7B DB CF ED 5B AD 66 D5 56 67 48 E1 8E 61 FB A8 E4 2A 7C C9 77 9D CA 8C 8A 08 2E CB F5 77 C5 8D 77 56 F0 AF 86 F5 7F 86 BA 6F 82 BC 6D E3 B8 6D AC 63 BA 84 2D AA 58 47 7B 71 25 C6 0C 70 5F 5C CA D0 FD B5 0C 42 57 CC 64 85 72 43 EF 25 18 85 59 46 A4 93 5A 3E E7 34 E9 46 74 D4 EF AA EC 7C 37 AF EB 57 9F 19 3E 1D 5A 4E DA 85 A4 09 A1 E9 9F 62 1A 75 96 A8 2E 2F 6D 2D E2 9A E2 59 A2 B8 BA 78 D6 CC 5C B3 49 78 C9 75 29 3F 68 B6 92 67 67 C4 F7 0A 9A FF 00 08 FC 63 A4 78 6B C1 DA 6E AD 63 E1 FF 00 0C 6B 1A 44 D7 16 D7 56 5A 5C 3E 3D 95 57 4A 76 0E 8F 75 71 64 F2 6E 8A 75 0D 00 0B 2B A2 F9 36 EA 19 96 40 B2 3E 87 C2 2F D9 73 C6 DF 0A FC 5A 6F FC 51 E0 5F 19 C7 16 9F A8 1B 58 6E 2E 34 19 27 82 F6 DA DB C8 10 C6 25 B1 90 BA 93 E4 A8 2D 1C C3 CD 08 D9 8D 99 5A 54 F3 BD 53 F6 88 F1 97 88 3C 6D 74 9E 16 F0 D5 DF 8A E5 97 16 D7 B6 C9 A4 26 A1 35 F6 D9 B1 0C 77 28 B1 C6 45 C1 71 3B 26 57 79 DF D1 D4 B1 67 2A AE 5A 44 E3 E5 E5 D6 67 DB FF 00 B1 F7 ED A7 F0 CF C5 5F 0E AF BC 27 A1 68 F3 F8 6A FA CB 4A FB 4E AD 79 E4 3D 94 A9 36 CD 91 B4 46 69 1F 2A 88 00 20 4A 40 C9 1B 54 80 B5 2E 91 F0 47 C1 7E 39 F8 7B 7F AB 5F EB 30 41 A2 69 36 AE B7 D6 53 66 FA D5 8B 0E 6E AD 49 71 B7 CC 50 BB 76 28 3B 5B 1D C9 AF 88 7E 16 78 F3 C7 5F 19 72 BE 1F F0 25 9F 84 FC B8 8C 57 3A BC 3A 64 51 5A 44 8B 23 E6 55 31 AA CB 13 8D BD 15 52 25 20 13 19 D8 33 D8 78 43 4C D7 3C 47 E3 E6 D0 64 D7 35 3F 14 68 B6 81 2D AE D2 51 1C 36 CD 20 0A E3 CC 78 B1 30 3C 36 D2 4B B1 CB 7A 93 52 AA BB A8 C8 D2 31 BA E6 46 4F ED D1 F0 56 CF C6 36 7A 7B F8 43 50 D0 F5 3B BF 2D C2 59 4D AA 47 A7 EA 26 3D E4 A4 7F 66 9A 34 59 5F 04 61 61 92 47 25 B1 B4 D7 C4 1A 8D 95 E7 85 B5 EB 9D 3F 53 B2 BA D3 AF EC DF CB B9 B4 BB 81 A0 9E 06 FE EB A3 00 CA 7D 88 06 BE F0 FD BD 7E 1F 5A 78 BF C1 2B AF 5A 79 70 DB 05 F2 C5 B3 DD 2D C3 C4 06 48 05 94 7A 7A 92 7E 95 F1 05 D7 C5 FB F8 AC 93 46 F1 02 47 E2 7D 12 D4 79 36 F0 DD 4A 7E D3 A7 27 A5 AD CE 0C 90 81 D7 CB F9 A1 27 96 89 AB 3C 6D 2E 7B 1E 3D 66 E3 55 99 77 17 31 32 75 E6 B2 F5 2B D4 8A 3E 1A 99 E2 9B 48 AD 23 FB 66 9B 76 F7 BA 54 8C 14 3B A6 C9 AD 98 FF 00 CB 39 90 12 15 BA E1 81 2A D8 E0 E4 32 AF 3E 6E FC E6 EB 9A E4 A7 85 B6 A3 F6 8D A1 67 90 CF 36 7F 2A BD 62 E5 87 E9 54 E3 19 6F 7C D6 95 8D B6 17 D6 B6 A9 6B 58 8D 77 1E 64 23 DA 8A B2 B6 6D 20 E1 18 FE 14 57 3E 81 66 63 D9 59 6E 60 2B 5E 1D 20 47 18 F7 AA 9A 6B AA B0 E4 7D 6B 5A 1B 8C 28 FC FA D3 AD 29 5F 43 36 D9 1C 3A 70 32 02 6B 6B 4A BB FD E0 8A 45 DE 3A 03 DE B3 E3 7C B5 75 3F 0B 3C 25 FF 00 09 57 8B AD A0 32 00 A6 40 3E B5 84 69 FB 59 72 C8 4A 4D 6A 7D 5D FB 0D FC 03 5B 4B FB 7F 10 5D 27 96 A4 8F 2B 70 E0 D7 DA 9E 3F F1 2E DF 84 33 C7 1E E1 B4 05 CA F1 81 ED 5E 47 E0 8D 1C FC 3E F0 76 89 63 18 24 60 29 DA 32 0D 7A F6 8B A6 BD ED AB FD A9 54 59 0F 9B 18 FB C7 15 F6 98 6A 11 A5 49 42 27 A1 04 D4 75 DC F0 BF 8A FA 95 A4 FA 3E 89 E1 EB 38 77 4F 7E EA 1F 04 EE E7 9C 11 5F 43 78 43 E1 AD E6 9B E1 7B 1D 3B 4C D1 EF 04 49 18 13 4A F0 32 C4 46 DF 53 C7 EB 5E 1E 7C 79 79 27 ED 26 B6 DA 5B FD 92 CA 04 05 A6 84 05 2E 47 6D E3 9C 7B 03 5E 8D FD A3 AB 78 C3 E2 2A F9 17 2C 23 88 7C E5 86 E2 EB DC 6E ED 5A 2B 0D 1E 9D 1F 81 6E 2C 2D 95 8D D6 95 62 8A B8 69 24 BA 8C A8 38 EE A8 58 8F CA B7 BC 01 F0 D3 1A 1A 5F 5D DF DE DE 4B 74 1E 48 26 D3 E3 FF 00 46 98 03 81 B1 E6 31 6E 61 83 90 14 91 83 F7 B1 5C A7 8E 21 D6 7C 41 E0 B9 A2 F0 FF 00 D8 74 D1 16 12 6B F9 48 C5 B9 3C 29 F3 24 C8 47 E0 95 11 80 E4 8F 94 12 00 AE C7 C3 7A AA CB A5 DC 68 B6 3A 5C 17 9A 95 8E 9A B6 7A 96 BF AB 3E FB 58 0B 0C 3A 85 94 90 43 11 8C CA 0E FC 6C 11 29 04 33 93 4A 25 75 29 45 75 E1 8F 09 78 6E F7 53 D0 6D 25 F1 0C 96 93 98 8E A3 AA DD 2A 68 D0 81 19 DE 6D 66 2B 18 95 A3 07 73 7E EA 5D C5 58 22 9D AB 25 45 26 83 FF 00 08 16 B0 75 DD 32 2F 0F DA FF 00 6F 3F DA EE 75 4D 36 55 B1 B8 D5 13 7F 9D E6 8B 88 E3 F3 2F C9 5F 97 F7 B6 8B 16 E5 03 CE 18 2C F9 57 EF FF 00 08 AE A1 64 C3 46 BC F1 36 B5 87 8E E7 57 D4 76 3A 40 98 C0 F2 A1 91 87 EE C8 C0 5F 33 A0 DA 56 28 D9 45 71 7E 20 F0 36 B9 E3 9D 66 49 05 9F F6 A6 8E B2 B5 FD CD E5 F5 C4 DE 7C 0E 11 D9 B0 CC DB 58 64 06 20 B6 D0 0B B3 C9 1C 4B 24 89 E3 D6 9B 4F DD 5A 9E 85 38 29 47 DE 67 B8 7C 20 F8 9B E0 BF 8C 9E 2F 93 4B 3A 7E B0 FA AD B4 9E 64 90 DD 5D CC 89 29 88 97 F3 BC A4 95 B6 48 83 0C 5C CB 85 08 1B 68 C1 C5 6F DA 7B F6 51 F0 67 81 FC 51 0E AD 77 F0 8B E0 6C 3A 15 B4 89 7A DA 85 FD D7 D9 25 59 D9 86 51 D4 A2 C6 8A 7E 62 F3 3B F9 63 CB DD 87 94 20 AE 0B 4D BC D3 FC 0F 63 14 7E 09 BC D2 35 3D 6E FA D0 5E 5D EB D3 5D 49 6A F7 50 C5 2C 8A D7 73 1D AB 24 56 6A 63 5C 3A 05 91 DB 6C 50 24 72 AC 97 67 D1 7C 19 FB 62 68 1A 87 89 EE FE 1E 78 86 49 B5 2D 4E CA D5 A7 BF 96 FD 20 8C CD 82 15 C3 42 9F 2C 40 34 81 0C 4B C4 79 DA 72 42 49 3D 26 A7 0B 4D EA 67 F0 4A F1 5A 1C 2F C2 7F 88 50 FC 11 F8 65 A6 5C F8 1F C2 BF 0E 2D 92 2D 2C 99 64 D1 B5 DB BB E8 4D AA 44 45 B3 E4 06 F3 56 69 26 92 4F 28 90 04 6B 92 54 11 8F CC BF F8 2A 8F C4 3F 00 7E D2 FF 00 B7 17 84 FC 57 AB DA 58 E9 B2 5D F9 7A 6F 8B A0 B0 D4 95 46 A0 2D 97 E4 32 4A BB 84 13 3A 2A 40 CF BB 85 55 65 05 63 12 3F EC 07 C6 BF D8 BF E1 F7 ED 15 E1 7B 5F 21 6E 62 BF 6B 72 B0 58 2D DC A9 1B 36 13 33 34 7B 80 DE BB 50 6F F9 58 61 40 20 E0 D7 CC 3F 14 FF 00 E0 8E FE 0A D1 EF F4 F1 1D A3 DB 5C 02 D7 37 72 79 AC E1 24 5B 5F 2E 34 88 30 62 C4 99 0E 54 8D A4 45 D8 9A 6A 33 A6 F9 56 DF 2B 13 56 D5 23 7E BF 3B 99 BE 1D FD B5 45 E7 83 62 F0 E5 D7 81 63 D0 FC 00 2C ED B4 4B 68 34 CF 17 6C 16 96 46 14 4F 30 31 8C 2E C8 B0 AA 0C 6C CD 96 41 84 CB 32 F9 17 85 7C 19 61 65 E2 8B AB 7D 33 E1 DF 8A AE E4 D1 AF A3 B6 6D 33 57 F8 BD 24 1E 50 52 45 A0 2C B0 17 16 33 60 2C 51 05 30 34 8C 1F CE D8 91 99 7A 8F 0E FF 00 C1 2E ED 3C 27 E3 65 B4 B0 D5 DF 4C B3 B8 9A 29 2C EE 63 8F C8 F2 66 DA 03 31 50 DE 4B B4 8A C8 8C 36 05 3B 46 01 DF 81 EC 3E 18 F8 4F F0 E7 E0 66 B9 0C F1 65 75 3D 3E D8 42 9A 95 CD DC C6 78 42 60 B6 FD A4 34 8A F1 E7 79 7D D2 48 8E 02 E4 80 B5 C3 56 8C A5 2B B6 6F 42 BF 2A B5 8D 0D 4F E0 6E AB FF 00 0A 0F 58 B7 F0 DF 87 24 4B 8D 6D 24 3A CF 87 A5 F8 8D 79 AD 5A 1B 75 0C EA D2 0B 9F 2A 60 42 B0 12 62 78 57 F7 6E 0A 10 23 6A F8 D7 C5 CF FF 00 08 0D ED A6 81 7F AE 78 AB C1 17 26 CD 67 B2 83 C4 B6 B0 F8 93 46 43 CC 71 33 5A DD C4 A6 C2 DC 49 B9 44 9E 5C C1 03 95 F3 81 46 66 FA 1B E3 1F ED 55 A5 FC 57 B6 8B C3 1A 44 FA C7 86 EE ED 6E BF B2 63 F1 04 69 E6 5D 69 DA 9C 0E D1 8B 73 0A 29 32 9D EA A1 A0 21 6E 23 44 57 B5 DD 1A AD 95 78 90 D6 3C 41 61 14 10 7C 5D BC D0 76 6A CF FD A3 1F 88 34 65 8E F2 CB 5B 86 4D CB F6 AB AB 59 1B EC 7A 91 75 46 45 BE 89 AD F5 00 58 EE BB 93 CB 30 AB B4 63 A1 CF 51 CA 6E E7 B6 7C 30 F1 67 C5 5F 11 F8 66 C3 46 D7 34 AD 33 C4 7A 06 A2 BB ED F5 0D 0E 4F ED DB 6B 8B 6D AA 92 5C 26 9F 7A 25 9D AD 58 82 9E 6C 0F 6E 80 A9 0C 11 4C 65 FB 3B CD 33 4A D1 FE 1A 59 DA E9 1A 7D BB 44 C8 F0 5B C9 67 AC F9 B2 59 6D 93 08 8B 6F 74 24 79 25 DD C6 CB 69 C1 CA 11 C7 18 F0 4D 1B E2 C8 F0 16 81 A6 E8 9E 10 F1 25 BE 9D A5 EA D7 E5 AD 20 55 FE D2 F0 EE A7 71 16 0B 47 6F 71 75 B9 ED AE D5 1B 72 DB 5F 11 71 1E DD C1 83 C9 14 6D D9 CD F1 96 3F 8A BE 0F D6 2C AE 2E 2C 34 2F 11 69 B2 AE 9F 36 95 AD DA 0B DD 26 E6 E2 35 2A E9 04 B7 22 5B 8B 42 A5 59 5A 06 2C AA 77 93 24 11 A3 08 E9 34 DE BF D7 A0 46 E9 1D 9F C7 9F 80 16 9E 26 FD 8E B5 8B 4B 8D 54 5A EB 7B 64 B9 09 AC DB BE 9B 2C 93 E7 E6 32 2E 64 44 C8 FF 00 A6 9D C7 4A FC 64 F8 9B E0 FB CF 09 F8 82 EA DA 48 A1 76 86 46 56 6B 5B A8 EE E2 E0 F6 92 26 64 61 EE 09 06 BF 76 2D B5 D5 F8 73 F0 C6 DF C3 5E 24 D3 6C C4 2F A2 99 56 CD 6E 9A EA CC A3 A9 C3 A2 CB E7 2E C3 86 C3 C4 C1 4F 63 8A FC 8B FD A0 FC 0F F0 CF 58 F1 55 EA 43 A8 6B DE 14 B8 69 89 F3 05 83 DC E9 D1 F5 E0 47 E7 4D 39 FF 00 7B CC 1D 78 8C 63 9E 8A B1 5C A9 9E 7E 29 5A 4A 4C F9 AD 75 69 2C 27 62 87 05 81 47 52 3E 57 53 D4 30 EE 3A 7E 5E B5 5C DD 01 26 53 20 67 20 1E 48 AE EF 51 FD 9F 2E AE A5 2D A1 78 93 C1 FE 25 8B 1B 81 83 54 5B 19 C6 7B 18 6F 04 12 16 F5 D8 AC 3D EB 99 D5 BE 1C EA 9A 32 13 71 1D A8 0B F7 82 5F 41 29 1F 82 B9 35 8D E0 42 E5 E8 56 D2 5D AE 27 00 57 7D E1 4D 05 27 03 78 C9 AE 33 C3 F6 0D 6B 73 86 C6 7E B9 AF 4D F0 4D 9F 98 7E 83 F3 AF 17 33 AD C9 1D 0D 61 04 D9 A9 0F 85 E3 D9 F2 A0 C7 BD 15 D6 69 7A 57 9B 11 E3 A6 28 AF 94 78 F6 9E E7 A5 1A 11 B1 F3 6C 37 BE 59 EB F9 56 85 96 A9 BD 87 35 8F 2C 44 2D 33 4F 9C A4 FF 00 8D 7E 83 2A 49 A3 C9 94 4E B6 0B AD CD F5 AF 6A FD 8B FC 35 17 88 BE 2A 5B 24 B2 2C 63 3F 79 86 71 F4 1E B5 E1 76 2D E7 94 1D 89 EF 5F 57 7E C4 3E 0E 8A E7 C4 F6 93 47 B8 CC 18 E4 A8 E9 51 87 A6 95 45 73 9E DA 9F 6A EA 96 9F F0 8C 4D A7 99 8A 4D 1A B2 AA 90 BC F4 EF 5D 27 C4 EF 1F 37 86 BC 0E 22 7D CB F6 84 FD DE 0E 1B F0 AE 1F C5 56 F7 9A AD E2 5B 99 5D D2 10 A7 2E D9 E4 74 C6 2A B7 C5 1D 25 BC 4E BA 2D A3 DE 90 BF 75 C2 AE F6 00 75 E3 81 F9 90 3D 48 AF A7 67 7F 43 8C F8 5E 97 BE 31 D7 EF EF 51 8F 9A 8E 23 88 0F BC EC 4E 02 A8 1D 49 3F AD 7D 39 E0 FF 00 0D 2E 83 A6 43 1C C2 4B DD 65 63 24 E9 F0 39 DD 91 D7 CF 75 FB 98 EE AB F3 7D E0 C6 22 33 5E 23 3D EE 9D F0 B7 53 B6 D2 74 A5 B9 89 AF E4 09 33 5A 3E 2E 27 56 E0 87 B8 C6 23 4E B9 48 57 E6 53 86 76 EB 5E B9 E2 18 AF 27 D3 34 DD 02 CC C5 A6 C3 74 A3 29 06 63 88 A8 19 F9 89 CB 39 1F ED 13 D7 B5 24 92 14 4D 9F 06 5A DE FC 4F F1 6C 52 3C E9 AB 7F 64 49 BA 2D 2B 4F 98 AD 8D 9C 9D 4E 64 5F 97 3F 28 27 CA 0E 5F A9 94 30 26 B4 5F C6 90 7C 47 F0 67 F6 4B B4 9A 75 DE 99 73 22 44 8B 28 B4 FB 1B 1C 80 10 6F 27 27 18 2E DB 8B 60 16 62 69 3F 67 4B 3B 0D 1F 57 D1 84 32 DD 7D B2 5D 44 DB CA FB FC B5 7E AA 72 1B 96 FC BF 1A F3 98 E5 B7 F8 41 FB 66 F8 A7 47 D5 52 7F F8 47 DC 89 EE 2F A4 B7 58 A3 8B 79 63 1C 48 E7 76 F9 24 2A E3 02 32 42 A3 10 1F 6E D3 8E 21 BB 24 6B 4E C8 DE B5 D7 12 3D 28 5D 78 DF 5B 7D 1F 45 D2 64 30 5D 4B 75 2A EC B8 22 55 04 82 40 D9 8F DD E6 4E 4A 79 88 02 3B BC 51 BE 97 8F BC 57 27 8F 6D 12 F3 4E D2 64 5F 0D 45 1B D9 45 E1 CB 28 08 1A C9 60 76 07 25 D6 42 99 7F 35 F6 48 09 62 8A 18 CB 24 B7 29 CC FE DB BF 0D D3 E2 42 C1 AE 5F DD B0 F0 E6 94 55 C6 9F A7 4A 3C ED 4D 82 48 23 B7 45 F9 97 79 2C CA 37 6E 11 29 95 F3 34 8C 56 6F 15 F0 27 ED 81 AC FC 3C 9D 57 C4 8F A1 E8 F3 CD BE C3 45 B0 23 F7 D1 44 A4 A1 8D 55 54 88 A3 8F 77 92 8C C5 DD DE 49 1B 7B C9 1B 96 F3 67 A7 BA F6 3A 63 2D 6F D4 E9 7E 26 EB 36 DF 0A B5 04 96 2D 52 28 61 D6 A4 8F FE 27 D2 37 99 1D CD F2 C4 52 1B 73 E5 ED 48 34 FB 55 D8 44 68 44 41 85 BA 82 62 90 C7 17 9A FC 38 F1 44 7F B3 E6 9B 7B A5 DE D9 49 E2 0F 14 5F 4C F7 71 DC 3D A0 57 86 03 18 65 B9 95 C6 43 A8 43 72 C4 82 3F 74 BD 00 3C FB 55 A7 C1 2B 2F 1E F8 7B 53 B6 D6 C5 A4 53 B0 9E 1D 2A 0F B5 9B EB 15 B9 21 72 EA 77 21 9A 53 34 92 0E 81 51 52 15 E3 6E 07 07 FB 30 7C 3F D1 BC 13 F1 27 5C F8 7D AA 0B 19 FE 25 59 58 5D 6A ED 7F 3F 1B 57 F7 69 1D B9 19 C6 02 9E 09 21 07 3C 36 18 8E 49 D2 92 77 46 F1 A8 9E E4 9F 0E 7F E0 A4 7A EF C0 0F 07 C1 A9 DF 5E 4D 2E B9 78 52 F6 EA 0D 43 3E 75 AB 48 24 7B 6B 21 EB B2 1C 4D 21 E0 2C C4 23 28 28 42 F7 BF 10 3F E0 AE F6 3E 23 F0 D4 D7 F7 BA 56 A3 E6 5A DD 1B 38 A4 16 CA D8 89 15 97 CD 2B DE 32 EC 57 90 46 66 39 23 23 3E 2B AF FE C9 77 3E 2E F8 89 AB DE F8 B2 58 BF B4 35 18 AE A0 B7 7B 61 E5 5A A3 FC 91 87 08 C4 B6 D3 24 99 67 27 2C 32 4F DE 35 E5 D2 FC 32 D6 7C 39 F1 06 3F 0C FD 92 4B AB 1D 3E 4B 9D 36 71 2B B3 C3 70 D2 30 9A D4 16 39 D9 8F 29 83 32 E3 68 7E A6 A7 DB 4E DC BD 09 70 B3 B9 E9 FF 00 B4 17 FC 15 7C 6B 1A 4A E9 96 DA 4D C9 87 4E D4 C2 B6 65 22 49 A1 64 E5 41 04 39 C9 69 51 B2 71 97 53 81 B1 00 F9 E3 E2 1F C6 DD 47 C5 DE 29 6B ED 6F 5F 7B D5 87 17 BA 65 C6 5F 71 08 5C A0 39 20 B9 18 0D 8F E3 57 7E 54 B8 2B 5B F6 9D F0 8D C7 82 BC 45 0D F5 AE 8D 1C DA 46 A3 7A C5 19 18 92 8A A8 9E 6A 27 55 62 56 48 DC 12 70 19 57 1C 31 15 A5 E3 CF 05 58 EA FE 04 6B 8D 2B 5C D1 F5 7F 0D CF 12 5B 34 3B 54 5D DB 5C 12 F2 C1 34 6A E4 3B 48 55 1E 17 51 81 E5 A4 7F 2B 79 40 99 E6 72 DC C9 DD 1B 03 E3 DC 57 1E 14 BE D3 EC 74 3D 32 5D 7E 0B 5F 22 11 A8 5A AB 35 DD B4 4A C9 1C 72 B2 B6 08 54 8D 23 D8 06 E6 6B 68 64 2E B8 C0 D6 F8 37 F1 1A E3 E3 F6 85 75 A7 FC 40 BF 7B CD 14 CF 2D E0 BA 91 03 91 3C F2 02 6E A7 73 F3 A3 29 C2 4C E1 48 9C 79 3E 62 AC 89 05 F5 B7 31 F0 D3 E1 BE A9 66 A2 DE EF 43 97 56 86 D6 EA 07 9A FA D2 DC C1 73 7C 85 1E 54 F3 16 6D 81 65 12 15 8D 4A 04 77 DE E5 36 9D C4 6B FC 2F F1 9F 87 ED AD EE B5 5B 85 9A EA EF 4C 58 D6 C9 2D 96 4B 58 1E 00 8B C2 2A C4 64 60 17 01 B2 A5 8A 83 81 B0 03 4E F6 5A 12 95 DE A7 A8 7C 39 F8 5F AE 7C 29 F1 8C BA 4D BD 91 D3 EE FE C4 B6 37 D0 E2 2B AB 3D 42 CA 3D AF 10 96 16 FD DC F0 15 6F 36 09 1E 31 B7 F7 6F 13 46 76 ED F7 EF 00 E9 9E 18 FD A6 3E 24 E9 D6 96 57 7F F0 8F 6A 7E 12 9E 19 9E D8 DC 4B 77 66 AF 10 50 21 17 25 8B C8 98 D9 E5 A4 A5 E5 84 0C 19 DE 35 F9 3C 5B 49 F8 B9 1E B1 63 67 E1 DB 0B DB 2D 6A F2 6B 77 9B 4A 5B 9B C8 61 55 88 CA 4C B1 3D BA 92 0C 51 3F 99 24 6D 13 2E DF 2E E7 77 DE 45 3E E9 E1 3F 04 E9 7F B3 E7 C2 23 A6 DC 7D 8A 4D 61 91 EE 65 B9 B8 B7 36 F1 DE DC 12 73 17 98 AC 76 B0 ED CF A6 41 26 AA 9F BA F5 D5 1A DB 9B 45 A3 3D 36 F3 45 BD D7 3E 22 6B B6 37 89 24 D6 BA 4D 81 96 E3 4C B8 83 CB B5 52 C3 06 5B 59 3F E5 89 75 50 C1 E3 25 1F 6A EE 0E AB B6 BF 34 3F 6A 2F D9 F2 DE F2 6D 47 5B F0 DD CC FA A6 99 6A 5A 5B DB 79 14 7D B7 48 4C FD E9 90 7D F8 41 E3 ED 11 E6 3E 53 78 85 9D 63 AF BF BF 66 9F 8D F7 DE 21 F8 43 E2 1D 47 56 B5 92 7B 28 22 9A D9 6E 64 B9 2F 0A 33 70 16 59 1B E6 C9 E3 12 70 46 06 ED CA 02 8F 90 3E 3B 78 2E EF 41 9D 7C 45 A3 EA DA 85 AC 9A 74 F9 0F 1B 98 2F 74 B9 7E EE 1F 04 11 C9 2A 1C 7C AF 9C 10 AC 4C 62 B1 EF FD 9F 99 1E 7E 26 37 69 1F 15 6A FE 1A 48 B3 C0 3F A8 35 CF EA 16 46 36 C1 DC 47 BD 7B DF 8A 34 ED 27 E2 74 AE 42 69 BE 1D F1 26 4F 08 A9 6B A5 6A C7 E9 C4 76 73 1C F6 DB 6E D9 E0 5B ED FD E7 96 6B 9E 14 B9 B1 D5 A6 B1 B9 B6 9E DA F2 17 31 CB 04 F1 98 E4 89 87 50 CA 40 20 FB 11 5F 3F 43 12 F7 6F 43 0D B4 39 2B 15 11 4A BD 05 7A 07 81 EF C5 AC AA 4E 08 E8 7D AA 4D 1F E1 44 51 2A C9 72 72 FD 76 D7 63 A5 7C 3D B6 92 D8 2C 70 85 3D 88 EB 5C B8 DC 6D 19 C7 94 D5 42 6B 53 A1 D0 6D FC FB 3D CA 46 09 C8 C7 39 A2 B9 49 26 BC F0 EC CD 07 9B 20 5C F1 83 8A 2B C3 78 06 DD D3 D0 D5 63 1A D1 A3 C0 65 05 21 3C 55 18 E4 DB 71 F8 D6 86 A0 0A 29 AC 97 C9 35 FA 4C 2C D1 CF 23 B0 F0 BD AB 6B 17 71 47 10 CB 13 D2 BF 41 3F E0 9F 5E 17 B8 F0 FC 4A C6 C3 CD 9A 4C 05 DA 33 8F C7 A5 7E 7C 7C 33 92 68 B5 78 59 43 8F 9B 19 51 9C 57 EA 3F FC 13 AF C2 D7 57 BA 74 57 72 5D 2E 1F EE AB E3 3F 95 3A 14 EF 55 19 2D EC 7A C7 8E FE 13 6A BF 69 3A 8A E6 05 9C 72 B9 03 15 CB 5E F8 2E DE CD E2 4B BB 97 2E AA 5B AE 06 7F A5 7D 1B F1 83 C1 37 56 BE 08 5B 99 65 2E 81 73 B7 68 19 E3 B5 78 8E BB A5 DB 6A 7E 05 B9 99 F7 00 10 8D D8 C9 1C 57 BE CE B3 C4 F4 7F 14 9D 73 E2 94 CA 49 92 DE C4 FC B2 67 70 24 63 BD 7B 6F 82 BE 2F C9 A8 F8 86 59 5A DE 75 78 2D 8C 70 34 6A 32 5B A6 70 6B C2 7E 16 E8 B3 E9 43 50 B2 8C 24 B2 DD CA CC 19 80 C8 5E FF 00 85 7A 8F C0 EF 0F CD 69 75 35 D5 DD F1 FD DC 98 8D 11 40 93 D3 8F 5C 52 89 2A E7 D0 9F B3 1A 78 9F 51 82 7B AB 89 EE 9E 45 99 1E 18 A6 86 38 04 C7 78 E5 78 04 F4 C7 5E F5 CB FF 00 C1 5A 3F 64 EB BF 8F BA 46 8B AB F8 62 F3 EC 16 FA 66 FB C9 10 2B 04 32 61 5A 4B 82 00 DC 58 22 A8 C6 D6 62 15 14 2E E3 CF BD 78 23 3E 0D F0 4C 77 0C E7 EC DB 3E CC 2E 27 63 92 CC 32 E4 75 E3 07 18 03 B9 E7 E5 A6 7C 34 F8 97 6D 6B 77 75 A2 AD AC CC 93 2B 5C 20 63 80 03 8C 80 83 8C 9C 61 CE 73 D5 73 D2 B3 AE 93 56 65 C4 FC E4 FD 9D FF 00 E0 A4 BA 37 8B FC 47 63 E0 6D 4B 42 D7 27 5B 00 D6 36 12 4F 32 25 C5 BB AE 15 65 7D 85 83 48 C7 73 C9 27 08 A7 20 0D 88 8B 55 BF 6A 4F 82 F1 6B D6 56 F7 5E 08 65 9A 7B 3B 65 2F F6 86 F3 64 84 04 94 2B E0 21 8E 59 1D 89 76 00 01 BD 98 80 A5 B3 5A FF 00 B6 77 FC 13 22 E7 56 D7 F5 FF 00 14 78 77 50 8F 4C BD D6 E3 76 82 34 B8 55 0D 97 F9 8E 14 91 BD 81 0B 8D C4 6C 33 67 B5 7C 37 AF F8 E3 E2 2F EC F1 AE CD A1 F8 B4 EA 50 2C 8C 5A 31 2C 86 22 99 05 56 43 21 1E 70 03 81 85 21 71 91 81 5E 64 A2 DE 8C D5 C9 C5 6A 7D 09 FB 3B FC 58 F1 97 C1 1D 5B 4A D3 B5 DD 2F 59 7B 79 66 8E 33 75 77 7C 8F 7D 7C 13 E7 11 08 D8 90 2D C2 8E 19 7A E5 9B 70 E8 9F 53 7C 32 BA D2 F5 9D 5E FF 00 C4 BE 13 5D 3A 5B AD 6E EB 6F 88 6D 15 92 E1 2F E2 94 0D F3 34 80 17 78 E2 4C AC 6B B8 E5 98 0C 92 48 3F 33 FC 2B FD B1 F4 0F 12 E9 3A 75 A6 B3 06 8E FA F6 A2 0A 1B 84 83 62 4B 0A E1 55 A4 DE E4 C2 AA EB 30 C9 61 91 B3 8E E7 E8 DF 82 FE 1B D3 EE F5 19 AC 7C 2D E2 3B 5D 1B 4A D7 E4 45 16 97 13 B0 54 69 4C 67 6C 29 1A 82 19 8B 85 2D 92 57 70 62 18 AE 00 A3 D0 14 8F 5C F1 57 84 F4 DF 12 6A F6 5A 9E 9D 69 71 7D A7 BB DD 49 3E E9 C3 2E F8 D7 77 9C E3 AA AA 98 A4 00 20 C6 58 1C 7F 15 79 77 85 7E 03 6A 3E 36 F1 BE 9D AB 69 E8 D3 DC 36 A3 F6 CB A8 6E 32 93 5F 49 24 A8 92 C6 CA 46 55 52 01 26 71 D3 CC 23 AA D7 BD FC 57 D6 B4 4F 85 7E 13 3A 66 85 6B 34 B7 3A 15 9C B1 45 04 12 EE 7B BB 97 56 F2 CB 7C D9 F9 7E CE D8 53 C2 84 61 D8 57 CD 1E 10 FD B2 CF FC 2D AD 33 52 B0 83 53 8F 42 9E 60 2D D2 D4 8F 31 0C EE 6D 4C 83 3D 63 C3 21 62 40 CB 79 8E 07 CD 9A 55 68 C1 49 73 33 45 5A 4D 1B 3F 13 7F 65 8D 5B C3 BF 10 17 5B D4 34 DD 3E 5F 0F 41 6E 74 48 52 E2 25 F2 2C 17 31 83 70 E9 D0 82 A1 99 8E 38 55 C7 45 02 BC 2B C7 7F 09 66 F8 7B A1 5A BE 8B 26 9F 26 9F E1 D9 E7 D3 B5 18 AE AC A1 96 1B 29 84 A4 09 0A 14 DC 19 67 55 F9 91 97 86 61 91 E5 28 AF A0 7E 3E 7E D7 89 F1 1E 2D 0F 54 D2 75 47 7D 03 4C 9D 24 D5 AC 1E 14 91 67 06 32 C8 D8 CE 72 D1 CD 23 93 F7 41 85 BF E7 9D 7C 5D F1 5B E3 47 88 06 BF 6B AB 4D 6B 77 77 A6 EA D6 DF 6B 79 AD A0 68 19 E7 6C 41 70 31 CF CB BB CA DA A7 90 5D 4F 2C 98 38 D4 A5 08 CA D1 25 54 BA D4 EC AF 3E 26 7F 65 C0 B6 5A C4 97 5A CD DC 42 0B 7D 6B 53 B5 F2 AE 60 80 2A A8 30 EE 05 53 8F 28 11 93 B8 65 19 41 F3 0E EE 1B C6 9F B4 0D 8F 89 F4 DF F8 44 2C 67 B6 BE D5 ED 88 97 4C BC 9E CD A5 86 D6 D5 A4 32 0B 70 23 09 E5 C8 A5 86 C6 21 81 CF 1B 1C 26 78 48 FC 37 AA FC 47 F1 4C 7F DA D6 37 9A 4E 9A 58 EF 6B 7B 27 89 25 4E 5C 6E 39 DA B2 21 1B 70 32 98 39 07 8C 9F 59 F0 76 A9 F0 F7 E1 48 56 D7 FC A9 57 3F E8 90 A4 09 74 B7 2A 8F B5 2D E5 99 79 87 20 01 86 F9 E3 76 2A E8 F1 30 D9 8F B3 B9 4A A3 3B CF D8 0F E1 1F 85 BC 33 E2 05 B8 D7 5A 7D 2F 54 78 4D C6 A1 0D E7 9D E5 18 58 07 32 AE FC 0E 08 52 DC 9F 95 F0 47 05 97 B6 FD AB 3C 57 79 0D CD 9E 9F E0 ED 7E FB 5E D1 6E 2E 63 8C 4D 62 C2 59 60 95 E0 5F 28 C8 BD 86 CC FC E3 07 20 80 48 6C 57 CF 7F 16 BF 6B 1D 0B E3 CE B3 0E 9D E1 06 D4 34 FD 62 D2 13 A6 DB 7F 6C 5A C6 2F 23 DA 48 F2 C4 A4 1F 35 40 20 04 90 2B 8C 9C 1F 94 2D 7D 5F FF 00 04 98 FD 8D 35 6F 03 6A 8D E3 ED 73 63 7D 9E 09 25 B7 12 E6 26 D8 5D 99 D4 A9 38 75 39 2D D3 1C 8E 38 04 6B 18 7D 90 53 BE 88 F6 8F 11 FC 25 93 E1 E7 EC 79 A5 F8 53 4C 4D 9A 9E B9 17 DA 6F 8C 28 15 24 65 C3 9D EB FC 23 3D 30 00 FD 6B E3 FF 00 8A DE 17 BB 6F 0B 47 71 F6 F3 6B 7B 6D 19 8A 1B 81 87 46 4C 60 C3 32 F2 1E 32 32 BC E7 03 E5 20 AF 0B FA 0B AC 5E 69 1F B4 17 89 4E AF 61 7F 1C 32 69 E8 2D 62 D9 22 A3 5B 46 72 0B AB 7D D7 56 3D 8F 4A F9 83 F6 AB F8 33 77 A4 F8 3B 52 F2 ED 85 CC 5A 74 EC 8D 76 88 61 69 81 E7 24 0F 94 F5 EB ED D6 AF 19 49 CA 83 48 C2 69 36 7E 75 F8 EA C1 21 B8 9A 58 13 CA 50 FB 66 B7 0F E6 0B 66 F4 56 C9 DD 19 FE 12 49 23 EE 92 4E 19 B3 7C 23 74 FA A5 F0 FB 53 3C E9 68 9E 5C 2C C7 2D 1A 81 C2 02 7F 84 71 81 D0 76 C5 6A F8 D0 4F 61 AB 4D 95 D9 D5 48 23 82 3B 8F F3 E9 59 BE 19 F2 EC A4 71 D3 79 E8 4F 4C D7 C1 B9 5A 2D 19 B5 69 A3 78 92 D7 B8 CE EF 42 BD C5 75 1A 23 AC 6C 39 E9 8F C2 B9 5B 52 63 B8 1D C7 6F D2 B5 4E A8 B6 16 C4 B1 DA A3 DA B8 2A 76 47 74 12 7A 94 FE 21 5C C4 9A BA E3 1C AE 7A D1 5C 17 8B 3C 61 FD B3 AB BB 23 8D 89 F2 82 7B D1 5E AD 1A 0D 41 26 70 CD 27 26 D1 E7 5A E5 9E C6 E9 ED 58 37 10 14 93 8A EB B5 42 25 2D 9A C5 9A CB 2D D2 BE AA 8C DD B5 31 E8 6B F8 03 53 2B 70 89 E5 21 39 C7 CD C7 EB 5F AA 1F F0 4B CF 87 5A 96 B3 A6 5B DD 0B DD 90 92 0E C5 E5 2B F2 E3 C0 5A 7E 35 28 59 58 02 18 11 91 9A FD 42 FF 00 82 69 78 E6 F9 A5 B3 B3 7B B5 44 56 0A 39 00 57 76 0E 6B DA D9 9C D7 B5 54 7D F3 F1 DB 4A 11 7C 21 92 09 23 F9 96 3C 67 AE 7D EB E3 2F 18 F8 82 E2 CB E1 A6 A1 05 BB C4 0C 44 FC 8C C3 3E FF 00 FE AA FB BF E2 2E 90 35 AF 00 ED 79 37 2F 97 CE 07 B5 7E 7F FE D0 DF 0B AF 74 06 BB B9 8A F9 52 D6 46 23 CB 1F 28 35 ED CB 73 BD 6C 79 5F 82 7C 44 6C F5 D6 BE 69 0F 99 22 EC 40 33 86 27 D0 57 D4 1E 0C F0 EE 99 AE DB E8 57 F0 D9 EA 2D 71 A4 45 99 05 BC 1B C4 D9 C1 20 8C 1D DF 85 78 F7 EC E3 E0 9D 0E D7 C4 77 17 3A C3 24 F0 D8 C0 0C 51 90 59 64 63 C9 24 9E 7D 2B EE DF D9 9B C3 96 1A 7F 86 EE 35 18 27 B8 6F B5 36 61 89 D7 F7 29 C7 F0 1C 64 03 F5 AB 8A D3 51 22 F3 78 F3 C3 1E 28 F0 73 26 5E 0B 74 89 63 36 B2 85 49 ED 3B F2 BD 47 7E DD EB E7 8F 17 FE D1 16 DA 27 C4 1B 1D 1E 4B 6D 47 55 4D 45 65 09 75 19 29 B1 14 92 86 42 B8 08 9C 7D DC FB 9C D6 CF ED 0B E0 AF 14 F8 63 C6 92 EA 9A 01 B8 10 DC 4E 5E E6 35 F2 65 90 86 00 65 17 1B 80 1D 79 3D AB CA 12 6F 11 6A 3A 4C B6 D1 78 63 55 86 06 02 39 AE 2E C9 86 E2 42 58 8D EA 54 B0 23 1B BD 31 EA 2B 92 BC 9E C6 90 47 B9 C3 E3 BB 2D 76 EF 4F 86 EA E1 22 BC 9E 65 31 CC B8 01 94 8C 2A A6 06 11 89 38 5C 81 BB 6E 47 62 3C 47 F6 C5 FD 8F BC 31 F1 83 44 36 9A 9B DC DD EB 01 64 D4 CE A3 75 22 64 00 17 25 DC 82 04 0B C1 55 DA 49 C0 CE 79 C9 E0 AB 9D 66 FF 00 C4 B6 DA 78 D0 AF ED 3C 3D 60 9E 6D D4 17 BB 9E 5B 9E 36 8B 87 94 64 09 1B 1B 96 11 C9 2C 32 46 18 8E DF C7 9E 1A BB F1 94 6B A8 78 77 5E B2 B2 E1 45 C5 BD F8 2D E5 C6 BB 14 E5 32 1D D8 80 54 10 30 37 31 E7 20 8E 19 B7 6B D8 EA 51 8C B4 3F 32 F5 FF 00 F8 26 CF 8A BC 07 E2 3B 8D 53 4A 94 D8 68 5E 78 78 A1 9E 65 7B 9B 98 90 BB AA AA FF 00 7A 50 17 04 80 49 97 01 7E 56 C7 29 E0 FF 00 DA 43 E2 57 EC E1 AD 6B 3F DB B6 D7 5A 66 B7 74 AE D2 A3 82 2E 26 42 08 0C C0 0C FC 8D C8 61 82 08 6E 87 A7 E8 F7 87 2D 27 F1 4E 95 77 24 B2 1D 27 57 B3 D5 12 0B 03 3C 45 9E E1 C3 C6 A0 A8 2B 90 B8 64 DC 3A 90 08 3E F7 3C 61 F0 77 4E D7 EC 22 3A C5 AE 8F 7B 73 A9 A2 DB 3C F2 5A 44 81 AE 0A 12 D3 19 49 DC 54 90 40 41 F2 A8 07 E6 EE 61 54 56 BB 31 96 1D DF DD 3E 42 FD 9C FF 00 6F 08 FC 49 E0 8F 17 8F 11 EA FA 94 17 B7 76 90 43 61 21 7F 26 E5 61 FD EC 26 44 72 39 93 CD 9C 36 E1 D1 50 9E 48 62 77 EC 7C 6D E2 2D 33 C1 9E 17 8B 4E BB D3 2F B4 6B 26 1F 66 6B A9 17 8B 68 74 D7 68 A0 50 58 31 46 08 CB C9 18 30 83 81 8E 3A FF 00 88 7F B3 AF C3 BB 0F 86 96 FE 6C E2 DA 3F 0E 97 4D 47 50 88 A7 DA 80 16 E8 A8 99 03 83 BC 16 2B 82 13 CD C9 FF 00 67 CF 74 5F 84 1E 14 F1 A6 9F AA DC 04 BC B6 F0 A6 8F 23 E9 B6 F0 4D 76 B6 F2 5D 08 C4 72 47 22 8E 70 CC F7 8D 0E 0E 5B 2E D9 CE 71 43 69 A3 3B 49 68 CF 2A 5F DA 12 1F 85 F7 B6 B6 D6 96 BF 69 6D 30 C7 77 70 4D D3 37 DA 40 B8 B9 6D BB 87 03 23 71 0A 73 82 1F 0D 87 22 96 F7 F6 B0 D1 AF 06 B5 2D D5 FC 13 5B DD DA BD B4 07 98 DD 56 46 73 01 C6 08 8C A4 6D 83 C1 09 95 23 23 68 AF 6B F8 6D FB 01 F8 1B C6 FE 43 04 D4 21 D4 B5 09 AC 6D 5A D5 9D AE 11 5D A1 92 56 6C 92 A5 89 74 0E 79 E1 A6 20 FC A6 BA BD 1F F6 1F F8 6B E1 65 BC FE C9 82 C5 FF 00 B4 BE C5 1D AA DD 46 67 8D FC E5 63 16 C5 23 E6 22 36 66 3C 9D D8 18 E1 6A 7D DD D0 F9 26 CF 98 0F C4 3F 1F 7C 7A 59 9F 40 D1 EF AE EE 2C FE CF 6B 7B AA C3 33 AD D0 56 F9 ED 2E 70 48 38 31 CC C8 7E 5C 29 8A 3C E3 EE 18 3E 18 FE C0 7F 10 7F 68 9D 42 E3 58 BC D4 1E D3 52 B5 BA F2 35 27 D4 60 D8 F3 2A B1 05 9D 32 C7 38 51 9F 97 07 F8 80 28 49 FB 9D 3C 49 A3 F8 09 B5 3F EC CD 16 39 E5 B1 8A 4D 39 AD E0 B1 1E 71 29 E6 48 AA AF 1A ED 28 BE 66 D4 42 09 18 E0 6D 8C 8A E2 F5 4F 8A 1E 2A D2 AF EE 53 C3 FE 1B BA FE D1 8A 3F B7 2A 41 A9 47 75 3B 38 F9 9D 8D A1 7C 98 CE 4B 84 43 95 C9 00 B0 25 54 73 7F 65 16 A8 AF B6 CE EB F6 65 FD 89 BE 1B FC 21 96 3F 11 CD 25 BC D2 98 5E D6 F6 4D 5E D5 25 82 78 17 1B B3 B4 90 A6 2D 80 12 00 65 11 83 96 19 73 DD FC 7F F8 FF 00 67 A4 68 76 7A 5E 97 E4 58 E8 17 C5 D1 2E AC CC CE B6 F2 82 0A C6 41 05 86 E1 9D BC 0C 8E 55 87 15 F3 62 FC 7C F0 BF C7 9F 10 AD C6 A7 F1 2F FE 11 8B E9 46 E9 74 D4 63 1D F6 97 30 23 98 6E 48 F2 E7 50 C3 2B E6 FE F1 7E EE 07 2C 7B 1F 07 FC 4B F0 8F C1 9F 14 41 A6 D9 3C 7E 2C B9 B8 88 6D 12 FE E9 5E 3C 82 EA B1 24 45 62 53 F7 F6 02 53 77 2A 17 8A 23 E6 5D D7 D9 3E A3 FD 9C BE 1C 5D 68 72 C5 28 BB 44 D0 EF 11 26 22 C8 16 8E 56 6E 76 9C E4 A8 19 FE 74 9F 15 FE 19 5D 78 66 DB C5 E8 6F 9B 56 83 59 26 78 22 8C 7E EE 10 06 30 47 63 C0 AE 07 4B F8 97 E3 1B 8B 58 AD BE 1E F8 5A E3 CB BF 20 A4 9A 9C AD 6D 15 A0 39 3C 14 0C B2 0C F7 1E 95 EE BE 1D F8 4B AA 4F F0 02 FB 48 BF 36 96 9A F5 E3 1B 9B 9B C8 F2 EB 92 72 48 27 E6 F6 C1 AE DA 7C AD 58 CA 47 E3 CF C7 BF 08 DC E8 7E 28 BA 49 A2 78 FE 72 70 CB 8C 7E 35 E4 FA CC CF 69 6E 5D 0E 0E 2B EC CF DB 8B C1 BA 6F 85 BC 46 F0 DE 6A BE 62 AA 7D DF 28 A1 76 FC 8F F3 AF 8D F5 C6 5B EB 96 54 50 22 C9 DA 33 DA BE 0F 1B 43 D8 E2 5C 7A 1C 95 A7 63 32 C3 C7 57 F6 B1 EC CE 40 E9 B8 54 3A BF 8B 2F 75 94 DB 2C 87 6F A0 38 CD 49 71 6A 90 AD 66 DC DB 9D DF 2F AD 28 46 9B 7C C9 18 C6 B4 FB 95 9A 26 07 8E 94 54 C2 D9 F1 45 75 73 23 4F 69 23 EB 0D 53 FE 09 79 AC EF CA D8 DD 05 3C F2 F8 AA F1 7F C1 2A F5 D9 94 91 A7 DD B7 A7 CD 9A FD 57 B1 F8 EB F0 E2 FC ED 17 F6 8C 73 DD 86 6B A1 D1 BE 2D FC 3E 45 C1 BC B3 E4 F1 96 5A FB 25 96 C1 75 3B 7E AA 92 3F 26 FC 3B FF 00 04 B3 D7 12 4C 8B 4B 88 CF AF 39 AF AA 7F 63 0F D8 4E F3 C0 BE 25 B6 BB BE 33 EF 85 81 52 D2 9E 3F 5A FB 21 3E 38 FC 3A B1 9F 1F 6F D3 D3 3C 65 A4 51 9A 92 D3 F6 8C F8 7B 6B 7A AB 0E A3 63 B8 F3 F2 CA 3F C6 AA 9E 5F 08 4F 98 C9 E0 D3 77 3D 1D 3C 30 B2 78 30 40 46 EC 26 2B E4 2F DA 73 E0 B1 BE BF F3 17 77 93 1C BB DD 76 E4 7D 7D 2B EC 0F 0A 7C 5A F0 D7 89 2C 80 B2 BE 86 5C 8F E1 70 6B 8E F8 E1 E1 7B 5D 67 43 9A 4B 60 85 98 1C D7 A1 38 75 1A D3 43 E0 6D 1F C1 23 C5 9E 3F 97 43 B0 6B 9D 3F E5 0F 70 F0 01 97 41 83 DF 81 CE 39 AE FF 00 E2 17 ED 61 A9 7C 1D B5 D3 BC 09 A1 EB D3 A6 A1 2E D8 A2 4B 5D 3E 4D 42 F0 BB 7B 60 2F 03 F5 AF 39 D7 FE 21 5D FC 2B F8 D5 A8 7F 68 5D 2E 95 A3 79 46 36 7D 98 F3 4F B9 FC EB A1 D1 FC 77 E0 8F 0F 78 D5 3C 4D 3C C2 4D 72 F6 12 74 E8 66 97 1E 61 C7 32 63 39 E3 FA D4 73 DB 40 B5 D6 85 DF 13 78 5A F3 E1 26 92 9E 2B D7 B5 2D 77 56 D6 7C B6 95 A1 BA BC 11 24 4A 46 58 79 5B B6 96 CF 25 9B 38 E8 A3 D7 C1 BE 1A 7E D7 FE 30 FD AF 3E 2F 3A E9 5A A6 A7 A1 F8 0F 46 90 40 D7 11 C3 F3 5E 4B CA AC 5B 8E 4B 47 9C 93 B7 68 00 74 C9 E7 03 F6 97 F8 9F 75 F1 73 C4 DE 32 33 5D 0D 56 E2 C3 4A 1F 64 86 12 C9 14 41 CE 0B E4 03 CF AF B0 EB 5E 49 7B F1 7E 3F 86 1F 07 BC 29 E1 1D 01 D6 3F ED 3B 88 E4 BD 90 10 9E 74 A6 60 03 61 4E 46 06 57 93 DA B8 A7 27 7D 36 0B D9 9F 58 6A BF 02 D7 C1 7E 2E 68 EF FC 47 AD 58 43 76 5A 68 A3 B3 96 48 E4 BB 27 E4 0C E7 2B BF 2C ED 80 09 AF 11 F8 E9 E1 CD 57 C0 9F 0F 2D E0 D1 7C 41 79 A0 22 4A BA 9E AD 73 6F 23 1B CB E4 37 4E 20 8D A4 DD B8 07 72 36 C2 0F 25 57 AE C1 8E D7 5B FD A4 E3 F8 97 F1 A2 CF 4B D3 B4 A8 EF 6D 3C 36 D1 5C 12 49 92 25 86 D7 2F 9D E4 83 82 FB 07 A9 27 6F AD 57 FD 9B 3E 0E 78 C3 F6 A6 F8 C1 07 8E B5 9D 27 1E 16 D2 75 09 6E B4 CB 49 E4 0A D7 D7 08 5C B4 B2 04 24 2C 51 1C 85 EA C4 02 47 5E 70 F6 6F A1 6E 69 BB 44 EC FE 1D E9 FF 00 1C FC 43 E1 EB 3F 0C DF DF DA 58 0D 31 2D EF A3 D5 65 B0 FB 6D F4 31 C6 65 12 DB 9C 0F DE 17 12 15 25 73 B7 08 3B E4 7D 11 07 C1 1D 67 4F F8 47 7D AE F8 96 FE EF C4 DA 46 9F 61 FD A3 66 F6 32 C5 15 E6 B9 6A 90 2C 8E B6 B6 EB 1B C4 84 44 17 6F 99 20 2E D1 10 38 43 2C B0 F8 77 E1 D7 88 B4 4F 08 F8 AB C4 16 9A 36 9F A9 EB 36 B3 5B 6A 0D A6 5D 5C BA 2D CC 09 70 8E 6C 02 85 31 23 C8 8B 80 AC AE A1 64 02 4D C1 BE 4F 57 F1 17 ED 1F 75 F1 5F F6 64 B6 F1 57 84 F5 2C 5F F8 86 CA 59 59 EF 09 96 E4 36 65 49 62 64 65 E7 13 42 F0 E1 03 13 33 B2 85 D8 AD BE FD 8A 4A CC BE 76 DE 8C E3 AC 3F 61 0F 06 7C 79 F0 0E 85 7B A3 DD F8 8A E7 47 BA 88 6A 89 AA DB 5B 5B 35 8E A0 26 40 E2 07 47 65 7D EC D3 07 2A 8B B0 94 50 64 3B 7C B3 F3 7F C6 2F D9 E3 C5 BF 0B 35 EF 1C 6A D0 58 59 F8 CE EF C2 7A 60 96 F9 02 F9 53 A4 D7 2A CD 05 DC B1 E3 6F 95 22 33 85 68 FA 49 0C AA D8 2A 2B 8B F8 3F F1 BB 5F FD 9C 7E 22 59 78 3B 5E 9F 5B F0 DE 8F 65 A9 4D 63 E0 4D 5F 4F 7B A5 B3 5B 41 3B B5 BC 7E 52 42 A0 BA 3D DB A6 0C 6C 93 6F B7 1B A1 8C 2B 5E 7D A1 A9 EA BA BA 5D 27 8A 6E 46 87 3F 8E F4 CD 06 4D 03 C4 90 58 E9 F2 DB 69 BA DD 84 CF 14 EB 32 C7 BD A5 91 93 6B 95 CD C3 AC 7B AF 59 88 2C D8 9F 67 16 B6 12 6D EB D4 F9 03 F6 57 D1 FC 71 FB 48 4D F6 4D 13 51 94 4F 71 7D 06 BD AA EA 71 48 90 C3 A6 4D 04 22 2D BB B1 B9 21 0C 11 70 AA 77 05 6E 39 15 F5 CF 84 3F 66 8F 06 78 2F C7 DE 16 F0 7D CD E9 D4 FC 44 6D 85 E4 32 29 BA B8 92 DE 48 46 44 93 31 6F 2E 34 45 98 05 12 33 64 79 20 A1 66 15 F3 07 EC B5 F1 5F 49 FD 95 FC 51 F1 1F 46 D2 ED 22 9A F7 FB 55 AF C6 62 60 B7 09 B3 74 30 79 5F 78 3B B4 80 08 B2 A3 76 76 6D 3F 2A 7A DF C0 8F DA F2 DE 1D 33 C4 9F 15 BC 47 7C 97 3A BD 8E 80 C9 FD 94 9A 84 67 FB 22 34 95 A7 31 15 8E 43 BA 4D C0 29 1C 99 16 D1 00 3F 39 5A 6A 8C 52 B9 31 A8 F6 67 A0 78 FF 00 FE 09 A1 E0 6D 3F C1 08 FA 5D 9C 7A BE A9 A4 69 E1 6D 6C 6F A4 B2 B3 BB D5 67 8A 19 5E 25 F3 59 A0 8D 24 F3 12 39 55 A5 70 8A 85 C3 6C 0C 59 7E 74 F8 93 FF 00 04 5D F0 CF C4 5F 02 78 6F E2 27 C2 EF B5 69 F6 73 96 9A 6D 0F 53 B0 9B 4F 36 B0 89 58 6F C1 44 74 9A 2F 94 96 9C 29 68 D4 9F 9D F2 C7 93 F1 07 ED 4F AA 4B FB 3E 78 7F E2 B7 88 B5 F5 F1 2E BB E3 4B AB 18 34 9D 37 EC 22 CB 4A D2 AE 26 78 E5 58 2D 19 D1 66 7D B0 1D 92 4B 2B 4F BD 6D 18 11 B4 C5 1D 7D 35 FB 09 EA 7A 87 C1 DF D9 42 FC F8 83 50 D4 2F 63 FE C4 7B 99 AF 2F 9E 38 6E 1D 99 65 BA 59 24 12 38 54 31 89 91 51 1D 71 1C 6E 03 16 C1 CC CD 47 E1 65 25 CD B1 F0 F7 87 7F 63 FF 00 0C 78 4A CF C5 F6 7A ED D2 DD 8F 0E 15 D4 60 DD 6C FB 12 19 01 2F 20 F3 08 CC 59 3B 80 3C 80 32 40 06 B9 0F 89 5E 12 BF FD 9E BC 3D 61 AE F8 53 ED 3E 23 D0 14 C6 EF 6B E7 C6 04 21 D0 31 78 B8 23 3C F2 17 1E E3 15 F4 67 FC 14 33 C0 96 3F 05 2C BC 1F AD E9 16 F6 EC BE 39 F0 6C 9A 6D FA 42 25 B5 F3 FC A9 0C 68 F2 29 DB B3 31 4B 10 DB 34 6A C1 94 02 41 CA 8F 8C BC 73 E2 3F F8 B5 3A CF 85 A4 24 42 96 D6 A2 38 65 0C EF 73 80 31 24 2D D5 25 5E 33 8E A3 20 E4 57 37 B0 71 95 FA 15 2A AB 96 DD 4F AF FE 00 7E DE DE 2F 9B C1 B3 EA 36 76 90 EA 90 DA C2 16 E0 59 9C DD D9 2F 3B 8C 90 A9 07 8F 50 31 D6 BD DF F6 6E FF 00 82 88 59 FC 4F D2 2E 74 1B 7D 42 07 D4 EE 18 A8 B2 99 BC B9 3D F1 BD 55 BF 3A F8 57 F6 33 D1 E2 F0 57 8E B4 1D 3E E6 E8 26 9F AC 69 BB DA FD 18 17 47 3F C1 21 18 C6 E1 8C 13 D7 A1 AF 79 F8 5F F0 8E DA 0F DB 23 CE D0 E2 B1 BF B6 48 54 36 E8 76 CD 13 91 D7 72 F5 1E F5 D5 4D B4 EC 47 BC EC CA FF 00 B7 9F 82 B5 6F 8A 3A F8 30 E9 37 4B F6 54 2A 4C 77 4A FB B3 DB 03 23 F5 AF 93 AE FF 00 65 0F 1B DC 16 31 68 F3 AA 13 C6 F0 47 1F CA BF 6B 7C 13 FB 2C 69 EB 6C D3 DC DB 40 F3 CE 7C C7 0C 18 F3 ED 5D 06 A1 FB 31 59 49 6E 44 36 D6 23 3D 07 94 4D 79 B8 AC 96 55 EA 3A 8D EE 67 2C 32 9B D4 FC 1E B9 FD 92 FC 6D 34 D8 36 00 67 B6 EE 45 6B 58 FE C5 BE 34 92 10 57 4D 57 3F F5 D0 66 BF 67 EF 3F 63 09 6F 6F 89 4B 6B 50 A4 E7 FD 51 AD 1D 3F F6 20 98 C5 9D 90 FE 11 D6 1F D8 13 7A 5C B8 E1 A9 C7 A9 F8 8D A8 FE CA 5E 34 D3 25 0A DA 1C 84 9F EE B5 15 FB 69 7B FB 0F 5C 3C DF 79 07 D2 21 FE 34 52 FF 00 57 9F 73 75 4E 9F 73 C4 63 FF 00 82 4A 7C 35 B3 5F F4 9D 0F C4 31 23 30 C3 0D 7E E0 34 64 0E 9C B7 B6 79 AB 57 DF F0 4F 1F 85 9A 4A A4 7F D9 97 D1 98 50 96 33 6B 0C CD 20 EE 70 5F 27 15 E1 1E 20 FF 00 82 DE 7C 3B D2 35 38 5B 48 F8 47 A7 5C 4D 01 64 DC 6D 60 B5 8D 91 BD 63 70 C5 9B 3E AA 40 E0 82 2B BC D5 7F E0 A9 FE 38 F0 37 80 ED AF 5B E1 77 86 74 9D 03 5B 66 BA 7B 44 D5 0D B4 D7 08 55 48 3B 43 2A 96 DA 17 1D 41 DA 06 D1 5F 4E EB D1 5A 1D 12 C2 CE 1A CA 3F 91 DE D8 7E C2 5F 0A 24 81 A3 9B C3 93 39 8C 75 7B C6 DC C0 F7 C6 EC FE 35 53 49 FD 85 FE 0E 5A 5E 29 B7 D2 2E 25 64 90 9E 2F 99 99 4E 39 FE 2E 45 78 A4 9F F0 5C AF 1C C1 AC 2C 3A 77 C3 EF 03 DC C5 7A FB 6C 6F 2F 4C 90 30 7E 78 DF 22 2A B7 24 8E 24 1E 9C 71 59 B7 BF F0 5A 1F 8D BA 8D A5 CB 8B 8F 02 E8 D2 90 65 8E D9 FC 3F 72 8C E8 33 90 A7 7C 88 F8 C9 EB 8E C4 62 A7 EB 14 5F FC 31 5E CD 6E E2 BE FF 00 F8 07 D6 1E 1C F8 7D E1 4F 87 36 C8 FA 1D AD EA AB 36 03 2B B3 08 FA E0 93 D8 71 53 DC 7C 61 B5 D7 34 F6 86 C3 55 D5 6F 95 15 9B 16 DA 65 CC DB 82 92 18 2E C4 3B 88 2A C0 E3 9E 2B E2 49 7F E0 A8 1F 1A 2F 9B FB 7B 4A F1 C7 C3 7B 0D 59 A1 16 CE 6D 34 4B 61 A9 4B 0A FF 00 CB 36 DC 9B BC B0 79 08 49 C1 24 E3 AD 75 BE 08 FF 00 82 AE 7C 6E BC B8 7F F8 48 7C 43 AA 78 81 A2 87 74 46 0D 3E DE CC 43 9D A4 B6 14 FE F0 E0 FF 00 12 81 F2 F5 E0 53 FA CC 36 4F FA FB CC DC A0 B5 E5 FC 7F E0 1E E9 F1 2F F6 5E D3 7E 2E 66 5D 4E 0B E9 55 80 66 12 DB 48 36 9C 64 6E 18 F9 4E 08 38 3C F2 2B C6 7C 51 FF 00 04 A9 D4 AF 3C 42 75 BB 1D 5B 51 94 C4 BB 60 85 E3 76 54 03 A0 0A 06 71 C1 AE F6 FB FE 0A 6F AB F8 5E D5 27 3A 4E B3 79 79 A8 43 14 B7 16 D7 8D 63 11 8E DF 92 1D 4E C2 0F DF 62 A1 CF 19 3E F8 93 4A FF 00 82 82 27 8B BC 4B 24 03 5F F8 87 A5 3C 6A 62 B6 B3 83 56 D2 ED 84 C4 9C 6E 2A 19 91 88 EE 01 CE 32 71 59 3C 4D 16 ED A8 4A 1C CA EE 1F 89 F2 E7 C5 3F D8 0F C7 36 2F 70 BA 6E AF 0D 9F DA 23 D9 7E CE 8F 0C B7 43 AF 96 73 8C 2F 38 C0 E6 BC F2 E3 FE 09 E3 E3 ED 19 86 BD 36 9B 71 AA EA 56 91 F9 56 91 08 65 10 DA F5 1D 02 92 31 DB 8E E3 D6 BE D5 F0 DF ED CB 77 A1 7C 40 D4 B5 DD 5B C6 DE 2B B4 D2 60 9D 16 38 25 8D 7C DB 30 C7 6E 5D 39 06 36 19 C9 E4 73 EE 2B D1 6C BF 6E AB 0B 3D 36 51 63 E2 6D 73 52 78 FF 00 7C E9 1B DC 89 CC 00 0C BA AC 79 03 68 63 CB 6C 0D 8E BD 29 2A B4 DB 14 B0 A9 BB 28 3B FA 9F 1E FC 08 F8 2F E2 4F 02 FC 2D D7 AC A7 D0 75 99 FC 4F A8 C5 2C 0B 71 6F 64 02 C4 3C AF 94 0D CC A5 80 76 E4 F1 B4 E7 BF 4F AE 3F 64 2D 6A D3 E1 F7 C0 68 6C EF F4 0F 11 E9 FA BE 93 A3 08 E5 FB 6E 9E CA 88 C8 BF 32 C6 23 DC 84 92 09 3B 4E 4F 19 EB 56 AF 7F 6F 3F 0A F8 D7 7E 94 7E 25 78 97 C3 CB 12 AC 8C 4C E9 F6 B7 1B 86 14 79 A6 50 5B 2C A3 83 F2 82 BE B5 C9 78 63 E3 D3 DE DA CB AC 5F F8 E7 E2 3D C7 D9 66 48 E1 81 DA DA C6 68 7F 78 55 10 9D EB 1B EF DB EB D3 20 F0 C4 56 9E DE 9A 7B 91 F5 4B 68 95 8A FF 00 0B 3F E0 A3 9A 7F 8D 1E FB C2 9A C7 82 FC 67 A0 58 EA 53 4C 93 3D DF 87 EF 1A D6 54 68 D9 99 65 F9 14 BE F1 10 8C 8D B9 26 60 8A 79 2E 78 0F 87 9F 12 3C 57 E1 7F 88 3A 12 78 67 C0 FF 00 11 75 EF 09 F8 92 E2 73 AD 5A E9 9F 0F AF FC BF 0E EA 02 18 F6 5F 46 12 DE 4F 31 26 48 62 8E 54 24 85 05 9B 73 12 16 2F 76 D4 7E 33 78 8B C3 3A 02 6A 5A 74 9F 11 BC 4F E7 17 95 63 B6 BF B7 BA 87 F7 81 98 FC B1 44 15 C0 60 D8 05 01 51 91 BB A6 7C F7 41 F8 C1 2F 89 3C 50 D6 53 69 5E 3C 83 50 56 02 56 7D 7A 6B 63 68 BC 12 10 45 09 66 CF 3D 79 25 98 12 33 8A CA A5 7A 7C CB 99 EE 28 E1 AA 5B 4D 4F 00 FD BC 7C 3B F1 2F E2 FF 00 C2 8B EF 06 E9 DF 05 7E 33 6B AB F6 5B 6B 7B 59 64 F8 7F AD BC F2 3C 12 C4 C4 BC 92 5B F1 BB F7 A4 EC 66 5C ED 23 EE 8A E4 3E 24 F8 C3 F6 A0 BF F0 2D AE 91 A3 7C 0E F8 EB 3D BC BE 1D 4D 06 FA 7D 47 C0 9A 97 DA 97 EC F7 93 4F 69 20 91 E0 08 AE 12 59 41 65 38 FD E2 82 AE 23 C3 FD 75 A8 FC 65 D4 74 AB D7 F2 BC 21 E3 9B D3 2C 8F 64 6E 67 6D 52 68 DD 98 6E 23 CD F2 22 60 38 5C 28 0B 81 82 19 F0 4D 58 F0 47 C4 C8 FC 09 7E B7 37 DA 5E AF 62 D2 C0 92 89 5F 56 66 9C F9 8A A1 5C 47 74 9F 3A 06 3F C6 E9 90 A3 0C BD 69 A9 C3 63 3F AB C9 BB DC FC E2 F0 AF EC CB FB 57 F8 5F 5B BF D7 E5 F8 55 E3 9D 3A EB 50 D3 8D B6 F9 6D A3 B7 99 9C 40 21 8D 98 4A 77 12 10 2E E3 C1 24 6E 20 B0 CD 6F FC 2E FD 97 BF 6A 0D 03 E1 C7 8D BC 27 E1 FF 00 84 FE 2B 61 AF DA 1B 0B F8 56 28 24 36 10 4E BE 5B 80 04 E3 CA CA 23 2A 87 24 1D C7 B8 CD 7E 9C D9 F8 B3 E2 16 AC 8F 7A 0E AD A6 E9 CD 34 36 B1 DF 5E EA 51 5B FD 80 60 83 72 F1 19 24 52 00 90 36 0A 14 21 57 24 9C 83 A7 7E BE 37 B1 F1 72 3E AF AB E9 FA 8D 95 8B A4 9A 69 87 55 B4 80 DC 48 C1 95 A4 70 B6 85 77 8E 19 94 4A 03 61 4A AE EA D1 34 4B C1 B5 D4 F8 4D FE 0F 7C 69 F1 67 EC EB E0 9F 02 59 7C 18 BC 96 EF C2 B3 C1 05 FD C5 D7 8A F4 58 56 53 60 22 30 DB AC 66 EC 32 B0 78 FC B6 19 0C A0 B9 1B 8B B8 3E C9 E2 CF 8C 9F 1A AD BC 25 25 AF 89 7E 1D 68 BA 26 9D 6E 89 0C D7 92 78 CB 45 84 C5 1C BE 59 78 C4 30 DD C9 20 F3 27 49 70 49 20 07 3F 31 54 25 BE 8A D0 FE 2C EA FE 0E 88 4E D2 F8 71 C4 96 E6 35 5F B5 1B 67 8F 01 9A 46 2E B0 39 78 C6 3E 66 63 B0 F9 60 EE F9 8E 7C E5 FC 3F E1 BF 89 5A E6 B3 16 A5 3F 82 6E F5 CD 52 16 BF 8A C6 2B FB 64 B6 BC 0A 1C B4 D3 FD AA 52 92 82 87 70 54 47 C2 A9 24 16 56 07 3A 89 3D 0D 21 45 AF 7B A1 E3 BE 32 F8 49 F1 43 F6 C3 B6 FB 15 A6 A1 F0 96 D3 C3 3A 52 0B 78 ED 2E 35 C9 6F A3 D2 83 07 F2 DB CF 8A D9 A3 0E D1 00 AE 8B 26 09 40 41 C4 80 57 9A 5A FF 00 C1 0C FE 2D 78 93 56 B5 BB 5F 89 7F 09 3E CD A4 E6 4C FD AA F5 E2 45 04 8E 18 C0 03 8C 15 E8 4E 32 33 D4 57 D5 9A 2E B8 FF 00 12 EE CE B1 AE F8 F3 C5 9A 85 87 86 A0 8E 1B 78 B5 0D 79 85 F4 60 37 CE F6 EB 3C C2 E3 EC E8 CE C1 BC B8 9B 68 89 94 2C 99 06 B8 9F 12 6A 83 48 F8 9D AC 46 7C 57 A8 B7 86 F4 EB 61 AB 24 56 9E 29 F2 8D EA AB 27 DC B8 96 07 28 4E C6 56 42 8B B7 2B C0 3B 94 E1 75 18 DD EB F8 7F 99 5E C2 33 9D D1 E5 1E 1F FF 00 82 38 F8 B7 C2 F6 53 EA BE 22 F8 C5 A5 58 59 5C ED 81 0D AE 95 2C 2D 74 30 CC 3C B1 3B 47 E6 2E D4 72 76 F6 19 E2 BE B3 FD 90 3F 67 1F 0D FE CE 9A 72 C5 07 8D A2 F1 25 E3 C7 F2 CF 3D 99 92 54 F9 9D 71 FB B7 7E 8E 8C 31 D4 1E 3A 91 5E 3D A5 FC 5D D7 F4 4D 5C 5E F8 52 C3 56 9F 4E B8 9F CE 8E D7 56 D7 A5 D4 67 95 43 A9 30 49 24 49 E5 85 24 C8 04 68 CB 20 64 56 1C 60 33 75 BF DA 77 C5 9E 00 9F 4C B4 8B C1 7E 1A 0D A7 B7 DA 24 85 F5 AB 88 A2 45 0D B9 04 1B ED BC C8 E6 DC 21 CE E8 B2 4A E1 77 83 CA FA C5 18 BB AD CD 63 86 9E D1 5A FF 00 5E A7 E8 76 8D E2 AB A8 B4 28 64 B8 B8 91 76 13 E7 4B 6F 64 CF 02 46 BF 79 CB 1C 11 81 83 8C 1C 03 F4 CD AB 9F 8F FA 27 83 23 56 D5 A4 BE 86 26 90 42 BE 6D A1 80 97 2E C8 A9 B9 C2 AE E2 55 B0 B9 DD C7 40 08 27 E4 3D 4F F6 9F D6 FC 6F 77 A6 DC 45 E0 FF 00 0F B5 C1 57 92 CD 2D BC 73 72 45 E2 21 0D B9 85 95 AA 87 0A EA C4 A3 79 8B 80 C7 9C 8C D9 D4 BF E0 A1 57 D1 5C DA C5 7C F0 0D 35 56 74 92 3F 0D D9 DC B4 90 06 3C 40 D1 0B 73 1F 98 AC 31 B8 3C 80 94 03 0D 92 C3 7F AF 41 6C C8 95 0A 8B 73 EB F9 7E 3E F8 76 0B A8 CB 9D 46 D5 E4 4F 31 21 BA 9A 08 1A 75 CE 09 40 64 C9 1D F2 07 4F C2 A9 78 AF F6 AC F0 E7 83 D6 DD E6 49 23 5B C6 55 8D 67 BF 82 35 7D DD 36 BE F3 92 79 00 74 3B 4F 20 0C D7 CF DE 07 FD A3 FC 35 E2 ED 3D EF AF 3C 3D AE F8 6E ED 6D AE 7E D1 FD A9 A2 A4 2D 0F 95 84 78 D1 E2 24 74 45 DD 0C 7B F7 2A A9 08 02 81 5B 53 FC 53 F0 38 F0 D2 8D 55 74 4D 3F 46 D5 5E 06 8E EF FB 36 D8 59 4B 24 80 04 47 18 0B 19 52 C2 3D B3 6C 70 C1 41 05 8E 1A FE B3 7D 9A 31 E4 9B F3 3D 52 E3 F6 AF D1 AD DD BC DD 0A 4F 37 7B 2B C6 35 7B 5D D0 95 38 21 8F 99 8C E7 3D 09 E3 07 F8 85 15 E3 BE 35 D3 74 78 75 D9 22 6F 0A 5A DC E0 07 05 EC E4 F9 41 01 47 CD 1C 65 1B 85 07 2B D8 8E 01 C9 25 1E DE A2 D3 42 94 9D 8F C1 9F 85 3F F2 3D 2F FB E7 FF 00 43 AF AB BE 39 7F C9 09 D2 3F EB F9 BF 92 D1 45 79 7F F2 F3 E5 FE 47 B7 89 FE 0C 7D 7F 53 CD 7C 5D F7 FC 31 FF 00 5E AF FF 00 A0 8A 97 C6 FF 00 F2 40 3F EE 1E 9F FA 1D 14 55 43 E1 32 C4 7F 11 FA 3F C8 F3 2F 07 7F C8 D3 07 FB B1 FF 00 E8 62 BD 77 C3 3F F1 F7 AE FF 00 D7 B4 BF D6 8A 2A D6 E7 91 F6 0F 56 FD 8A 7F D5 DB FD 6E 7F F4 58 AC A5 FF 00 8F 8D 47 FE C2 5A 8F FE 8B 5A 28 AE 67 F1 BF 53 BE BF F0 A1 E8 73 23 FE 44 AB 6F FB 05 1F E4 2A A5 DF FC 84 74 6F FA FC BB FF 00 D1 54 51 5B D3 23 EC FF 00 5D CD 8F 8C 3F EA 3C 29 FF 00 62 D4 DF FA 4D 2D 7A 37 C0 7F F9 27 11 7F D8 52 1F FD 05 28 A2 B6 66 54 B7 3F 43 FC 1F FF 00 1F 0D FF 00 5F 43 F9 0A D4 F8 A3 FF 00 23 55 87 FD 71 93 FF 00 40 4A 28 AE 97 F0 98 FD BF 91 E6 3F B4 97 FC 88 9E 22 FF 00 AF 5F FD A8 2A AF C0 AF F5 9A 67 FD 7B DB 7F E8 B6 A2 8A C5 FC 47 75 3F E1 7D FF 00 A1 EE 3A 9F FC 78 4B FF 00 5D 65 FF 00 D0 2B E4 AF DB DF FE 40 5E 16 FF 00 AF 56 FF 00 D1 4F 45 15 B5 5F 80 E5 81 6F 43 FF 00 92 61 AD 7F D8 12 E3 FF 00 46 C1 59 1E 33 FF 00 92 0F A5 FF 00 D8 52 3F FD 34 41 45 15 E6 CF A1 EA 53 FF 00 E4 BF 23 AA F8 E7 FF 00 22 26 B9 FF 00 5F F2 7F E8 A9 6B CE BC 21 FF 00 20 ED 4F FE BC D7 FF 00 64 A2 8A F2 57 FB C3 F4 FD 48 A9 FC 15 EA 76 B3 FF 00 C8 9B 07 FD 74 D6 3F F4 55 73 D6 5F F2 2C 6B 5F F5 FE BF FA 13 D1 45 77 55 DE 27 35 3D 9F F5 D4 A7 E2 0F F9 2E F6 DF F6 22 DB FF 00 E9 4C 55 A9 E3 AF F9 02 78 B7 FE C6 4D 27 FF 00 40 B4 A2 8A DA 9F 51 F5 FE BC 87 FC 54 FF 00 93 96 BE FF 00 B0 42 7F 33 5B BA B7 FC 94 0F 10 7F D7 2B 0F FD 1C 28 A2 B4 E8 FD 48 9F E8 7A 0F C3 FF 00 F9 0D 6A 7F F5 C2 D7 FF 00 41 7A 28 A2 B6 32 3F FF D9
+</div>
+
+
+<script>
+
+// WebGL - Textures - Texture Atlas
+// from https://webglfundamentals.org/webgl/webgl-3d-textures-texture-atlas.html
+//modified by ben rayfield
+
+"use strict";
+
+var dom = function(id){
+	return document.getElementById(id);
+};
+
+var hexToUint8ClampedArray = function(hex){
+	//https://stackoverflow.com/questions/38987784/how-to-convert-a-hexadecimal-string-to-uint8array-and-back-in-javascript
+	return new Uint8ClampedArray(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+};
+
+var getPicBytes = function(){
+	var s = dom('picHexDiv').innerHTML;
+	s = s.replace(/\s/g,''); //remove whitespace
+	console.log('getPicBytes hex len '+s.length);
+	return hexToUint8ClampedArray(s);
+};
+
+
+function main() {
+  // Get A WebGL context
+  /** @type {HTMLCanvasElement} */
+  var canvas = document.querySelector("#canvas");
+  var gl = canvas.getContext("webgl");
+  if (!gl) {
+    return;
+  }
+
+  // setup GLSL program
+  var program = webglUtils.createProgramFromScripts(gl, ["vertex-shader-3d", "fragment-shader-3d"]);
+
+  // look up where the vertex data needs to go.
+  var positionLocation = gl.getAttribLocation(program, "a_position");
+  var texcoordLocation = gl.getAttribLocation(program, "a_texcoord");
+
+  // lookup uniforms
+  var matrixLocation = gl.getUniformLocation(program, "u_matrix");
+  var textureLocation = gl.getUniformLocation(program, "u_texture");
+
+  // Create a buffer for positions
+  var positionBuffer = gl.createBuffer();
+  // Bind it to ARRAY_BUFFER (think of it as ARRAY_BUFFER = positionBuffer)
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  // Put the positions in the buffer
+  setGeometry(gl);
+
+  // provide texture coordinates for the rectangle.
+  var texcoordBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+  // Set Texcoords.
+  setTexcoords(gl);
+
+  // Create a texture.
+  var texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  // Fill the texture with a 1x1 blue pixel.
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                new Uint8Array([0, 0, 255, 255]));
+  
+  var imageBytes = getPicBytes();
+  console.log('imageBytes.length='+imageBytes.length+' imageBytes[5]='+imageBytes[5]);
+  
+  // Asynchronously load an image
+  var image = new Image();
+  //requestCORSIfNotSameOrigin(image, "https://webglfundamentals.org/webgl/resources/noodles.jpg")
+  //image.src = "https://webglfundamentals.org/webgl/resources/noodles.jpg";
+  var blob = new Blob( [ imageBytes ], { type: "image/jpeg" } );
+  var urlCreator = window.URL || window.webkitURL;
+  var imageUrl = urlCreator.createObjectURL( blob );
+  image.src = imageUrl;
+  
+  image.addEventListener('load', function() {
+    // Now that the image has loaded make copy it to the texture.
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,gl.UNSIGNED_BYTE, image);
+	
+	
+	//https://stackoverflow.com/questions/9046643/webgl-create-texture
+	//gl.texImage2D(gl.TEXTURE_2D, 0, type, width, height, 0, type, gl.UNSIGNED_BYTE, dataTypedArray);
+
+    // Check if the image is a power of 2 in both dimensions.
+    if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+       // Yes, it's a power of 2. Generate mips.
+       gl.generateMipmap(gl.TEXTURE_2D);
+    } else {
+       // No, it's not a power of 2. Turn of mips and set wrapping to clamp to edge
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    }
+  });
+
+  function isPowerOf2(value) {
+    return (value & (value - 1)) === 0;
+  }
+
+  function radToDeg(r) {
+    return r * 180 / Math.PI;
+  }
+
+  function degToRad(d) {
+    return d * Math.PI / 180;
+  }
+
+  var fieldOfViewRadians = degToRad(60);
+  var modelXRotationRadians = degToRad(0);
+  var modelYRotationRadians = degToRad(0);
+
+  // Get the starting time.
+  var then = 0;
+
+  requestAnimationFrame(drawScene);
+
+  // Draw the scene.
+  function drawScene(time) {
+    // convert to seconds
+    time *= 0.001;
+    // Subtract the previous time from the current time
+    var deltaTime = time - then;
+    // Remember the current time for the next frame.
+    then = time;
+
+    webglUtils.resizeCanvasToDisplaySize(gl.canvas);
+
+    // Tell WebGL how to convert from clip space to pixels
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+    gl.enable(gl.CULL_FACE);
+    gl.enable(gl.DEPTH_TEST);
+
+    // Animate the rotation
+    modelYRotationRadians += -0.7 * deltaTime;
+    modelXRotationRadians += -0.4 * deltaTime;
+
+    // Clear the canvas AND the depth buffer.
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Tell it to use our program (pair of shaders)
+    gl.useProgram(program);
+
+    // Turn on the position attribute
+    gl.enableVertexAttribArray(positionLocation);
+
+    // Bind the position buffer.
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+    // Tell the position attribute how to get data out of positionBuffer (ARRAY_BUFFER)
+    var size = 3;          // 3 components per iteration
+    var type = gl.FLOAT;   // the data is 32bit floats
+    var normalize = false; // don't normalize the data
+    var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+    var offset = 0;        // start at the beginning of the buffer
+    gl.vertexAttribPointer(
+        positionLocation, size, type, normalize, stride, offset);
+
+    // Turn on the texcoord attribute
+    gl.enableVertexAttribArray(texcoordLocation);
+
+    // bind the texcoord buffer.
+    gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+
+    // Tell the texcoord attribute how to get data out of texcoordBuffer (ARRAY_BUFFER)
+    var size = 2;          // 2 components per iteration
+    var type = gl.FLOAT;   // the data is 32bit floats
+    var normalize = false; // don't normalize the data
+    var stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+    var offset = 0;        // start at the beginning of the buffer
+    gl.vertexAttribPointer(
+        texcoordLocation, size, type, normalize, stride, offset);
+
+    // Compute the projection matrix
+    var aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+    var projectionMatrix =
+        m4.perspective(fieldOfViewRadians, aspect, 1, 2000);
+
+    var cameraPosition = [0, 0, 2];
+    var up = [0, 1, 0];
+    var target = [0, 0, 0];
+
+    // Compute the camera's matrix using look at.
+    var cameraMatrix = m4.lookAt(cameraPosition, target, up);
+
+    // Make a view matrix from the camera matrix.
+    var viewMatrix = m4.inverse(cameraMatrix);
+
+    var viewProjectionMatrix = m4.multiply(projectionMatrix, viewMatrix);
+
+    var matrix = m4.xRotate(viewProjectionMatrix, modelXRotationRadians);
+    matrix = m4.yRotate(matrix, modelYRotationRadians);
+
+    // Set the matrix.
+    gl.uniformMatrix4fv(matrixLocation, false, matrix);
+
+    // Tell the shader to use texture unit 0 for u_texture
+    gl.uniform1i(textureLocation, 0);
+
+    // Draw the geometry.
+    gl.drawArrays(gl.TRIANGLES, 0, 6 * 6);
+
+    requestAnimationFrame(drawScene);
+  }
+}
+
+// Fill the buffer with the values that define a cube.
+function setGeometry(gl) {
+  var positions = new Float32Array(
+    [
+    -0.5, -0.5,  -0.5,
+    -0.5,  0.5,  -0.5,
+     0.5, -0.5,  -0.5,
+    -0.5,  0.5,  -0.5,
+     0.5,  0.5,  -0.5,
+     0.5, -0.5,  -0.5,
+
+    -0.5, -0.5,   0.5,
+     0.5, -0.5,   0.5,
+    -0.5,  0.5,   0.5,
+    -0.5,  0.5,   0.5,
+     0.5, -0.5,   0.5,
+     0.5,  0.5,   0.5,
+
+    -0.5,   0.5, -0.5,
+    -0.5,   0.5,  0.5,
+     0.5,   0.5, -0.5,
+    -0.5,   0.5,  0.5,
+     0.5,   0.5,  0.5,
+     0.5,   0.5, -0.5,
+
+    -0.5,  -0.5, -0.5,
+     0.5,  -0.5, -0.5,
+    -0.5,  -0.5,  0.5,
+    -0.5,  -0.5,  0.5,
+     0.5,  -0.5, -0.5,
+     0.5,  -0.5,  0.5,
+
+    -0.5,  -0.5, -0.5,
+    -0.5,  -0.5,  0.5,
+    -0.5,   0.5, -0.5,
+    -0.5,  -0.5,  0.5,
+    -0.5,   0.5,  0.5,
+    -0.5,   0.5, -0.5,
+
+     0.5,  -0.5, -0.5,
+     0.5,   0.5, -0.5,
+     0.5,  -0.5,  0.5,
+     0.5,  -0.5,  0.5,
+     0.5,   0.5, -0.5,
+     0.5,   0.5,  0.5,
+
+    ]);
+  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+}
+
+// Fill the buffer with texture coordinates the cube.
+function setTexcoords(gl) {
+  gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array(
+        [
+        // select the top left image
+        0   , 0  ,
+        0   , 0.5,
+        0.25, 0  ,
+        0   , 0.5,
+        0.25, 0.5,
+        0.25, 0  ,
+        // select the top middle image
+        0.25, 0  ,
+        0.5 , 0  ,
+        0.25, 0.5,
+        0.25, 0.5,
+        0.5 , 0  ,
+        0.5 , 0.5,
+        // select to top right image
+        0.5 , 0  ,
+        0.5 , 0.5,
+        0.75, 0  ,
+        0.5 , 0.5,
+        0.75, 0.5,
+        0.75, 0  ,
+        // select the bottom left image
+        0   , 0.5,
+        0.25, 0.5,
+        0   , 1  ,
+        0   , 1  ,
+        0.25, 0.5,
+        0.25, 1  ,
+        // select the bottom middle image
+        0.25, 0.5,
+        0.25, 1  ,
+        0.5 , 0.5,
+        0.25, 1  ,
+        0.5 , 1  ,
+        0.5 , 0.5,
+        // select the bottom right image
+        0.5 , 0.5,
+        0.75, 0.5,
+        0.5 , 1  ,
+        0.5 , 1  ,
+        0.75, 0.5,
+        0.75, 1  ,
+
+      ]),
+      gl.STATIC_DRAW);
+}
+
+// This is needed if the images are not on the same domain
+// NOTE: The server providing the images must give CORS permissions
+// in order to be able to use the image with WebGL. Most sites
+// do NOT give permission.
+// See: https://webglfundamentals.org/webgl/lessons/webgl-cors-permission.html
+function requestCORSIfNotSameOrigin(img, url) {
+  if ((new URL(url, window.location.href)).origin !== window.location.origin) {
+    img.crossOrigin = "";
+  }
+}
+
+main();
+
+
+</script>
