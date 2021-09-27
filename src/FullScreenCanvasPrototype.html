@@ -1,0 +1,99 @@
+<script>
+//Ben F Rayfield offers this code as opensource MIT license
+
+//byte offsets for ByteRect, canvas, etc, in js.
+const RED = 0, GREEN = 1, BLUE = 2, ALPHA = 3;
+
+var FullScreenCanvas = function(parentDom){ //FullScreenCanvas opensource MIT licensed by Ben F Rayfield
+	if(parentDom === undefined) parentDom = document.body;
+	this.dom = document.createElement('canvas');
+	//TODO z order, in front of everything else.
+	//this.dom = document.getElementById('canv'); //FIXME remove this line, use createElement instead.
+	this.context = null;
+	this.imageData = null;
+	this.pixels = null;
+	this.byteRect = null;
+	parentDom.appendChild(this.dom);
+	this.dom.style.position = 'absolute';
+	this.dom.style.left = '0px';
+	this.dom.style.top = '0px';
+	
+	this.resizeCanvas = function(){
+		if(this.dom.width != window.innerWidth) this.dom.width = window.innerWidth;
+		if(this.dom.height != window.innerHeight) this.dom.height = window.innerHeight;
+	};
+	
+	//TODO optimize, if you're not reading from the canvas, maybe can skip parts of this or only call this once?
+	this.beforePaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		this.context = this.dom.getContext('2d');
+		//console.log('this.dom.width = '+this.dom.width);
+		this.imageData = this.context.getImageData(0, 0, this.dom.width, this.dom.height);
+		this.pixels = this.imageData.data;
+		this.byteRect = new ByteRect(this.pixels, this.dom.height, this.dom.width);
+	};
+	
+	//call this after modify byteRect.bytes which contains pixel colors to write to Canvas.
+	this.afterPaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		//this.context.drawImage(this.dom, 0, 0, this.dom.width, this.dom.height);
+		this.context.putImageData(this.imageData, 0, 0);
+	};
+	
+	this.removeFromScreen = function(){
+		this.dom.remove();
+		this.dom = null;
+		this.context = null;
+		this.imageData = null;
+		this.pixels = null;
+		this.byteRect = null;
+	};
+	
+	this.resizeCanvas();
+	this.beforePaint();
+};
+
+var ByteRect = function(bytes, height, width){ //ByteRect opensource MIT licensed by Ben F Rayfield (has more funcs other places)
+	this.bytes = bytes;
+	this.height = height;
+	this.width = width;
+};
+
+var canv = null;
+
+var time = ()=>Date.now()*.001; //utc seconds
+
+var randByte = ()=>Math.floor(Math.random()*256);
+
+var doPageTransitioningGraphics = function(dt, age, byteRect){
+
+	for(let i=0; i<byteRect.bytes.length; i+=4){
+		byteRect.bytes[i+RED] = randByte();
+		byteRect.bytes[i+GREEN] = randByte();
+		byteRect.bytes[i+BLUE] = randByte();
+		byteRect.bytes[i+ALPHA] = 255;
+	}
+
+};
+
+var timeStarted = time();
+
+var prevTime = timeStarted;
+
+var nextState = function(){
+	if(canv == null) canv = new FullScreenCanvas();
+	let now = time();
+	let age = now-timeStarted;
+	let dt = Math.max(0, Math.min(now-prevTime, .2));
+	prevTime = now;
+	canv.beforePaint();
+	doPageTransitioningGraphics(dt, age, canv.byteRect);
+	canv.afterPaint();
+	setTimeout(nextState, 1);
+};
+
+window.onload = ()=>{
+	nextState();
+};
+
+</script>
