@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8" /> 
+<script>
+
+//Ben F Rayfield offers this software opensource MIT license
+
+var decayingMaxVolume = .01;
+var decayingMaxVolume_decay = 2.5;
+
+
+var mouseX = 0;
+var mouseY = 0;
+var len = Math.floor(50 + 400 * Math.random());
+var noise = [];
+var xx = document.getElementById('xx');
+for (var i = 0; i < len; i++) {
+	noise[i] = 2 * Math.random() - 1;
+}
+
+var tt = 0;
+var t = 0, a = 0, b = 0, c = 0, d = 0;
+
+function prefill(){
+	tt = 0;
+	t = 0;
+	a = 0;
+	b = 0;
+	c = 0;
+	d = 0;
+}
+
+function fill(buffer, bufIn){ //out in
+	//let yy = xx.valueAsNumber/1000000;
+	var dt = 1/48000; //FIXME get actual framerate from object
+	let volume = .3;
+	for (var i = 0; i < buffer.length; i++) {
+		var decayMul = 1-dt*decayingMaxVolume_decay;
+		decayingMaxVolume_decay = mouseY*.003;
+		var x = noise[t % len];
+		var k = 5000 / (8000 + t);
+		let yy = mouseX/300;
+		k *= yy*3;
+		a += k * (x - a);
+		b += k * (a - b);
+		c += k * (b - c);
+		d += k * (c - d);
+		//buffer[i] = d;// + .2*Math.sin(tt);
+	//buffer[i] = .2*Math.sin(tt);
+	buffer[i] = 0;
+	if(bufIn) buffer[i] += bufIn[i]*mouseX;
+	decayingMaxVolume = Math.max(Math.abs(buffer[i]),decayingMaxVolume);
+	buffer[i] *= volume/decayingMaxVolume;
+	decayingMaxVolume *= decayMul;
+		tt += yy*.01;
+		t++;
+	}
+}
+
+var ev = null;
+var audioContext = null;
+
+var mic = null;
+var micc = null;
+
+var play = function(){
+	prefill();
+	audioContext = new AudioContext();
+	//"bufferSize must be one of the following values: 256, 512, 1024, 2048, 4096, 8192, 16384"
+	//-- https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/createScriptProcessor
+	let bufSize = 512;
+	var scriptNode = audioContext.createScriptProcessor(bufSize, 1, 1);
+	scriptNode.onaudioprocess = function(event) {
+		ev = event;
+		//fill(event.outputBuffer.getChannelData(0));
+		fill(event.outputBuffer.getChannelData(0), event.inputBuffer.getChannelData(0));
+		//let m = mic ? mic.inputBuffer.getChannelData(0) : null;
+		//fill(event.outputBuffer.getChannelData(0), m);
+	}
+	scriptNode.connect(audioContext.destination);
+	
+	navigator.mediaDevices.getUserMedia({ audio: true }).then(x=>{
+		console.log('got '+x);
+		mic = x;
+		micc = audioContext.createMediaStreamSource(mic);
+		micc.connect(scriptNode);
+	});
+};
+
+
+</script>
+
+This is a self contained demo of webaudioapi, using speaker, microphone, and mouse in realtime. This sounds spooky if you have a good microphone that speakers can hear, as it automaticly adjusts volume so it doesnt get louder or quieter, stays in balance. It can amplify a whisper from across the room even if microphone is closer to speaker than to the whisper. It can do that cuz whatever frequencies it hears will get amplified, including if it hears itself amplifying that, it will amplify it again, and around and around, keeping the volume in balance thousands of times per second. This is the same demo from jsoundcard, but using browser webaudioapi.
+
+<br><br>
+TODO "webAudioApiSpeakerMicrophoneTest.html:72 [Deprecation] The ScriptProcessorNode is deprecated. Use AudioWorkletNode instead. (https://bit.ly/audio-worklet)"
+but not if it adds any lag (it says it runs in a different thread than the main javascript thread) and only if theres some small code that can do the same thing as ScriptProcessorNode. I dont want to import a huge library, nor switch languages to something that wont work in a javascript eval, just to read and write speaker and microphone amplitudes.
+<br><br>
+
+</head><body onmousemove="mouseX = event.clientX; mouseY = event.clientY; /*console.log('mouseX='+mouseX);*/">
+
+
+<br><br>
+<input type=button onclick="play();" value="play"></input>
+<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>
+<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>
+<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>
+
+
+</body></html>
