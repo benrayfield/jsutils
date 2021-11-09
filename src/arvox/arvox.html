@@ -31,10 +31,20 @@ var canvasOut = null;
 var byteRectIn = null;
 var byteRectOut = null;
 
-//utc seconds
-var time = function(){
-	return Date.now()*.001;
-};
+const timeOffset_ = performance.timing.navigationStart;
+
+//TODO test this vs Date.now()*.001. It seems to match that very close but often has more digits.
+//utc seconds. TODO more precise time, like java.lang.System.nanoTime
+//in practice has microsecond precision and in theory could have nanosecond precision,
+//but only relative to System.currentTimeMillis() which in practice has .01 second precision
+//in time sync between it and remote computers, so if you use the 2 together,
+//you can use a double for the timing of sound amplitudes, gamepad movements, and dates.
+//Is there something like that in browser javascript?
+//Maybe https://developer.mozilla.org/en-US/docs/Web/API/Performance/now ?
+//This line of code compares them: console.log(''+(performance.timing.navigationStart + performance.now())*.001+'\n'+(Date.now()*.001));
+
+//utc seconds, with a little more precision than Date.now()*.001
+var time = ()=>((timeOffset_+performance.now())*.001);
 
 var updateCanvasObjects = function(){
 	canvasIn = document.getElementById('canvasIn');
@@ -900,6 +910,10 @@ const emptyArray = new Float32Array(0);
 //ab is Float32Array(a*b). bc is Float32Array(b*c). Returns Float32Array(a*c).
 //TODO GPU.js if its big, but might want to merge multiple kernels to happen at once for intheory lower lag.
 //Theres some func to "combine kernels" in GPU.js.
+//
+//Dont use GPU.js every time cuz this will be called about 150 times per video frame, on small arrays,
+//just to create equatorAngles+poleAngles balls to check for equatorAngles*equatorAngles*poleAngles possible rotations
+//(then do a similar thing but to get about 0.1 pixel precision of 3d position and 3d angle of tennis ball used as 6d joystick).
 var matmul = function(ab, bc, a, b, c){
 	return matmulCpu(ab, bc, a, b, c);
 };
@@ -1125,7 +1139,11 @@ var Ball = function(numAngles){
 	//TODO rename numAngles to numEquatorAngles, cuz theres numPoleAngles func.
 	this.numAngles = numAngles; //2*pi radians around equator in polar coordinates
 	//this.halfAngles = numAngles/2; //pi radians between poles in polar coordinates
+	
+	//this.baxels[(poleIndex*this.numAngles+equatorIndex)*VARSPERBAXEL+ballVarIndex]
 	this.baxels = new Float32Array(this.numAngles*this.numAngles/2*VARSPERBAXEL); //FIXME fill these. FIXME if numPoleAngles() is not numAngles/2.
+	
+	
 	
 	//put radius in here. TODO choose between radius being in the x y z vs in the fourth dim of 4x4 aftrans.
 	this.aftrans = newIdentAftrans();
@@ -1170,6 +1188,28 @@ Ball.prototype.normXOfBaxelIndex function(baxelIndex){
 
 /** returns [normX, normY, normZ] where Math.hypot(normX,normY,normZ)==1 except roundoff */
 Ball.prototype.normXYZOfBaxelIndex = function(baxelIndex){
+	//FIXME? some things are flipped wrong and put together one side flipped and the other side not. Whats causing it?
+	
+	let poleAngles = this.numPoleAngles();
+	let picX = baxelIndex%this.numAngles; //rectangle pic (numAngles * numPoleAngles) wrapped around sphere.
+	let picY = (baxelIndex-picX)/this.numAngles;
+	let equatorAngle = twoPi*picX/this.numAngles; //0(inclusive)..2*pi(exclusive)
+	let poleAngle = Math.PI*picY/poleAngles; //0(inclusive)..pi(exclusive)
+	let z = Math.cos(poleAngle); //FIXME negative of some of those? swap sin/cos?
+	//at poleAngle==0 and poleAngle==pi, Math.abs(z) should be 1. TODO which of -1 vs 1 with 0 vs pi?
+	//at poleAngle==pi/2, z should be 0.
+	let otherThanZ = Math.sqrt(1-z*z);
+	
+	//FIXME: let z = Math.cos(poleAngle); //FIXME negative of some of those? swap sin/cos?
+	//let otherThanZ = Math.cos(poleAngle);
+	//let z = Math.sqrt(1-z*z);
+	
+	let x = otherThanZ*Math.cos(equatorAngle);
+	let y = otherThanZ*Math.sin(equatorAngle);
+	return [x,y,z];
+	
+
+	/*
 	//FIXME test this is inverse (except roundoff) of xyzToBaxelIndexIgnoringAftrans.
 	let poleAngles = this.numPoleAngles();
 	let picX = baxelIndex%this.numAngles; //rectangle pic (numAngles * numPoleAngles) wrapped around sphere.
@@ -1181,9 +1221,11 @@ Ball.prototype.normXYZOfBaxelIndex = function(baxelIndex){
 	let x = otherThanZ*Math.cos(equatorAngle);
 	let y = otherThanZ*Math.sin(equatorAngle);
 	return [x,y,z];
+	*/
+	
 };
 
-/** func(prevVal,x,y,z,baxelDim)-&gt;nextVal, where Math.hypot(x,y,z)==1 except roundoff, and baxelDim is BRED BGREEN BBLUE and other B* vars.
+/** func(prevVal,x,y,z,baxelDim)->nextVal, where Math.hypot(x,y,z)==1 except roundoff, and baxelDim is BRED BGREEN BBLUE and other B* vars.
 To do nothing, func returns prevVal, or similar to change just some parts.
 */
 Ball.prototype.setBaxels = function(func){
@@ -1206,12 +1248,17 @@ Ball.prototype.setBaxels = function(func){
 
 const twoPi = 2*Math.PI;
 
+/*
 //ball.baxels[ball.baxelIndexIgnoringAftrans(...)*VARSPERBAXEL+whichBaxelVar], of the closest baxel to the point,
 //where a line from ball center to that point intersects ball surface.
 //TODO bilinear interpolation, so would need 4 adjacent baxels in a 2x2 in the rectangle of baxels wrapped around sphere.
 //The rectangle (numAngles around equator * (numAngles/2 between the poles)) is in polar coordinates.
 //This is a slow way to access surface contents of Ball. Its faster to loop over equator and pole angles (TODO aftrans, call sine, quarternion, or what to do in loop?).
 Ball.prototype.xyzToBaxelIndexIgnoringAftrans = function(x, y, z){
+	
+	//FIXME as of 2021-10-20 this has never been tested, and it might be whats making the pixels happen in the wrong places in copyRotated.
+
+
 	let len = Math.hypot(x,y,z);
 	if(len == 0) return 0;
 	//TODO x should be horizontal on screen, y vertical, and z into/outOf screen.
@@ -1224,8 +1271,72 @@ Ball.prototype.xyzToBaxelIndexIgnoringAftrans = function(x, y, z){
 	let equatorIndex = Math.floor(equatorAngle/twoPi*this.numAngles);
 	let poleAngles = this.numPoleAngles();
 	let poleIndex = Math.floor(poleAngle/Math.PI*poleAngles);
-	return between(0, equatorIndex*poleAngles+poleIndex, this.numBaxels()-1);
+	return between(0, equatorIndex*poleAngles+poleIndex, this.numBaxels()-1); //FIXME?
+	//return between(0, poleIndex*this.numAngles+equatorIndex, this.numBaxels()-1); //FIXME?
 };
+*/
+Ball.prototype.xyzToBaxelIndexIgnoringAftrans = function(x, y, z){
+
+	//let len = Math.hypot(x,y,z);
+	let xyRadiusSq = x*x+y*y;
+	let xyzRadiusSq = xyRadiusSq+z*z;
+	if(xyzRadiusSq == 0) return 0;
+	let xyRadius = Math.sqrt(xyRadiusSq);
+	let xyzRadius = Math.sqrt(xyzRadiusSq);
+	//x /= len; //become unit vec. FIXME what if roundoff lets it be slightly outside range -1 to 1 so Math.asin/acos breaks?
+	//y /= len;
+	//z /= len;
+	//let xyRadius = Math.sqrt(1-z*z);
+	
+	let poleAngles = this.numPoleAngles();
+	
+	let poleAngle = Math.acos(z/xyzRadius); //range 0 to pi. FIXME?
+	let equatorAngle = ((xyRadius==0) ? 0 : Math.acos(x/xyRadius)); //0 to pi
+	if(y < 0) equatorAngle = twoPi-equatorAngle; //range 0 to 2pi. FIXME?
+	
+	let equatorIndex = Math.floor(equatorAngle/twoPi*this.numAngles);
+	
+	let poleIndex = Math.floor(poleAngle/Math.PI*poleAngles);
+	
+	return between(0, poleIndex*this.numAngles+equatorIndex, this.numBaxels()-1); //FIXME?
+	
+	
+	/*
+	//FIXME as of 2021-10-20 this has never been tested, and it might be whats making the pixels happen in the wrong places in copyRotated.
+
+
+	let len = Math.hypot(x,y,z);
+	//if(len == 0) return 0;
+	if(len == 0) throw 'len='+len;
+	//TODO??? x should be horizontal on screen, y vertical, and z into/outOf screen.
+	x /= len; //become unit vec. FIXME what if roundoff lets it be slightly outside range -1 to 1 so Math.asin/acos breaks?
+	y /= len;
+	z /= len;
+	let equatorAngle = Math.acos(x); //0 to pi
+	//if(z > 0) equatorAngle = twoPi-equatorAngle; //range 0 to 2pi. FIXME?
+	if(y < 0) equatorAngle = twoPi-equatorAngle; //range 0 to 2pi. FIXME?
+	//if(y > 0) equatorAngle = twoPi-equatorAngle; //range 0 to 2pi. FIXME?
+	//if(y > 0) equatorAngle = Math.PI+equatorAngle; //range 0 to 2pi. FIXME?
+	//if(y > 0) equatorAngle = 0; //FIXME
+	//if(y < 0) equatorAngle = 0; //FIXME
+	let epsilon = .000001;
+	if(equatorAngle < -epsilon || twoPi+epsilon < equatorAngle) throw 'equatorAngle='+equatorAngle; //TODO optimize remove this check
+	let poleAngle = Math.acos(z); //range 0 to pi. FIXME?
+	
+	if(poleAngle < -epsilon || Math.PI+epsilon < poleAngle) throw 'poleAngle='+poleAngle; //TODO optimize remove this check
+	
+	let equatorIndex = Math.floor(equatorAngle/twoPi*this.numAngles);
+	let poleAngles = this.numPoleAngles();
+	let poleIndex = Math.floor(poleAngle/Math.PI*poleAngles);
+	//poleIndex = 0; //FIXME
+	//poleIndex = 20; //FIXME
+	//equatorIndex = 20; //FIXME
+	//return between(0, equatorIndex*poleAngles+poleIndex, this.numBaxels()-1); //FIXME?
+	return between(0, poleIndex*this.numAngles+equatorIndex, this.numBaxels()-1); //FIXME?
+	*/
+	
+};
+
 
 //x y z and whichBaxelVar -> value of that var, or if optionalValue!==undefined then sets value there. Either way returns value.
 //This is a slow way to access surface contents of Ball. Its faster to loop over equator and pole angles (TODO aftrans, call sine, quarternion, or what to do in loop?).
@@ -1456,6 +1567,8 @@ Ball.prototype.aftransBetween = function(otherBall, optionalAftrans, optionalEst
 };
 
 
+//As of 2021-11-9 this func works.
+//
 //Copies this Ball, so its aftrans is similar to an identityMatrix except
 //the same size (TODO, just making up a size for now) and position (TODO) as this ball but rotated like identity,
 //and it displays nearly the same cuz the spherical image
@@ -1465,78 +1578,136 @@ Ball.prototype.aftransBetween = function(otherBall, optionalAftrans, optionalEst
 //that are copies of those pixels but rotated. Display these other Balls and move and rotate them using gamepad as a test."
 Ball.prototype.copyRotated = function(){
 	let ret = new Ball(this.numAngles);
+	/*
+	//make whole surface gray, cuz starts random, and what if its not copying to everywhere
+	for(let b=0; b<ret.baxels.length; b+=4){
+		ret.baxels[b*VARSPERBAXEL+BRED] = 128;
+		ret.baxels[b*VARSPERBAXEL+BGREEN] = 128;
+		ret.baxels[b*VARSPERBAXEL+BBLUE] = 128;
+		ret.baxels[b*VARSPERBAXEL+BFIRSTWEBCAM] = 255; //alpha/opacity
+	}*/
+	for(let b=0; b<ret.baxels.length; b++){
+		ret.baxels[b] = 0;
+	}
+	
 	//ret.aftrans is already newIdentAftrans()
 	//Copy this.baxels to ret.baxels but transformed (FIXME or inverse transformed?) by this.aftrans
 	
 	
 	
-	let halfangs = this.numPoleAngles(); //normally this.numAngles/2, and the other size is this.numAngles (equatorAngles), of 2d pic
+	let poleAngles = this.numPoleAngles(); //normally this.numAngles/2, and the other size is this.numAngles (equatorAngles), of 2d pic
 	let numPoints = this.numBaxels();
 	//put x y z 1 coordinates (or is it 1 x y z? how does opengl order that?) of sphere surface in here,
 	//then aftrans them, then paint colors in byteRect there.
-	let points = new Float32Array(4*numPoints);
-	let p = 0;
-	for(let equatorIndex=0; equatorIndex<this.numAngles; equatorIndex++){
-		for(let poleIndex=0; poleIndex<halfangs; poleIndex++){
-			//https://gamedev.stackexchange.com/questions/72044/why-do-we-use-4x4-matrices-to-transform-things-in-3d
-			//and http://www.opengl-tutorial.org/beginners-tutorials/tutorial-3-matrices/ both say its x y z 1 in opengl.
-			let equatorAngle = (equatorIndex+.5)/this.numAngles*twoPi;
-			let poleAngleFraction = (poleIndex+.5)/halfangs; //FIXME sometimes I +.5 to round, and sometimes I dont.
-			//let poleAngle = (poleAngleFraction*.5-1)*Math.PI;
-			//let z = Math.sin(poleAngle);
-			let poleAngle = poleAngleFraction*Math.PI;
-			//let z = -Math.cos(poleAngle);
-			let z = Math.cos(poleAngle);
-			//let xyRadius = (1-z*z);
-			let xyRadius = Math.sqrt(1-z*z);
-			//let len_z_xyRadius = Math.hypot(z, xyRadius);
-			let xBeforeMul = Math.cos(equatorAngle);
-			let yBeforeMul = Math.sin(equatorAngle);
-			//let lenXYBefore = Math.hypot(xBeforeMul, yBeforeMul);
-			let x = xyRadius*xBeforeMul;
-			let y = xyRadius*yBeforeMul;
-			points[p++] = x;
-			points[p++] = y;
-			points[p++] = z; //z. FIXME sin vs cos here?
-			points[p++] = 1; //TODO? 0, dont move the unit sphere
-			//if(Math.random() < .0001) console.log('Ball.paint x='+x+' y='+y+' z='+z);
+	
+	//cacheOf_copyRotated_points depends only on equatorAngles and poleAngles, not on aftrans. TODO share it between multiple balls.
+	let points = this.cacheOf_copyRotated_points;
+	if(!points){
+		points = new Float32Array(4*numPoints); //FIXME use AX AY AZ etc instead of hardcoding those indexs, in case theres different number of vars later?
+		let p = 0;
+		//TODO optimize, compute some of that stuff outside the loops, in 2 single loops around equator and pole, instead of in double loop.
+		for(let poleIndex=0; poleIndex<poleAngles; poleIndex++){
+			for(let equatorIndex=0; equatorIndex<this.numAngles; equatorIndex++){
+				//https://gamedev.stackexchange.com/questions/72044/why-do-we-use-4x4-matrices-to-transform-things-in-3d
+				//and http://www.opengl-tutorial.org/beginners-tutorials/tutorial-3-matrices/ both say its x y z 1 in opengl.
+				//let equatorAngle = (equatorIndex+.5)/this.numAngles*twoPi;
+				let equatorAngle = equatorIndex/this.numAngles*twoPi;
+				//let poleAngleFraction = (poleIndex+.5)/poleAngles; //FIXME sometimes I +.5 to round, and sometimes I dont.
+				//let poleAngleFraction = poleIndex/poleAngles; //FIXME sometimes I +.5 to round, and sometimes I dont.
+				let poleAngle = poleIndex/poleAngles*Math.PI; //FIXME sometimes I +.5 to round, and sometimes I dont.
+				//let poleAngle = (poleAngleFraction*.5-1)*Math.PI;
+				//let z = Math.sin(poleAngle);
+				//let poleAngle = poleAngleFraction*Math.PI;
+				//let z = -Math.cos(poleAngle);
+				let z = Math.cos(poleAngle);
+				//let xyRadius = (1-z*z);
+				let xyRadius = Math.sqrt(1-z*z);
+				//let len_z_xyRadius = Math.hypot(z, xyRadius);
+				let xBeforeMul = Math.cos(equatorAngle);
+				let yBeforeMul = Math.sin(equatorAngle);
+				//let lenXYBefore = Math.hypot(xBeforeMul, yBeforeMul);
+				let x = xyRadius*xBeforeMul;
+				let y = xyRadius*yBeforeMul;
+				points[p++] = x; //FIXME use AX AY AZ etc instead of hardcoding those indexs, in case theres different number of vars later?
+				points[p++] = y;
+				points[p++] = z; //z. FIXME sin vs cos here?
+				points[p++] = 0; //TODO? 0, dont move the unit sphere
+				//points[p++] = 1; //TODO? 0, dont move the unit sphere
+				//if(Math.random() < .0001) console.log('Ball.paint x='+x+' y='+y+' z='+z);
+			}
 		}
+		this.cacheOf_copyRotated_points = points;
+		ret.cacheOf_copyRotated_points = points;
 	}
 	
+	let af = copyFloat32Array(this.aftrans);
+	af[ASX] = af[ASY] = af[ASZ] = 0; //position (0,0,0)
+	af[AXS] = af[AYS] = af[AZS] = 0; //FIXME remove this?
+	af[ASS] = 0; //FIXME remove this?
+	//points = matmul(af, points, 4, 4, numPoints);
+	
+	points = matmul(points, transpose4x4(af), numPoints, 4, 4); //makes it depend on this.aftrans, so this part cant usefully be cached
 	
 	
-	//FIXME shouldnt have to transpose the incoming aftrans
-	//points = matmul(transpose4x4(aftrans), points, 4, 4, numPoints); //move and rotate the ball. Its nearly in byteRect coordinates, but without a horizon or viewing position.
-	points = matmul(this.aftrans, points, 4, 4, numPoints); //move and rotate the ball. Its nearly in byteRect coordinates, but without a horizon or viewing position.
-	points = transpose(points, 4, numPoints); //FIXME remove this?
+	
+	/*
+	let af = copyFloat32Array(this.aftrans);
+	//let af = newIdentAftrans(); //FIXME
+	af[ASX] = af[ASY] = af[ASZ] = 0; //position (0,0,0)
+	af[AXS] = af[AYS] = af[AZS] = 0; //FIXME remove this?
+	af[ASS] = 0; //FIXME remove this?
+	//FIXME TODO points = matmul(af, points, 4, 4, numPoints); //move and rotate the ball. Its nearly in byteRect coordinates, but without a horizon or viewing position.
+	//points = matmul(af, points, 4, 4, numPoints);
+	points = matmul(points, af, numPoints, 4, 4);
+	//points = matmul(points, af, 4, 4, numPoints);
+	//points = transpose(points, 4, numPoints); //FIXME remove this?
+	//points = matmul(af, points, 4, 4, numPoints);
+	//points = transpose(points, 4, numPoints);
+	*/
+	
+	
 	
 	//TODO optimize using quarternions andOr complexnums?
 	if(ret.baxels.length != numPoints*VARSPERBAXEL) throw 'sizes not match a';
 	if(ret.baxels.length != this.baxels.length) throw 'sizes not match b';
-	if(points.length != numPoints*4) throw 'sizes not match c';
+	if(points.length != numPoints*4) throw 'sizes not match c, points.length='+points.length+' numPoints*4='+(numPoints*4);
 	//for(let b=0; b<ret.baxels.length; b+=VARSPERBAXEL){
 	for(let b=0; b<numPoints; b++){
 		let x = points[b*4+AX];
 		let y = points[b*4+AY];
 		let z = points[b*4+AZ];
+		//let r = Math.hypot(x,y,z);
+		//if(Math.random() < .001) console.log('copyRotated r='+r);
 		//xyzToBaxelIndexIgnoringAftrans... FIXME rotate using this.aftrans or is it inverse of that?
-		let fromBaxelIndex = this.xyzToBaxelIndexIgnoringAftrans(points[b*4],points[b*4+1],points[b*4+2]);
+		
+		
+		
+		let fromBaxelIndex = this.xyzToBaxelIndexIgnoringAftrans(x,y,z);
+		//let fromBaxelIndex = b;
+		
+		
 		for(let c=0; c<VARSPERBAXEL; c++){
 			//TODO multiply by VARSPERBAXEL outside this loop?
 			//TODO bilinear interpolation for more precision?
 			ret.baxels[b*VARSPERBAXEL+c] = this.baxels[fromBaxelIndex*VARSPERBAXEL+c];
+			//ret.baxels[fromBaxelIndex*VARSPERBAXEL+c] = this.baxels[b*VARSPERBAXEL+c]; //FIXME this is reversed of b vs fromBaxelIndex?
 		}
 	}
 	
-	let radius = 87; //FIXME
+	//let radius = 87; //FIXME
+	let radius = radiusOfAftrans4x4(this.aftrans);
+	
 	ret.aftrans[AXX] = ret.aftrans[AYY] = ret.aftrans[AZZ] = radius/Math.sqrt(3);
 	ret.aftrans[ASX] = this.aftrans[ASX]; //copy x position
 	ret.aftrans[ASY] = this.aftrans[ASY]; //copy y position
 	ret.aftrans[ASZ] = this.aftrans[ASZ]; //copy z position
 	
+	//ret.aftrans = copyFloat32Array(this.aftrans);
+	
 	return ret;
 };
 
+var radiusOfAftrans4x4 = af=>Math.hypot(af[AXX],af[AXY],af[AXZ],af[AYX],af[AYY],af[AYZ],af[AZX],af[AZY],af[AZZ]);
 
 
 
@@ -5043,6 +5214,8 @@ var replaceSim = function(){
 	
 	sim.copyInputPicToOutputPicBeforeVoxelsPaintOntoOutput_elseClearToBlack = false;
 	
+	sim.copyInputPicToOutputPicBeforeVoxelsPaintOntoOutput_elseClearToBlack = true;
+	
 	
 	sim.restart();
 };
@@ -5185,7 +5358,7 @@ var adjustCanvasEtcSizesToMatchAspectRatioOfWebcamExceptRoundoff = function(){
 </script>
 
 </head><body>
-//FIXME mouseY etc measures from here not in canvas
+//Using a double joystick controller (such as a bluetooth xbox one), left joystick and 2 analog triggers rotate selected ball. Right joystick moves it. ButtonA copies it (copyRotated func). Buttons B and C select what was just copied vs the first ball. The next step, as of 2021-11-9, is to use GPU to compare 500,000 possible rotations of 2 balls, comparing 5000 pixels on each, to find how one looks most like the other given its current colors. (then to reach 0.1 pixel precision in a second step after thats narrowed down, so tennis balls (which these balls will start to look like, when its working better) that you've drawn on with a marker, can be used as VR-like controllers with or without a headset, such as to use it as a 3d mouse, with nearly the precision of a mouse, and more generally as a 6d joystick each, at around 50 fps. Theres lots of optimizing to be done, as its much slower than that for now, and some things might not need to be done every video frame or on the whole screen at once, statistically to just find the ball if its not near where it was recently.
 <table border=0><tr><td valign=top>
 
 	<canvas id="canvasOut" width=640 height=640 onmousemove="let rect = this.getBoundingClientRect(); mouseY = event.clientY-rect.top; mouseYFraction = between(0,mouseY/this.clientHeight,1); mouseX = event.clientX-rect.left; mouseXFraction = between(0,mouseX/this.clientWidth,1); trySetSelectedOb(sim.whatsAtYx([mouseY,mouseX])); /*if(selectedOb) selectedOb.randomizeColors();*/"></canvas><br>
@@ -5211,11 +5384,43 @@ var adjustCanvasEtcSizesToMatchAspectRatioOfWebcamExceptRoundoff = function(){
 <br><br>
 * DONE Ball.prototype func that copies pixels from a ByteRect onto the ball in sphere coordinates (added optionalIsReversePaint param in Ball.paint(byteRect, aftrans, optionalIsReversePaint)), including that it uses the first WEBCAM* dim) as opacity/transparency dim cuz the webcam cant see the back side of the ball.
 <br><br>
-In browser run "sim.childs.push(selectedOb.copyRotated());" then "selectedOb = sim.childs[sim.childs.length-1]" and using gamepad (may need to check the box) move around the new Ball. Problem is it didnt copy the pixels right. It has red green blue pixels near eachother, mixed up from where they should be.
+* DONE, happens when push A button on gamepad, and B and Y buttons switch which is the selected object between the first ball vs newest one you made with A. In browser run "sim.childs.push(selectedOb.copyRotated());" then "selectedOb = sim.childs[sim.childs.length-1]" and using gamepad (may need to check the box) move around the new Ball. Problem is it didnt copy the pixels right. It has red green blue pixels near eachother, mixed up from where they should be.
 <br><br>
-* TODO Ball.prototype func to create Ball.numAngles or poleAngles (numAngles/2) number of Balls whose poles are at each of those angles, so if its a 100x50 image on a Ball, then you would either create 50 or 100 Balls that are copies of those pixels but rotated. Display these other Balls and move and rotate them using gamepad as a test. Do this in rotateAndAdjustSphericalPicOnOfAllBallsFromBallsCurrentApproxPositionButManyPossibleRotations.
+* DONE: Ball.prototype.copyRotated func works.
+<br><br>
+* TODO func to find aftrans of nearest rotation between 2 Balls based on the spherical image on both of them, ignoring both of those Ball.aftrans,  
+<br><br>
+* TODO improve the "func to find aftrans of nearest rotation between 2 Balls based on the spherical image on both of them" to use a opacity (255-transparency) colorDim (FIRSTWEBCAM for example), and to compare them weighted by opacity, so when a ball is made from a circle found in 2d pixels,
+the pixels behind the ball dont count toward such similarity cuz the webcam isnt seeing them. Or FIXME, since I plan to get 0.1 pixel precision,
+probably need to compare ball to the 2d pixels directly with multiple possible +2 +1.9 -0.3 etc pixel differences in x and y,
+and similar for small differences in ball size. That has to be done at some step in each video frame, but maybe can wait until the equatorAngles*equatorAngles*poleAngles (such as 500k) possible rotations are tried, then compare this more precise way within
+a narrow range of plus/minus 3 pixels of radius, x center, y center, etc. Get it to approx match first.
+<br><br>
+* TODO Ball.prototype func to create Ball.numAngles or poleAngles (numAngles/2) number of Balls whose poles are at each of those angles, so if its a 100x50 image on a Ball, then you would either create 50 or 100 Balls that are copies of those pixels but rotated. Display these other Balls and move and rotate them using gamepad as a test. Do this in rotateAndAdjustSphericalPicOnOfAllBallsFromBallsCurrentApproxPositionButManyPossibleRotations. [Observed 2021-10-29 that nomatter how the ball is rotated on screen (using gamepad) it copies the same, if you push A to copy, move left joystick and 2 analog triggers to rotate, but dont move in x y, then push A to copy again, it copies the same thing, the 2 copies are displayed as the same pixels in a 2d circle. Its supposed to look the same as the ball you're moving with the gamepad. This uses the copyRotated func.] ... [Commentedout this line and added the next line, and it copies without the strange color changes, but this is just an experiment and need to fix what was commentedout: "//let fromBaxelIndex = this.xyzToBaxelIndexIgnoringAftrans(x,y,z);" and "let fromBaxelIndex = b;", in copyRotated. Also, the reason its not rotating is cuz commentedout the matmul above that.]
 <br><br>
 * TODO Use a group of 50 balls (sphere rotations of what webcam sees at a circle it finds the ball's 3d position), and a group of 100 Balls (rotations of selectedOb Ball etc), or whatever is the ball resolution, and align those in all bipartite pairs and 100 rotations each, so thats 50*100*100=500k rotations, and they each have 5000 points to compare 1-to-1 with 5000 points from the other group but that comparing can be done at lower resolution or random sampling etc such as only 1 pixel out of every 4x4 block of pixels since it would otherwise be too slow, and that finds which of the 500k possible rotations the webcam video and the simulated ball match best at. After finding the best of those 500k, do more detailed searching of maybe 10k possible rotations and up to 2 pixels moved in x y z etc (using the same copyRotated func, or maybe a whole extra batch of them in gpu), to get sub-pixel accuracy of ball position and rotation. Maybe a few rounds of that to get it as close as it can. Then decay the ball color toward what the webcam sees, so it will find the ball's position and rotation easier in the future. Put an AfPoint at the Ball and move it around in my physical hand, verifying the ball is now a 6d joystick.
+<br><br>
+<br><br>
+<br><br>
+* TODO Faster more reliable tennis ball finder, using the normal color of tennisballs since that color doesnt happen much. After colornormperpixel (which makes andOr normBySortedPointers etc, make some kind of cellularautomata where each pixel (in whole video output rect) knows its r g b color (and norm of it) and most importantly the pixel knows how far outward its average color is near tennisballcolor. These howFarOutward nums (per pixel) only increaseOrStayTheSame during n cycles (or sparse?). In simplest case, a pixel checks these for 4 adjacent pixels and sets howFarOutward(self) to max(howFarOutward(self),1+min(howFarOutward of each of 4 adjacent pixels)), or something like that, but theres probably a way to do it in log cycles instead of linear. Anything that covers an area can work.
+<code>
+This will likely be so fast it can be done in cpu by just random sampling 100 pixels from each possible ball center and radius (binary searchable randius, start small, double in size, sqrt2^3 times size, etc, to check for mostly yellow circle there. better: sort the 100 observations by distance, and spread them on a log(distanceFromCircleCentere) scale, so can use the same list of points, of those at most a given radius.... Use it to generate a list of 100 average colors of 100 sizes of circle. That would be too slow if it was from every pixel, but its only from about 1-10% of the pixels, randomly selected from those near the right color, and places near them in case ball center is a dark spot i drew there with black marker on ball.
+<br>
+<br>let vecs = []; Fill this with ints to add to a pixel position, each doing +dy +dx, each at same or greater hypot distance from (0,0), and on a log scale for how far, or maybe a +1 radius aka linear scale?
+<br>loop over all pixels{
+<br>	if(pixel is nearly the color of a tennis ball){
+<br>		for that pixel and 1 (or a few) random near pixels{
+<br>			loop over ints in vecs{
+<br>				(this pixel + that vec) is the next "random point.
+<br>				let radius = derive this from index in vecs.
+<br>				let isApproxCircle = TODO
+<br>			}
+<br>		}
+<br>	}
+<br>}
+</code>
+<br><br>
+<br><br>
 <br><br>
 * TODO put a very fast speed limit on ball so it cant jump discontinuously to somewhere else on screen that temporarily looks like a ball.
 <br><br>
