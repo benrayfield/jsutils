@@ -1599,12 +1599,28 @@ var normPixelsAllToSameBrightness = function(byteRect, targetSum){
 };
 
 var normPixelsAllToSameBrightness_mutable = function(byteRect, targetSum){
-	let b = byteRect.bytes;
-	for(let i=0; i<b.length; i+=4){
-		let mul = targetSum/(1+b[i+RED]+b[i+GREEN]+b[i+BLUE]);
-		b[i+RED] *= mul;
-		b[i+GREEN] *= mul;
-		b[i+BLUE] *= mul;
+	let by = byteRect.bytes;
+	for(let i=0; i<by.length; i+=4){
+		let mul = targetSum/(1+by[i+RED]+by[i+GREEN]+by[i+BLUE]);
+		by[i+RED] *= mul;
+		by[i+GREEN] *= mul;
+		by[i+BLUE] *= mul;
+	}
+};
+
+var displayOnlyYellow_mutable = function(byteRect){
+	let by = byteRect.bytes;
+	for(let i=0; i<by.length; i+=4){
+		let r = by[i+RED], g = by[i+GREEN], b = by[i+BLUE];
+		let yellowness = .35*(r+g)/(1+b);
+		yellowness *= yellowness;
+		yellowness *= yellowness;
+		yellowness *= yellowness;
+		//yellowness *= yellowness;
+		//yellowness *= yellowness;
+		by[i+RED] *= yellowness;
+		by[i+GREEN] *= yellowness;
+		by[i+BLUE] *= yellowness;
 	}
 };
 
@@ -1627,7 +1643,10 @@ var take_snapshot = function(sim){
 	let pic = byteRectIn;
 	let h = byteRectIn.height;
 	let w = byteRectIn.width;
-	normPixelsAllToSameBrightness_mutable(pic,500);
+	//normPixelsAllToSameBrightness_mutable(pic,500);
+	displayOnlyYellow_mutable(pic);
+	//normPixelsAllToSameBrightness_mutable(pic,500);
+	//filterByBrightOfOther_mutable(pic);
 	copyBytes(pic.bytes, byteRectOut.bytes);
 	canvasOutContext.putImageData(canvasOutImageData, 0, 0);
 	
@@ -2380,12 +2399,13 @@ var adjustCanvasEtcSizesToMatchAspectRatioOfWebcamExceptRoundoff = function(){
 
 </head><body>
 
+This is fast in android firefox browser, slow in android chrome browser.
 <textarea id=code rows=3 cols=100></textarea><br>
 <input type=button onclick="let code = document.getElementById('code').value; log.value = eval(code);" value="eval"></input>
 <input type=button onclick="document.getElementById('code').value = '';" value="X"></input><br>
 <textarea rows=3 cols=100 id=log></textarea><br>
 canvasOut:<br>
-<canvas id="canvasOut" style="transform:scaleX(-1)" width=160 height=120 onmousemove="let rect = this.getBoundingClientRect(); mouseY = event.clientY-rect.top; mouseYFraction = between(0,mouseY/this.clientHeight,1); mouseX = event.clientX-rect.left; mouseXFraction = between(0,mouseX/this.clientWidth,1); /*trySetSelectedOb(sim.whatsAtYx([mouseY,mouseX]));*/ /*if(selectedOb) selectedOb.randomizeColors();*/"></canvas><br>
+<canvas id="canvasOut" style="transform:matrix(4,0,0,4,500,200)" width=160 height=120 onmousemove="let rect = this.getBoundingClientRect(); mouseY = event.clientY-rect.top; mouseYFraction = between(0,mouseY/this.clientHeight,1); mouseX = event.clientX-rect.left; mouseXFraction = between(0,mouseX/this.clientWidth,1); /*trySetSelectedOb(sim.whatsAtYx([mouseY,mouseX]));*/ /*if(selectedOb) selectedOb.randomizeColors();*/"></canvas><br>
 <div id="fpsLabel"></div><br>
 canvasIn:<br>
 <canvas id="canvasIn" width=160 height=120 style="transform:scaleX(-1)"></canvas><br>
