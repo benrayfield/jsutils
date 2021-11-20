@@ -1575,7 +1575,7 @@ ByteRect.prototype.ryxrgbDerivs = function(radius, y, x, r, g, b, optionalByteRe
 					paintBytes[ptr+BLUE] = weight*255;
 					*/
 					//paint weight as varying brightness of the color of the voxel
-					paintBytes[ptr+RED] = weight*r+100; //FIXME
+					paintBytes[ptr+RED] = weight*r;
 					paintBytes[ptr+GREEN] = weight*g;
 					paintBytes[ptr+BLUE] = weight*b;
 				}
@@ -1659,6 +1659,19 @@ var displayOnlyYellow_mutable = function(byteRect){
 
 var lastDatauri = null;
 
+var putYellowCircleAtMouseAsTestBall = true;
+
+var writeTestsOntoPicIn = picIn=>{
+	if(putYellowCircleAtMouseAsTestBall){
+		//picIn.paintCircleRadiusYXRGBSafe(14, mouseY, mouseX, 200, 200, 20);
+		
+		//FIXME shouldnt have to +160. fix the coordinate system.
+		//problem is the style matrix affine transform on canvas andOr adjustments to mouseY and mouseX for it
+		paintDonut(picIn, mouseY, mouseX+160, 0, 14, 200, 200, 20);
+		//var paintDonut = function(byteRect, centerY, centerX, minRadius, maxRadius, redByte, greenByte, blueByte){
+	}
+};
+
 var updateGameObjectsAndPaint = function(dt,picIn,picOut){
 	for(let i=0; i<balls.length; i++){
 		let ball = balls[i];
@@ -1666,8 +1679,13 @@ var updateGameObjectsAndPaint = function(dt,picIn,picOut){
 		ball.move(dt);
 		ball.holdInRange();
 		ball.updateGradient(picIn,picOut);
+		//paint perimeter of ball the opposite color of the ball
+		//so its not invisible before it finds the ball on screen and sticks to it
+		picOut.paintCircleRadiusYXRGBSafe(ball.radius, ball.y, ball.x, 255-ball.red, 255-ball.green, 255-ball.blue);
 	}
 };
+
+var normBrightnessOfInputPic = true;
 
 var nextState = function(){
 	canvasInContext.drawImage(Webcam.video, 0, 0, canvasIn.width, canvasIn.height);
@@ -1683,10 +1701,18 @@ var nextState = function(){
 	let pic = byteRectIn;
 	let h = byteRectIn.height;
 	let w = byteRectIn.width;
-	//normPixelsAllToSameBrightness_mutable(pic,500);
-	displayOnlyYellow_mutable(pic);
+	
+	if(normBrightnessOfInputPic){
+		normPixelsAllToSameBrightness_mutable(pic,500);
+	}
+	
+
+	//displayOnlyYellow_mutable(pic);
+	
 	//normPixelsAllToSameBrightness_mutable(pic,500);
 	//filterByBrightOfOther_mutable(pic);
+	
+	writeTestsOntoPicIn(pic);
 	
 	//without this line, you dont see the background that webcam sees,
 	//just the parts of it that balls are over as if the balls are colored glass
@@ -2345,6 +2371,7 @@ var Ball = function(){
 	this.x = 105;
 	this.pushDx = 0;
 	this.pushDxyScale = 1000;
+	//this.pushDxyScale = 0;
 	this.minX = 10; //FIXME get this from canvas size even if it changes
 	this.maxX = 150;
 	this.minY = 10;
@@ -2366,7 +2393,7 @@ var Ball = function(){
 	this.pushDred = 0;
 	this.pushDgreen = 0;
 	this.pushDblue = 0;
-	this.pushDcolorScale = 1000;
+	this.pushDcolorScale = 10;
 	this.minRed = 0;
 	this.maxRed = 255;
 	this.minGreen = 0;
@@ -2462,6 +2489,10 @@ var potentialEnergyOfBallAtPic = function(pic, y, x, radius, red, green, blue){
 
 let isRunningMainLoop = false; //main loop has to stop between painting the screen. Use this to avoid timers possibly running the main loop twice at once.
 
+//TODO generate the canvas style instead of duplicating these numbers
+//<canvas id="canvasOut" style="transform:matrix(-4,0,0,4,500,200)" width=160 height=120></canvas><br>
+let magnifyY = 4, magnifyX = 4;
+
 window.onload = function(){
 
 
@@ -2490,19 +2521,40 @@ window.onload = function(){
 	updateCanvasObjects();
 	//replaceSim();
 
-	
 	dom('canvasOut').addEventListener('mousemove', function(event){
 		let rect = this.getBoundingClientRect();
-		mouseY = event.clientY-rect.top;
+		mouseY = (event.clientY-rect.top)/magnifyY;
 		mouseYFraction = between(0,mouseY/this.clientHeight,1);
-		mouseX = event.clientX-rect.left;
+		mouseX = (rect.left-event.clientX)/magnifyX; //reversed cuz horizontal flip to look like mirror
 		mouseXFraction = between(0,mouseX/this.clientWidth,1);
 		//trySetSelectedOb(sim.whatsAtYx([mouseY,mouseX]));
 		//if(selectedOb) selectedOb.randomizeColors();
 	});
 
 
-	balls.push(new Ball());
+	for(let i=0; i<20; i++){
+		let b = new Ball();
+		b.y = Math.random()*120;
+		b.x = Math.random()*160;
+		b.pushDxyScale = 10000;
+		b.pushDcolorScale = 3;
+		b.radius = Math.random()*20;
+		b.red = randInt(256);
+		b.green = randInt(256);
+		b.blue = randInt(256);
+		balls.push(b);
+	}
+
+	balls[0].pushDcolorScale = 0;
+	balls[0].red = 200;
+	balls[0].green = 200;
+	balls[0].blue = 0;
+	balls[0].radius = 10;
+	balls[0].y = 80;
+	balls[0].x = 80;
+	balls[0].pushDxyScale = 7000;
+	
+	
 
 
 	//why didnt this fix it, and still need to click restart after it loads (to get voxels off edges of screen they moved too fast got stuck)?: sim.restart(); //cuz changed sim.varnames
@@ -2616,13 +2668,13 @@ var adjustCanvasEtcSizesToMatchAspectRatioOfWebcamExceptRoundoff = function(){
 </head><body>
 
 This is fast in android firefox browser, slow in android chrome browser.
-<textarea id=code rows=3 cols=100></textarea><br>
+canvasOut:<br>
+<canvas id="canvasOut" style="transform:matrix(-4,0,0,4,500,200)" width=160 height=120></canvas><br>
+<div id="fpsLabel"></div><br>
+<textarea id=code rows=7 cols=30></textarea><br>
 <input type=button onclick="let code = document.getElementById('code').value; log.value = eval(code);" value="eval"></input>
 <input type=button onclick="document.getElementById('code').value = '';" value="X"></input><br>
-<textarea rows=3 cols=100 id=log></textarea><br>
-canvasOut:<br>
-<canvas id="canvasOut" style="transform:matrix(4,0,0,4,500,200)" width=160 height=120></canvas><br>
-<div id="fpsLabel"></div><br>
+<textarea rows=7 cols=30 id=log></textarea><br>
 canvasIn:<br>
 <canvas id="canvasIn" width=160 height=120 style="transform:scaleX(-1)"></canvas><br>
 camera:<br>
