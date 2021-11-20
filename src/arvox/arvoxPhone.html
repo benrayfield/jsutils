@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html><head>
-<meta charset="UTF-8" /> 
+<meta charset="UTF-8"/> 
+<meta license="The opensource MIT license: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."/>
 <script>
 
 //webcamjs_mitLicense_1.0.24.js from https://raw.githubusercontent.com/benrayfield/jsutils/master/src/arvox/webcamjs_mitLicense_1.0.24.js
@@ -1061,7 +1063,7 @@ else {
 
 
 </script><script>
-//This code is opensource MIT license, by Ben F Rayfield 2021-7+, or someone may have forked after that.
+//This code is opensource MIT license, by Ben F Rayfield 2021-11+, or someone may have forked after that.
 
 
 
@@ -1095,6 +1097,12 @@ var byteRectIn = null;
 var byteRectOut = null;
 
 const timeOffset_ = performance.timing.navigationStart;
+
+var between = (min, val, max)=>Math.max(min,Math.min(val,max));
+
+var betweenIntRoundMid = (min, val, max)=>Math.round(Math.max(min,Math.min(val,max)));
+
+var betweenIntRoundDown = (min, val, max)=>Math.floor(Math.max(min,Math.min(val,max)));
 
 //TODO test this vs Date.now()*.001. It seems to match that very close but often has more digits.
 //utc seconds. TODO more precise time, like java.lang.System.nanoTime
@@ -1361,6 +1369,16 @@ ByteRect.prototype.setColToBlack = function(x){
 	this.loopWriteBlack(this.height, x*4, this.width*4);
 };
 
+/*
+//picfn(y,x,RED_or_GREEN_or_BLUE)->brightnessFraction. Its a kind of smooth image, that can wrap a ByteRect or equation.
+Byterect.prototype.asPicfn = function(){
+	const byteRect = this;
+	return function(y,x,colorDim){
+		TODO use byteRect
+	};
+};
+*/
+
 //centerY, centerX, and radius can be scalars. Does bounds checking
 var paintDonut = function(byteRect, centerY, centerX, minRadius, maxRadius, redByte, greenByte, blueByte){
 	if(minRadius > maxRadius) throw 'minRadius='+minRadius+' maxRadius='+maxRadius;
@@ -1467,23 +1485,37 @@ const maxPossibleColorDistanceSquared = 3*255*255;
 //Since colors range 0..255, distance ranges 0..sqrt(3*255^2)=441.6729559300637.
 const maxPossibleColorDistance = Math.sqrt(maxPossibleColorDistanceSquared);
 
+
+/*TODO update this to also do radius deriv, which is jumpier than y x red green blue cuz
+radius wants to get smaller as much as color doesnt match at circle perimeter
+and wants to get bigger as much as color does match, depending how much of the circle perimeter
+is on the ball pixels that webcam sees.
+//
+//Returns [dradius, dy, dx, dred, dgreen, dblue], the direction to change 3d position and color,
+//given what webcam sees as this ByteRect.
+//Caller will normally change color a different speed than position andOr radius.
+//
 //get y x velocity, given a certain color (of a voxel there), at an x, y, and rectangle_or_2d_bellcurve, to accel that voxel, and how to change its color
 //View it as a 5d vector field of x y red green blue, or maybe 6d if you count the size of rectangle_or_2d_bellcurve but since it doesnt
 //give a derivative for the size, maybe shouldnt include that. Also z dim (into or out of the screen) is a dim in other parts of the system but not here.
 //TODO find a more efficient way to do this than 1 at a time and returning a new [5 numbers] each time, but this is early experiments.
-//size param is normally 1-20 and must always be at least 1. size is 2*radius.
+//size (UPDATE: its now radius) param is normally 1-20 and must always be at least 1. size is 2*radius.
 //r g b are 0..255. Derivatives returned are floats.
 //0 <= y < byteRect.height.
 //0 <= x < byteRect.width.
 //OLD: If isPaintOver, then paints over the area observed, to show what its observing and the weights there.
-//byteRectOutOrNull is null to not paint anything, or nonnull to paint at byteRectOutOrNull
-ByteRect.prototype.yxrgbDerivs = function(size, y, x, r, g, b, byteRectOutOrNull){
+//optionalByteRectOut is undefined to not paint anything, else paint at optionalByteRectOut.
+//What it paints tends to (TODO or is it always?) have near the same brightness as what was already there
+//but like viewed thru colored glass,
+//the color of the r g b params.
+*/
+ByteRect.prototype.ryxrgbDerivs = function(radius, y, x, r, g, b, optionalByteRectOut){
 	//FIXME if size is even, or x and y are not integers, then can pull a direction cuz of roundoff?
 	//Or will it avoid that to compare weightedSum of x and y to the average x and y of the pixels measured
 	//instead of comparing it to the param x and y?
 
-	if(size < 1) throw 'size='+size;
-	let radius = size/2;
+	let size = 2*radius;
+	if(radius < 1) throw 'radius='+radius+' so what pixels is it supposed to look at?';
 	let radiusSquared = radius*radius;
 	let xStart = Math.max(0,Math.round(x-size/2));
 	let xEndExcl = Math.min(xStart+size,this.width);
@@ -1491,6 +1523,7 @@ ByteRect.prototype.yxrgbDerivs = function(size, y, x, r, g, b, byteRectOutOrNull
 	let yEndExcl = Math.min(yStart+size,this.height);
 	let numPixels = (yEndExcl-yStart)*(xEndExcl-xStart);
 	//do it the simple square way for now, but bellcurve is better todo that
+	let dradius = 0;
 	let dy = 0;
 	let dx = 0;
 	let dr = 0;
@@ -1506,7 +1539,7 @@ ByteRect.prototype.yxrgbDerivs = function(size, y, x, r, g, b, byteRectOutOrNull
 	let sumWeight = 0;
 	let aveYUnweighted = (yStart+(yEndExcl-1))/2;
 	let aveXUnweighted = (xStart+(xEndExcl-1))/2;
-	let paintBytes = (byteRectOutOrNull ? byteRectOutOrNull.bytes : null);
+	let paintBytes = (optionalByteRectOut ? optionalByteRectOut.bytes : null);
 	for(let yy=yStart; yy<yEndExcl; yy++){
 		for(let xx=xStart; xx<xEndExcl; xx++){
 			let ptr = (yy*this.width+xx)*4; //pixel starts at which byte (and is 4 bytes)
@@ -1542,7 +1575,7 @@ ByteRect.prototype.yxrgbDerivs = function(size, y, x, r, g, b, byteRectOutOrNull
 					paintBytes[ptr+BLUE] = weight*255;
 					*/
 					//paint weight as varying brightness of the color of the voxel
-					paintBytes[ptr+RED] = weight*r;
+					paintBytes[ptr+RED] = weight*r+100; //FIXME
 					paintBytes[ptr+GREEN] = weight*g;
 					paintBytes[ptr+BLUE] = weight*b;
 				}
@@ -1564,7 +1597,7 @@ ByteRect.prototype.yxrgbDerivs = function(size, y, x, r, g, b, byteRectOutOrNull
 	}else{
 		//console.log("yxrgbDerivs.sumWeight="+sumWeight);
 	}
-	return Float32Array.of(dy, dx, dr, dg, db);
+	return Float32Array.of(dradius, dy, dx, dr, dg, db);
 };
 
 var dom = (id)=>document.getElementById(id);
@@ -1626,6 +1659,48 @@ var displayOnlyYellow_mutable = function(byteRect){
 
 var lastDatauri = null;
 
+var updateGameObjectsAndPaint = function(dt,picIn,picOut){
+	for(let i=0; i<balls.length; i++){
+		let ball = balls[i];
+		//FIXME order of these next few lines?
+		ball.move(dt);
+		ball.holdInRange();
+		ball.updateGradient(picIn,picOut);
+	}
+};
+
+var nextState = function(){
+	canvasInContext.drawImage(Webcam.video, 0, 0, canvasIn.width, canvasIn.height);
+	updateCanvasObjects();
+	let now = time();
+	let dt = now-prevTime;
+	prevTime = now
+
+	webcamFrames++;
+	webcamFpsObserved = webcamFpsObserved*(1-dt) + 1; //TODO adjustable decay rate
+	let fpsDisplay = (57 < webcamFpsObserved && webcamFpsObserved < 63) ? 'around 60 where it should be' : ''+webcamFpsObserved;
+	dom('fpsLabel').innerHTML = 'fps='+fpsDisplay;
+	let pic = byteRectIn;
+	let h = byteRectIn.height;
+	let w = byteRectIn.width;
+	//normPixelsAllToSameBrightness_mutable(pic,500);
+	displayOnlyYellow_mutable(pic);
+	//normPixelsAllToSameBrightness_mutable(pic,500);
+	//filterByBrightOfOther_mutable(pic);
+	
+	//without this line, you dont see the background that webcam sees,
+	//just the parts of it that balls are over as if the balls are colored glass
+	//that gradually becomes the color of whatever they're over and are attracted to
+	//that color aka "sticky color". Also, without this, the ALPHA (255-transparency)
+	//might be 0/transparent but you could put 255 everywhere once to fix that.
+	copyBytes(pic.bytes, byteRectOut.bytes);
+	
+	updateGameObjectsAndPaint(dt, pic, byteRectOut); //read pic, write byteRectOut
+	
+	canvasOutContext.putImageData(canvasOutImageData, 0, 0);
+};
+
+/*
 var take_snapshot = function(sim){
 	// play sound effect
 	//shutter.play();
@@ -1737,7 +1812,7 @@ var take_snapshot = function(sim){
 						true //isModifyByteRectIn
 						//true //true return ByteRect (else Float32Array)
 					);
-				}*/
+				}*
 				
 				//if(pic != byteRectIn){
 					//copyBytes(pic.bytes, byteRectIn.bytes);
@@ -1757,6 +1832,7 @@ var take_snapshot = function(sim){
 		}
 	);
 };
+*/
 
 var between = (min, val, max)=>Math.max(min,Math.min(val,max));
 
@@ -2254,6 +2330,136 @@ var trySetSelectedOb = function(ob){
 	return false;
 };
 
+var balls = [];
+
+
+//A ball is a 2d circle (y x) with radius to make it 3d, and a color,
+//that moves to fit itself to what a webcam sees, trying to find a ball (normally a tennis ball).
+var Ball = function(){
+	//this.pos = new Float32Array(4); //position
+	
+	//y and x move toward the current color in what webcam sees.
+	//TODO what range should these be in?
+	this.y = 90;
+	this.pushDy = 0; //cam pushes y, so this.y += this.pushDy*this.pushDxyScale*dt
+	this.x = 105;
+	this.pushDx = 0;
+	this.pushDxyScale = 1000;
+	this.minX = 10; //FIXME get this from canvas size even if it changes
+	this.maxX = 150;
+	this.minY = 10;
+	this.maxY = 120;
+	
+	//radius (same range as y and x) changes depending on whats at the perimeter of the circle,
+	//shrinks if its not a good color match, gets bigger if it is a good color match,
+	//and considering that fingers etc can be over parts of the ball.
+	this.radius = 10;
+	this.pushDradius = 0;
+	this.pushDradiusScale = 1000; //FIXME nonlinear scale cuz it gets bigger faster the closer it is at constant speed toward camera
+	this.minRadius = 4; //FIXME adjust these from canvas size and how big a ball is likely to be seen considering 3d
+	this.maxRadius = 30;
+	
+	//color decays toward whatever color webcam sees intersecting the circle (y x radius)
+	this.red = 200;
+	this.green = 200;
+	this.blue = 10;
+	this.pushDred = 0;
+	this.pushDgreen = 0;
+	this.pushDblue = 0;
+	this.pushDcolorScale = 1000;
+	this.minRed = 0;
+	this.maxRed = 255;
+	this.minGreen = 0;
+	this.maxGreen = 255;
+	this.minBlue = 0;
+	this.maxBlue = 255;
+	
+	//TODO store derivs here as returned by ryxrgbDerivs?
+	//or should Ball just be an array of these 6 numbers, and another 6 as their derivs?
+};
+
+//pic is a ByteRect. Updates this.pushDy, pushDx, pushDradius, pushDred, pushDgreen, and pushDblue.
+//Does not update this.y, this.radius, etc.
+//
+//You can run time backward (except if it hits holdInRange, and except for slight roundoff)
+//if you save a copy of the video (1 ByteRect each) and use negative dt.
+//Some games (such as Braid) let the player rewind time or only for certain objects but not others.
+//Or just use it as pause dt=0.
+//
+//If optionalPicOut, paints this Ball on it like seeing what was already
+//in optionalPicOut but part of it thru a circle of colored glass.
+//Its recommended optionalPicOut not be the same ByteRect as pic if theres
+//multiple Balls (but you can, it wont break)
+//cuz the others would see the modified colors and be less accurate.
+Ball.prototype.updateGradient = function(pic, optionalPicOut){
+	let gradient = pic.ryxrgbDerivs(this.radius, this.y, this.x, this.red, this.green, this.blue, optionalPicOut);
+	//ryxrgbDerivs "returns [dradius, dy, dx, dred, dgreen, dblue], the direction to change 3d position and color"
+	this.pushDradius = gradient[0];
+	this.pushDy = gradient[1];
+	this.pushDx = gradient[2];
+	this.pushDred = gradient[3];
+	this.pushDgreen = gradient[4];
+	this.pushDblue = gradient[5];
+};
+
+//After calling updateGradient, update y x radius red green blue, by += dt*scaleVarForEach
+//FIXME truncate positions so cant go off screen, outside valid color range, etc.
+Ball.prototype.move = function(dt){
+	let m = this.pushDxyScale*dt;
+	let c = this.pushDcolorScale*dt;
+	this.y += this.pushDy*m;
+	this.x += this.pushDx*m;
+	this.radius += this.pushDradius*this.pushDradiusScale*dt;
+	this.red += this.pushDred*c;
+	this.green += this.pushDgreen*c;
+	this.blue += this.pushDblue*c;
+};
+
+Ball.prototype.holdInRange = function(){
+	this.y = between(this.minY, this.y, this.maxY);
+	this.x = between(this.minX, this.x, this.maxX);
+	this.radius = between(this.minRadius, this.radius, this.maxRadius);
+	this.red = between(this.minRed, this.red, this.maxRed);
+	this.green = between(this.minGreen, this.green, this.maxGreen);
+	this.blue = between(this.minBlue, this.blue, this.maxBlue);
+};
+
+
+/*
+Ball.prototype.asPicfn = ball=>{
+	const b = ball;
+	return function(y,x,colorDim){
+		TODO
+	};
+};*/
+
+/*
+FIXME use the yxderiv code instead of this?
+//picfn(y,x,RED_or_GREEN_or_BLUE)->brightnessFraction. Its a kind of smooth image, that can wrap a ByteRect or equation.
+//TODO different speeds of changing color, radius, and y_and_x, like the sliders adjust the circular voxels in the desktop version.
+Ball.prototype.move = function(picfn){
+	TODO
+};*/
+
+
+
+/*
+//Given a ByteRect of what webcam sees, return amount of potentialEnergy
+Ball.prototype.potentialEnergy = function(pic){
+};
+*/
+
+/*
+//Given a ByteRect of what webcam sees and a possible state of a ball it might be seeing,
+//return amount of potentialEnergy, so can use gradient or harmony-search or other ways of finding lower energy.
+//Its lower energy when it knows where the ball is in 3d (y x radius) and its color (normally a yellow tennis ball).
+var potentialEnergyOfBallAtPic = function(pic, y, x, radius, red, green, blue){
+	TODO
+};
+*/
+
+
+
 let isRunningMainLoop = false; //main loop has to stop between painting the screen. Use this to avoid timers possibly running the main loop twice at once.
 
 window.onload = function(){
@@ -2285,11 +2491,18 @@ window.onload = function(){
 	//replaceSim();
 
 	
+	dom('canvasOut').addEventListener('mousemove', function(event){
+		let rect = this.getBoundingClientRect();
+		mouseY = event.clientY-rect.top;
+		mouseYFraction = between(0,mouseY/this.clientHeight,1);
+		mouseX = event.clientX-rect.left;
+		mouseXFraction = between(0,mouseX/this.clientWidth,1);
+		//trySetSelectedOb(sim.whatsAtYx([mouseY,mouseX]));
+		//if(selectedOb) selectedOb.randomizeColors();
+	});
 
 
-	
-
-
+	balls.push(new Ball());
 
 
 	//why didnt this fix it, and still need to click restart after it loads (to get voxels off edges of screen they moved too fast got stuck)?: sim.restart(); //cuz changed sim.varnames
@@ -2304,7 +2517,8 @@ window.onload = function(){
 		isRunningMainLoop = true;
 		try{
 			if(Webcam.live){ //FIXME also check isPaused here?
-				take_snapshot(sim);
+				//take_snapshot(sim); use nextState instead
+				nextState();
 				//dom('buttonsJoysticksEtcDiv').innerHTML = "<br>"+JSON.stringify(getButtonsJoysticksEtc()).replaceAll(',',',<br>');
 				//setTimeout(x, 20);
 				if(isFirstUseOfSimAfterWebcamStarted){
@@ -2395,6 +2609,8 @@ var adjustCanvasEtcSizesToMatchAspectRatioOfWebcamExceptRoundoff = function(){
 	
 };
 
+
+
 </script>
 
 </head><body>
@@ -2405,7 +2621,7 @@ This is fast in android firefox browser, slow in android chrome browser.
 <input type=button onclick="document.getElementById('code').value = '';" value="X"></input><br>
 <textarea rows=3 cols=100 id=log></textarea><br>
 canvasOut:<br>
-<canvas id="canvasOut" style="transform:matrix(4,0,0,4,500,200)" width=160 height=120 onmousemove="let rect = this.getBoundingClientRect(); mouseY = event.clientY-rect.top; mouseYFraction = between(0,mouseY/this.clientHeight,1); mouseX = event.clientX-rect.left; mouseXFraction = between(0,mouseX/this.clientWidth,1); /*trySetSelectedOb(sim.whatsAtYx([mouseY,mouseX]));*/ /*if(selectedOb) selectedOb.randomizeColors();*/"></canvas><br>
+<canvas id="canvasOut" style="transform:matrix(4,0,0,4,500,200)" width=160 height=120></canvas><br>
 <div id="fpsLabel"></div><br>
 canvasIn:<br>
 <canvas id="canvasIn" width=160 height=120 style="transform:scaleX(-1)"></canvas><br>
