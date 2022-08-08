@@ -450,7 +450,7 @@ var createControlsForAftrans4x4InDiv = function(aftrans, div, optionalStep, onCh
 	//html += '<br><input type=button onclick="" value="copy aftrans to these^, in case something other than these changed it"></input>
 	let otherVars = '';
 	for(let varNameB of optionalListOfOtherVars) otherVars += ' '+varNameB+' = '+eval(varNameB)+';';
-	html += '<br><label id='+labelId+'>'+optionalVarNameOfAftrans+' = '+aftrans4x4Str(aftrans)+';'+otherVars+'</label>'; //keep updated as aftransStr(aftrans) if changes from the 16 numberfields
+	html += '<br><label id='+labelId+'>'+optionalVarNameOfAftrans+' = '+aftrans4x4Str(aftrans,optionalListOfOtherVars,optionalVarNameOfAftrans)+';'+otherVars+'</label>'; //keep updated as aftransStr(aftrans) if changes from the 16 numberfields
 	html += '</td></tr></table>&nbsp;&nbsp;';
 	//let rotateHowMuchPerButtonClick = .005;
 	let rotateHowMuchPerButtonClick = optionalStep;
@@ -489,7 +489,9 @@ var newId = function(prefix){
 		+aftrans[12]+', '+aftrans[13]+', '+aftrans[14]+', '+aftrans[15]+')';
 };*/
 
-let aftrans4x4Str = function(aftrans){
+let aftrans4x4Str = function(aftrans, optionalListOfOtherVars, optionalVarNameOfAftrans){
+	if(!optionalListOfOtherVars) optionalListOfOtherVars = [];
+	if(!optionalVarNameOfAftrans) optionalVarNameOfAftrans = 'theMatrix4x4';
 	let html = '';
 	let aft = '<nobr>[['+aftrans[0][0]+', '+aftrans[0][1]+', '+aftrans[0][2]+', '+aftrans[0][3]+'],</nobr><br>'
 		+'<nobr>['+aftrans[1][0]+', '+aftrans[1][1]+', '+aftrans[1][2]+', '+aftrans[1][3]+'],</nobr><br>'

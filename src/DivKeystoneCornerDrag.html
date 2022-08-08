@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<script src="CanvasAndByterect.js" charset="UTF-8"></script>
+<script>
+
+//var matrix4x4 = [[.7,.2,43,.001],[.3,1,11.2,0],[0,0,1,33],[144,155,33,1]];
+//var matrix4x4 = [[0.2, 0, 43, 0.001],[0.3, 0.2, 11.2, 0],[0, 0, 1, 33],[144, 155, 33, 1]];
+var matrix4x4 = [[0.17615632778855245, -0.04945871085011982, 0.5530124628804453, 0.001],[0.39799906274087, 0.53, 1.0817050012876095, 0],[0.09983341664682814, -0.09933466539753055, 0.86, 0.86],[2.9988482839023876, 15.962449179872523, 2.046637522895184, 1]];
+
+//TODO use loops
+var matrix4x4ToTransform = m=>'matrix3d('+m[0][0]+','+m[0][1]+','+m[0][2]+','+m[0][3]+', '+m[1][0]+','+m[1][1]+','+m[1][2]+','+m[1][3]+', '+m[2][0]+','+m[2][1]+','+m[2][2]+','+m[2][3]+', '+m[3][0]+','+m[3][1]+','+m[3][2]+','+m[3][3]+')'
+
+var dob = id=>document.getElementById(id);
+
+window.onload = ()=>{
+	//var createControlsForAftrans4x4InDiv = function(aftrans, div, optionalStep, onChange, optionalListOfOtherVars, optionalVarNameOfAftrans){
+	let onChange = ()=>{
+		let tr = matrix4x4ToTransform(matrix4x4);;
+		let d = dob('keystoneMoveMe');
+		let prevTransform = d.style.transform;
+		console.log('onChange toTransform = '+tr+' fromTransform='+prevTransform);
+		d.style.transform = tr;
+	};
+	createControlsForAftrans4x4InDiv(matrix4x4, dob('controlsDiv'), .01, onChange, [], 'matrix4x4');
+	onChange();
+};
+</script>
+</head>
+<body>
+	DivKeystoneCornerDrag (opensource MIT) made by Ben F Rayfield as an Upwork job for Zeeshan Jamil 2022-8-8, with discount for making it opensource.<br>
+	<div id=controlsDiv>controlsDiv</div>
+	ABC <div id=keystoneMoveMe style="position:absolute;transform:matrix3d(.7,.2,43,.001, .3,1,11.2,0, 0,0,1,33, 144,155,33,1)"><img src='fromWikipedia_Felis_catus-cat_on_snow.jpg'></img></div> DEF
+</body>
+</html>
