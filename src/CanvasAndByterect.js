@@ -431,8 +431,8 @@ var createControlsForAftrans4x4InDiv = function(aftrans, div, optionalStep, onCh
 	let varName = newVar(aftrans);
 	let varNameOfOnChange = newVar(onChange);
 	let labelId = newId();
-	if(rememberLabelId_from_createControlsForAftrans4x4InDiv) throw 'already have a rememberLabelId_from_createControlsForAftrans4x4InDiv='+rememberLabelId_from_createControlsForAftrans4x4InDiv;
-	rememberLabelId_from_createControlsForAftrans4x4InDiv = labelId;
+	//if(rememberLabelId_from_createControlsForAftrans4x4InDiv) throw 'already have a rememberLabelId_from_createControlsForAftrans4x4InDiv='+rememberLabelId_from_createControlsForAftrans4x4InDiv;
+	//rememberLabelId_from_createControlsForAftrans4x4InDiv = labelId;
 	for(let i=0; i<4; i++){
 		html += '<nobr>';
 		for(let j=0; j<4; j++){
@@ -450,7 +450,7 @@ var createControlsForAftrans4x4InDiv = function(aftrans, div, optionalStep, onCh
 	//html += '<br><input type=button onclick="" value="copy aftrans to these^, in case something other than these changed it"></input>
 	let otherVars = '';
 	for(let varNameB of optionalListOfOtherVars) otherVars += ' '+varNameB+' = '+eval(varNameB)+';';
-	html += '<br><label id='+labelId+'>'+optionalVarNameOfAftrans+' = '+aftrans4x4Str(aftrans,optionalListOfOtherVars,optionalVarNameOfAftrans)+';'+otherVars+'</label>'; //keep updated as aftransStr(aftrans) if changes from the 16 numberfields
+	//html += '<br><label id='+labelId+'>'+optionalVarNameOfAftrans+' = '+aftrans4x4Str(aftrans,optionalListOfOtherVars,optionalVarNameOfAftrans)+';'+otherVars+'</label>'; //keep updated as aftransStr(aftrans) if changes from the 16 numberfields
 	html += '</td></tr></table>&nbsp;&nbsp;';
 	//let rotateHowMuchPerButtonClick = .005;
 	let rotateHowMuchPerButtonClick = optionalStep;
@@ -460,6 +460,8 @@ var createControlsForAftrans4x4InDiv = function(aftrans, div, optionalStep, onCh
 	html += '<input type=button onclick="rotate12('+varName+','+(-rotateHowMuchPerButtonClick)+'); dom(\''+labelId+'\').innerHTML = aftrans4x4Str('+varName+'); if('+varNameOfOnChange+') '+varNameOfOnChange+'();" value="rotate12-"></input>';
 	html += ' <input type=button onclick="rotate02('+varName+','+rotateHowMuchPerButtonClick+'); dom(\''+labelId+'\').innerHTML = aftrans4x4Str('+varName+'); if('+varNameOfOnChange+') '+varNameOfOnChange+'();" value="rotate02+"></input>';
 	html += '<input type=button onclick="rotate02('+varName+','+(-rotateHowMuchPerButtonClick)+'); dom(\''+labelId+'\').innerHTML = aftrans4x4Str('+varName+'); if('+varNameOfOnChange+') '+varNameOfOnChange+'();" value="rotate02-"></input> ';
+	html += '<input type=button onclick="setToIdentityMatrix('+varName+'); dom(\''+labelId+'\').innerHTML = aftrans4x4Str('+varName+'); if('+varNameOfOnChange+') '+varNameOfOnChange+'();" value="identity matrix 4x4"></input> ';
+	html += '<br><label id='+labelId+'>'+optionalVarNameOfAftrans+' = '+aftrans4x4Str(aftrans,optionalListOfOtherVars,optionalVarNameOfAftrans)+';'+otherVars+'</label>'; //keep updated as aftransStr(aftrans) if changes from the 16 numberfields
 	div.innerHTML += html;
 };
 
@@ -503,8 +505,9 @@ let aftrans4x4Str = function(aftrans, optionalListOfOtherVars, optionalVarNameOf
 		otherVars += ' '+varName+' = '+eval(varName)+';';
 	}
 	//let labelId = newId();
-	if(!rememberLabelId_from_createControlsForAftrans4x4InDiv) throw 'no rememberLabelId_from_createControlsForAftrans4x4InDiv';
-	let labelId = rememberLabelId_from_createControlsForAftrans4x4InDiv;
+	//if(!rememberLabelId_from_createControlsForAftrans4x4InDiv) throw 'no rememberLabelId_from_createControlsForAftrans4x4InDiv';
+	//let labelId = rememberLabelId_from_createControlsForAftrans4x4InDiv;
+	let labelId = 'TODO_labelId';
 	html += '<br><label id='+labelId+'>'+optionalVarNameOfAftrans+' = '+aft+';'+otherVars+'</label>'; //keep updated as aftransStr(aftrans) if changes from the 16 numberfields
 	html = html.replaceAll(';;',';'); //FIXME whats putting the extra ;?
 	return html;
@@ -566,4 +569,8 @@ var rotate02 = (aftrans,angle)=>{
 //modifies aftrans
 var rotate12 = (aftrans,angle)=>{
 	copyAftrans4x4Into4x4(mulAftrans4x4By4x4(aftrans,aftrans4x4ToRotate12(angle)),aftrans);
+};
+
+var setToIdentityMatrix = aftrans=>{
+	copyAftrans4x4Into4x4([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],aftrans);
 };
