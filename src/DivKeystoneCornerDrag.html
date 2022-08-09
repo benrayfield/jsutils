@@ -167,8 +167,17 @@ let onChangeAftransControls = ()=>{
 };
 
 let draggingDob = null;
+let draggingDobLeft = null;
+let draggingDobTop = null;
+let draggingDobTilt3d = null;
 let draggingDobOffsetY = 0;
 let draggingDobOffsetX = 0;
+let draggingDobTopOffsetY = 0;
+let draggingDobTopOffsetX = 0;
+let draggingDobLeftOffsetY = 0;
+let draggingDobLeftOffsetX = 0;
+let draggingDobTilt3dOffsetY = 0;
+let draggingDobTilt3dOffsetX = 0;
 
 var updateAftransControls = ()=>{
 	let div = dob('controlsDiv');
@@ -186,6 +195,17 @@ window.onload = ()=>{
 			draggingDob = e.target;
 			draggingDobOffsetY = parseInt(draggingDob.style.top)-e.clientY;
 			draggingDobOffsetX = parseInt(draggingDob.style.left)-e.clientX;
+			if(dob('dragCenterDragsAll4').checked && draggingDob.id == 'keystoneMoveMe_center'){
+				draggingDobTop = dob('keystoneMoveMe_top');
+				draggingDobLeft = dob('keystoneMoveMe_left');
+				draggingDobTilt3d = dob('keystoneMoveMe_tilt3d');
+				draggingDobTopOffsetY = parseInt(draggingDobTop.style.top)-e.clientY;
+				draggingDobTopOffsetX = parseInt(draggingDobTop.style.left)-e.clientX;
+				draggingDobLeftOffsetY = parseInt(draggingDobLeft.style.top)-e.clientY;
+				draggingDobLeftOffsetX = parseInt(draggingDobLeft.style.left)-e.clientX;
+				draggingDobTilt3dOffsetY = parseInt(draggingDobTilt3d.style.top)-e.clientY;
+				draggingDobTilt3dOffsetX = parseInt(draggingDobTilt3d.style.left)-e.clientX;
+			}
 			console.log('mousedown on '+draggingDob.id+' draggingDobOffsetY='+draggingDobOffsetY+' draggingDobOffsetX='+draggingDobOffsetX);
 		}
 	});
@@ -193,12 +213,23 @@ window.onload = ()=>{
 		if(draggingDob){
 			console.log('mouseup on '+draggingDob.id);
 			draggingDob = null;
+			draggingDobLeft = null;
+			draggingDobTop = null;
+			draggingDobTilt3d = null;
 		}
 	});
 	bigDiv.addEventListener('mousemove', e=>{
 		if(draggingDob){
 			draggingDob.style.top = (e.clientY+draggingDobOffsetY)+'px';
 			draggingDob.style.left = (e.clientX+draggingDobOffsetX)+'px';
+			if(dob('dragCenterDragsAll4').checked && draggingDob.id == 'keystoneMoveMe_center'){
+				draggingDobLeft.style.top = (e.clientY+draggingDobLeftOffsetY)+'px';
+				draggingDobLeft.style.left = (e.clientX+draggingDobLeftOffsetX)+'px';
+				draggingDobTop.style.top = (e.clientY+draggingDobTopOffsetY)+'px';
+				draggingDobTop.style.left = (e.clientX+draggingDobTopOffsetX)+'px';
+				draggingDobTilt3d.style.top = (e.clientY+draggingDobTilt3dOffsetY)+'px';
+				draggingDobTilt3d.style.left = (e.clientX+draggingDobTilt3dOffsetX)+'px';
+			}
 			updatePicFromDraggingCornersIf();
 		}
 	});
@@ -234,6 +265,7 @@ window.onload = ()=>{
 					<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>
 				</td><td valign="top" width=30%>
 					<nobr><input id=dragByCornersElse4x4 type="checkbox" checked></input><label style="color:white" for="dragByCornersElse4x4">Drag by corners to change the pic and 4x4 below<br>Else use the 4x4 below to move the pic</label></nobr><br>
+					<nobr><input id=dragCenterDragsAll4 type="checkbox" checked></input><label style="color:white" for="dragCenterDragsAll4">Drag center drags all 4</label></nobr><br>
 					<div id=controlsDiv style="z-index:5">controlsDiv</div>
 				</td>
 			</tr>
