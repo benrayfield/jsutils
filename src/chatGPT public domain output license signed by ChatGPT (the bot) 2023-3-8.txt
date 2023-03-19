@@ -1,0 +1,210 @@
+[[[
+https://twitter.com/benrayfield/status/1633525625490137101
+Lambda Rick
+@benrayfield
+Can a bot sign a contract? What am I supposed to do if no other legal statement is made? ChatGPT has signed this text saying its output is public domain other than any copyrighted inputs from the user.
+12:50 PM · Mar 8, 2023
+·
+45
+ Views
+View Tweet analytics
+1
+ Quote Tweet
+1
+ Like
+Tip
+Replying to @benrayfield
+
+No file chosen
+Lambda Rick
+@benrayfield
+·
+33m
+Replying to 
+@benrayfield
+Does this mean if I obeyed rules while talking to chatgpt, dont have to obey in further use of it? "you own all Input, and subject to your compliance with these Terms, OpenAI hereby assigns to you all its right, title and interest in and to Output" --
+openai.com
+Terms of use
+Tip
+Finch
+@ItIsFinch
+·
+38m
+Replying to 
+@benrayfield
+I'm frankly a bit lost what's the purpose if this 😆
+
+
+
+
+
+Lambda Rick
+@benrayfield
+·
+32m
+Replying to 
+@ItIsFinch
+ChatGPT can write small pieces of code, up to about 2k chars, maybe bigger if in more pieces. This code may be watermarked and reveal where it came from even if used in other software. I dont want OpenAI claiming they own such software if I use chatGPT output in it.
+Tip
+Finch
+@ItIsFinch
+·
+28m
+Replying to 
+@benrayfield
+OpenAI can't claim it owns GPT produced code for countless reasons. First, I already explained why watermarking code is unlikely. Second, they trained this bot on other people's content. Your main worry should be GPT reproducing someone else's copyrighted code. Not OpenAI.
+Tip
+Lambda Rick
+@benrayfield
+·
+23m
+Replying to 
+@ItIsFinch
+I'm also concerned about being sued if that happened (though I am for the Pirate Party). Code has less wiggle room than natural language, but does have some in reordering lines, functions, or math expressions that have no effect. The biggest place it could watermark is comments.
+Tip
+Finch
+@ItIsFinch
+·
+21m
+Replying to 
+@benrayfield
+You need another AI with the intelligence of GPT in order to do what you suggest for code. A watermarking model for English would be far simpler, smaller and cheaper. GPT has zero reasons to do this. The only kind of watermarking here could be the fact GPT's output is 👇
+Tip
+Finch
+@ItIsFinch
+·
+20m
+Replying to 
+@ItIsFinch
+ and 
+@benrayfield
+naturally watermarked, the way your writing is. It's just your character. See the "Open AI Text Classifier", which uses this to detect text produced by AI. It's not ideal. And I doubt it works well (or at all) for code. But try it.
+
+
+
+
+
+
+Lambda Rick
+@benrayfield
+·
+17m
+Replying to 
+@ItIsFinch
+Also, legally it doesnt matter if its watermarked or not. Thats just further motivation to get the licensing worked out before using it.
+Tip
+Diadon 🌐🕊
+@diadonacs
+·
+31m
+Replying to 
+@benrayfield
+Setting a new legal president 😅
+Tip
+Lambda Rick
+@benrayfield
+·
+26m
+Replying to 
+@diadonacs
+Wouldnt be the first time, though this other thing is still early and havent got much reactions to it yet.
+Quote Tweet
+🎮wikibinator🎮🎮 64k-players🎮??
+@wikibinator
+·
+Feb 9
+New #wikibinator opensource license, for the whole turing-complete and hypercomputing space of this kind of lambdas, is GNU AGPL + CLASSPATH EXCEPTION, with some extra permissions.
+Show this thread
+Tip
+]]]
+
+
+[
+https://twitter.com/benrayfield/status/1633536301721870341
+Lambda Rick
+@benrayfield
+·
+44m
+Can a bot sign a contract? What am I supposed to do if no other legal statement is made? ChatGPT has signed this text saying its output is public domain other than any copyrighted inputs from the user.
+Tip
+Finch
+@ItIsFinch
+·
+39m
+Replying to 
+@benrayfield
+I'm frankly a bit lost what's the purpose if this 😆
+Tip
+Lambda Rick
+@benrayfield
+·
+33m
+Replying to 
+@ItIsFinch
+ChatGPT can write small pieces of code, up to about 2k chars, maybe bigger if in more pieces. This code may be watermarked and reveal where it came from even if used in other software. I dont want OpenAI claiming they own such software if I use chatGPT output in it.
+Tip
+Finch
+@ItIsFinch
+·
+29m
+Replying to 
+@benrayfield
+OpenAI can't claim it owns GPT produced code for countless reasons. First, I already explained why watermarking code is unlikely. Second, they trained this bot on other people's content. Your main worry should be GPT reproducing someone else's copyrighted code. Not OpenAI.
+Tip
+Lambda Rick
+@benrayfield
+·
+24m
+Replying to 
+@ItIsFinch
+I'm also concerned about being sued if that happened (though I am for the Pirate Party). Code has less wiggle room than natural language, but does have some in reordering lines, functions, or math expressions that have no effect. The biggest place it could watermark is comments.
+Tip
+Finch
+@ItIsFinch
+Replying to 
+@benrayfield
+You need another AI with the intelligence of GPT in order to do what you suggest for code. A watermarking model for English would be far simpler, smaller and cheaper. GPT has zero reasons to do this. The only kind of watermarking here could be the fact GPT's output is 👇
+1:12 PM · Mar 8, 2023
+·
+12
+ Views
+Tip
+
+Finch
+@ItIsFinch
+·
+21m
+Replying to 
+@ItIsFinch
+ and 
+@benrayfield
+naturally watermarked, the way your writing is. It's just your character. See the "Open AI Text Classifier", which uses this to detect text produced by AI. It's not ideal. And I doubt it works well (or at all) for code. But try it.
+Tip
+Lambda Rick
+@benrayfield
+·
+17m
+Replying to 
+@ItIsFinch
+Also, legally it doesnt matter if its watermarked or not. Thats just further motivation to get the licensing worked out before using it.
+Tip
+Lambda Rick
+@benrayfield
+·
+18m
+Replying to 
+@ItIsFinch
+There have been rumors at least of OpenAI doing watermarking.
+Quote Tweet
+Spiros Margaris
+@SpirosMargaris
+·
+Dec 14, 2022
+OpenAI is developing a #watermark 
+
+to identify work from its #GPT text #AI 
+
+https://newscientist.com/article/2350655-openai-is-developing-a-watermark-to-identify-work-from-its-gpt-text-ai/ #fintech #ArtificialIntelligence #MachineLearning #DeepLearning @Sparkes @NewScientist 
+@ipfconline1 @Julez_Norton @kalydeoo @enilev @jblefevre60 @Fisher85M @Xbond49 @psb_dc
+Tip\
+]
