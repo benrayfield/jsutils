@@ -1,0 +1,307 @@
+<script>
+//This file is offered under opensource MIT license by Ben F Rayfield.
+//Its the prototype of a convolutional scalar field that can approximate a SAT solver,
+//cellular automata, quasicrystals, and smooth functions, in theory.
+//Each pixel is a dimension. So in the demo its a 3844 dimensional scalar field.
+//The plan is to go up to millions of dimensions in a 3d conways game of life massively multiplayer,
+//andOr neuralnet paint apps, stuff like that.
+
+//always use tabs instead of spaces (message to the autocomplete)
+
+/*var Tensor = function(shape,optionalData){
+	this.shape = shape;
+	this.data = optionalData || new Float64Array(mulAll(shape));
+};
+
+var mulAll = ints=>{
+	let ret = 1;
+	for(let i=0;i<ints.length;i++) ret *= ints[i];
+	return ret;
+};
+
+//Example: the 4 ints for 1 left, self, 1 right, and 1 down, that affect eachother in a 2d view of rule110.
+var SparseTensor = function(pointers, data){
+	throw 'TODO';
+};
+
+/*var conwayCubeSide = 32;
+
+var conwayLifeState = new Tensor();
+*/
+
+//display and paint rule110 in this many pixels tall/wide.
+const rule110SquareSide = 64;
+
+//var rule110State = new Tensor([rule110SquareSide,rule110SquareSide]);
+var rule110StatePosition = new Float64Array(rule110SquareSide**2);
+
+var rule110StateVelocity = new Float64Array(rule110StatePosition.length);
+
+//per dt
+var velocityDecay = .1;
+
+//a 4 dimensional scalar field. TODO manually design this, or use a neural net to learn it?
+//Basically theres 16 possible combos of 4 bits, but as scalars its a smooth 4d field
+//that has valleys in those 16 places and hills everywhere else. Smaller hill between the 2 valleys
+//of a bit being 0 or 1, and big hill side that it will never cross as it goes out of bounds
+//(less than 0 or more than 1). The 4sat part of it is that only 8 of the 16 combos are allowed,
+//so make it higher in the other 8 that are not allowed. Will likely have to fiddle with this
+//after see it rolling around the state space on screen which will appear like a neuralnet
+//trying to learn to make what you paint look like rule110 (1d space, 1d time)
+//except its not a neuralnet. Its a convfield. The model is not a sigmoid or tanh or relu etc of weightedSum.
+//The model is a small scalar field summed as centered at each pixel.
+var rule110ConvFunc = (left,self,right,down)=>{
+	let sum = 0;
+	if(left < 0) sum += left**2;
+	if(left > 1) sum += (left-1)**2;
+	if(self < 0) sum += self**2;
+	if(self > 1) sum += (self-1)**2;
+	if(right < 0) sum += right**2;
+	if(right > 1) sum += (right-1)**2;
+	if(down < 0) sum += down**2;
+	if(down > 1) sum += (down-1)**2;
+
+	//sum += (left-self)**2 + (right-down)**2; //arbitrary experiment
+
+	//https://en.wikipedia.org/wiki/Rule_110
+	//Current pattern           111 110 101 100 011 010 001 000
+	//New state for center cell  0   1   1   0   1   1   1   0
+	let notLeft = 1-left;
+	let notSelf = 1-self;
+	let notRight = 1-right;
+	let notDown = 1-down;
+	sum += (left*self*right*down)**2; //111. exclude 111_1 cuz allow 111_0.
+	sum += (left*self*notRight*notDown)**2; //110. exclude 110_0 cuz allow 110_1.
+	sum += (left*notSelf*right*notDown)**2; //101 allow 1
+	sum += (left*notSelf*notRight*down)**2; //100 allow 0
+	sum += (notLeft*self*right*notDown)**2; //011 allow 1
+	sum += (notLeft*self*notRight*notDown)**2; //010 allow 1
+	sum += (notLeft*notSelf*right*notDown)**2; //001 allow 1
+	sum += (notLeft*notSelf*notRight*down)**2; //000 allow 0
+	
+	return sum;
+
+	//return (self-.5)**2; //FIXME this is just a test to see if it goes gray.
+};
+
+//Leave a 1 pixel border on all sides so dont cross the edge of the state square.
+var rule110ConvFuncAtYX = (state,y,x)=>{
+	let left = state[y*rule110SquareSide+(x-1)];
+	let self = state[y*rule110SquareSide+x];
+	let right = state[y*rule110SquareSide+x+1];
+	let down = state[(y+1)*rule110SquareSide+x];
+	return rule110ConvFunc(left,self,right,down);
+};
+
+const epsilon = .00001;
+
+//Leave a 2 pixel border on all sides so dont cross the edge of the state square.
+var rule110GradientAtYX = (state,y,x)=>{
+	let myIndex = y*rule110SquareSide+x;
+	let myVal = state[myIndex];
+	let myValPlusEpsilon = myVal+epsilon; //https://en.wikipedia.org/wiki/Fundamental_theorem_of_calculus
+	let noChange_imLeft = rule110ConvFuncAtYX(state,y,x+1);
+	let noChange_imSelf = rule110ConvFuncAtYX(state,y,x);
+	let noChange_imRight = rule110ConvFuncAtYX(state,y,x-1);
+	let noChange_imDown = rule110ConvFuncAtYX(state,y-1,x); //y+1 is down if im self. Im the down viewed from y-1.
+	state[myIndex] = myValPlusEpsilon; //TODO dont modify state. call rule110ConvFunc directly on various 4 scalars instead.
+	let plusEpsilon_imLeft = rule110ConvFuncAtYX(state,y,x+1);
+	let plusEpsilon_imSelf = rule110ConvFuncAtYX(state,y,x);
+	let plusEpsilon_imRight = rule110ConvFuncAtYX(state,y,x-1);
+	let plusEpsilon_imDown = rule110ConvFuncAtYX(state,y-1,x); //y+1 is down if im self. Im the down viewed from y-1.
+	state[myIndex] = myVal;
+	let noChangeFieldPart = noChange_imLeft+noChange_imSelf+noChange_imRight+noChange_imDown;
+	let plusEpsilonFieldPart = plusEpsilon_imLeft+plusEpsilon_imSelf+plusEpsilon_imRight+plusEpsilon_imDown;
+	let fieldChange = plusEpsilonFieldPart-noChangeFieldPart;
+	let gradient = fieldChange/epsilon;
+	return gradient;
+};
+
+//a function of rule110SquareSide*rule110SquareSide scalars (pixel brightnesses) to 1 scalar (potential-energy),
+//that the state space rolls along (with momentum and a little friction) to find lower energy states
+//which better solve the convolutional 4SAT constraints centered at each pixel.
+//The state param is a Float64Array of size rule110SquareSide*rule110SquareSide.
+var rule110ScalarField = state=>{
+	let field = 0;
+	for(let y=2; y<rule110SquareSide-2; y++){ //FIXME? exclude a 2 pixel border on all 4 sides so the 4-SAT doesnt go out of range.
+		for(let x=2; x<rule110SquareSide-2; x++){
+			field += rule110ConvFuncAtYX(state,y,x);
+		}
+	}
+	return field;
+};
+
+//modifies state. in other code, just use the inside of it other than that 2 pixel thick border on all 4 sides.
+var zeroOutA2PixelBorder = state=>{
+	for(let y=0; y<rule110SquareSide; y++){
+		for(let x=0; x<rule110SquareSide; x++){
+			if(x<2 || x>=rule110SquareSide-2 || y<2 || y>=rule110SquareSide-2){
+				state[y*rule110SquareSide+x] = 0;
+			}
+		}
+	}
+};
+
+//modifies state, but not the parts on 2 pixel border on all 4 sides.
+var randomizeState = state=>{
+    for(let y=2; y<rule110SquareSide-2; y++){
+		for(let x=2; x<rule110SquareSide-2; x++){
+			state[y*rule110SquareSide+x] = Math.random();
+		}
+	}
+};
+
+randomizeState(rule110StatePosition);
+zeroOutA2PixelBorder(rule110StatePosition);
+
+var gradientVec = state=>{
+    let gradient = new Float64Array(state.length);
+    for(let y=2; y<rule110SquareSide-2; y++){
+		for(let x=2; x<rule110SquareSide-2; x++){
+			gradient[y*rule110SquareSide+x] = rule110GradientAtYX(state,y,x);
+		}
+	}
+    return gradient;
+};
+
+//updates rule110StatePosition and rule110StateVelocity.
+//dt is change in time, but u can just give it arbitrary number like .01 for now.
+//TODO energy norming so it doesnt get more and more jumpy until getting too fast, or too slow crawls to a halt.
+//TODO Do that thing like position**2 + velocity**2 = constant in that sparseDoppler experiment i did with microphone
+//but more generally using the scalarField as potentialEnergy.
+var nextStateRule110 = function(dt){
+    let gradient = gradientVec(rule110StatePosition);
+	let mulVelocity = Math.max(0,Math.min(1-dt*velocityDecay,1));
+    for(let i=0; i<rule110StatePosition.length; i++){
+        rule110StateVelocity[i] -= gradient[i]*dt; //FIXME is that right? divide by a constant? Squared? Sqrt? Of what is it?
+		rule110StateVelocity[i] *= mulVelocity;
+        //TODO velocity decay
+        rule110StatePosition[i] += rule110StateVelocity[i]*dt;
+    }
+};
+
+
+//https://github.com/benrayfield/jsutils/blob/master/src/FullScreenCanvasPrototype.html
+
+//Ben F Rayfield offers this code as opensource MIT license
+
+//byte offsets for ByteRect, canvas, etc, in js.
+const RED = 0, GREEN = 1, BLUE = 2, ALPHA = 3;
+
+var FullScreenCanvas = function(parentDom){ //FullScreenCanvas opensource MIT licensed by Ben F Rayfield
+	if(parentDom === undefined) parentDom = document.body;
+	this.dom = document.createElement('canvas');
+	//TODO z order, in front of everything else.
+	//this.dom = document.getElementById('canv'); //FIXME remove this line, use createElement instead.
+	this.context = null;
+	this.imageData = null;
+	this.pixels = null;
+	this.byteRect = null;
+	parentDom.appendChild(this.dom);
+	this.dom.style.position = 'absolute';
+	this.dom.style.left = '0px';
+	this.dom.style.top = '0px';
+	
+	this.resizeCanvas = function(){
+		if(this.dom.width != window.innerWidth) this.dom.width = window.innerWidth;
+		if(this.dom.height != window.innerHeight) this.dom.height = window.innerHeight;
+	};
+	
+	//TODO optimize, if you're not reading from the canvas, maybe can skip parts of this or only call this once?
+	this.beforePaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		this.context = this.dom.getContext('2d');
+		//console.log('this.dom.width = '+this.dom.width);
+		this.imageData = this.context.getImageData(0, 0, this.dom.width, this.dom.height);
+		this.pixels = this.imageData.data;
+		this.byteRect = new ByteRect(this.pixels, this.dom.height, this.dom.width);
+	};
+	
+	//call this after modify byteRect.bytes which contains pixel colors to write to Canvas.
+	this.afterPaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		//this.context.drawImage(this.dom, 0, 0, this.dom.width, this.dom.height);
+		this.context.putImageData(this.imageData, 0, 0);
+	};
+	
+	this.removeFromScreen = function(){
+		this.dom.remove();
+		this.dom = null;
+		this.context = null;
+		this.imageData = null;
+		this.pixels = null;
+		this.byteRect = null;
+	};
+	
+	this.resizeCanvas();
+	this.beforePaint();
+};
+
+var ByteRect = function(bytes, height, width){ //ByteRect opensource MIT licensed by Ben F Rayfield (has more funcs other places)
+	this.bytes = bytes;
+	this.height = height;
+	this.width = width;
+};
+
+var canv = null;
+
+var time = ()=>Date.now()*.001; //utc seconds
+
+var randByte = ()=>Math.floor(Math.random()*256);
+
+var pixelsPerCell = 10;
+
+var sigmoid = x=>1/(1+Math.exp(-x));
+
+var doPageTransitioningGraphics = function(dt, age, byteRect){
+
+	for(let i=0; i<byteRect.bytes.length; i+=4){
+		byteRect.bytes[i+RED] = randByte();
+		byteRect.bytes[i+GREEN] = randByte();
+		byteRect.bytes[i+BLUE] = randByte();
+		byteRect.bytes[i+ALPHA] = 255;
+	}
+
+	nextStateRule110(dt);
+
+	for(let y=0; y<rule110SquareSide; y++){
+		for(let x=0; x<rule110SquareSide; x++){
+			let positionInThatDimension = rule110StatePosition[y*rule110SquareSide+x];
+			let red = Math.floor(sigmoid(positionInThatDimension*4-2)*255.9999); //0..255
+			let green = red;
+			let blue = green;
+			let pixYStart = y*pixelsPerCell;
+			let pixXStart = x*pixelsPerCell;
+			for(let pixY=pixYStart; pixY<(pixYStart+pixelsPerCell); pixY++){
+				for(let pixX=pixXStart; pixX<(pixXStart+pixelsPerCell); pixX++){
+					let i = (pixY*byteRect.width+pixX)*4;
+					byteRect.bytes[i+RED] = red;
+					byteRect.bytes[i+GREEN] = green;
+					byteRect.bytes[i+BLUE] = blue;
+					byteRect.bytes[i+ALPHA] = 255;
+				}
+			}
+		}
+	}
+};
+
+var timeStarted = time();
+
+var prevTime = timeStarted;
+
+var nextState = function(){
+	if(canv == null) canv = new FullScreenCanvas();
+	let now = time();
+	let age = now-timeStarted;
+	let dt = Math.max(0, Math.min(now-prevTime, .2));
+	prevTime = now;
+	canv.beforePaint();
+	doPageTransitioningGraphics(dt, age, canv.byteRect);
+	canv.afterPaint();
+	setTimeout(nextState, 1);
+};
+
+window.onload = ()=>{
+	nextState();
+};
+</script>
