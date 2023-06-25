@@ -1,0 +1,118 @@
+<script>
+
+console.log(`
+Write this on console to make GPT call itself. It will ask you for your api key (not sure if u should let jsfiddle have it)...
+
+Q.chat('I created a function Q.chat that calls GPT (you). You are receiving this message from it. One of the parameters of Q.chat is s=>eval(s), to eval your response after stripping the prefix and suffix. Dont answer with anything except javascript. For example, you could respond with: Q.chat("I am GPT calling GPT recursively", s=>{console.log(s); eval(s);});', s=>{console.log(s); eval(s);});
+`);
+
+var Q = {
+
+	chat: function(stringIn, returnString){
+		Q.openai(
+			'https://api.openai.com/v1/chat/completions',
+			Q.getOpenaiApiKey(),
+			{model: "gpt-3.5-turbo", messages: [{role: "user", content: stringIn}], temperature: 0.7},
+			map=>{
+				if(map.localError){
+					ret = "ERR: localError: "+map.localError;
+				}else if(map.choices){
+					let ret = map.choices[0].message.content;
+					if(ret.includes("against OpenAI's content policy")){
+						ret = "ERR: "+ret;
+					}
+					if(ret.startsWith('```javascript') && ret.endsWith('```')){
+						ret = ret.substring('```javascript'.length, ret.length-'```'.length).trim();
+					}
+					returnString(ret);
+				}else if(map.error.message){
+					returnString('ERR: '+map.error.message);
+				}else{
+					returnString('ERR: '+JSON.stringify(map));
+				}
+			}
+		);
+	},
+
+	/*
+	openai('https://api.openai.com/v1/chat/completions','mykey',{model: "gpt-3.5-turbo", messages: [{role: "user", content: "what is wikibinator?"}], temperature: 0.7},map=>console.log(map));
+	It put on browser console:
+	{
+		"id": "chatcmpl-7V6l9av706wGcbui0ZUFx5uMhfW6e",
+		"object": "chat.completion",
+		"created": 1687648507,
+		"model": "gpt-3.5-turbo-0301",
+		"choices": [
+			{
+				"index": 0,
+				"message": {
+					"role": "assistant",
+					"content": "Wikibinator is a theoretical universal computer program that is capable of computing anything that is computable. It is based on the concept of combinatory logic, which is a mathematical theory of functions. Wikibinator is designed to be self-referential, meaning that it can modify, delete, and create its own code and data structures. It is also designed to be fully transparent, so that anyone can understand how it works and verify its correctness. The purpose of Wikibinator is to provide a theoretical foundation for computer science and artificial intelligence, and to explore the limits of computation."
+				},
+				"finish_reason": "stop"
+			}
+		],
+		"usage": {
+			"prompt_tokens": 14,
+			"completion_tokens": 117,
+			"total_tokens": 131
+		}
+	}
+	*/
+	openai: function(url, apiKey, map, returnHere){
+		if(Q.gas.openaiCallsLeft <= 0){
+			returnHere({localError: 'Ran out of Q.gas.openaiCallsLeft. This is to avoid spending alot of money by accident if theres an infinite loop, but be careful not to let the remote AI adjust Q.gas etc cuz it could get around that possibly.'});
+		}else{
+			//url = url || "https://api.openai.com/v1/engines/davinci-codex/completions";
+			url = url || 'https://api.openai.com/v1/chat/completions';
+			var xhr = new XMLHttpRequest();
+			xhr.open("POST", url, true);
+			xhr.setRequestHeader("Content-Type", "application/json");
+			xhr.setRequestHeader("Authorization", "Bearer " + apiKey);
+
+			xhr.onreadystatechange = function() {
+				if (xhr.readyState === 4) {
+					let response = JSON.parse(xhr.responseText);
+					returnHere(response);
+				
+				//var response;
+				//var error;
+
+				/*if (xhr.status === 200) {
+					response = JSON.parse(xhr.responseText);
+					if (response.choices && response.choices.length > 0) {
+					var returnedMap = new Map(JSON.parse(response.choices[0].text));
+					returnHere(returnedMap);
+					return;
+					} else {
+					error = "Error: Empty response from OpenAI.";
+					}
+				} else {
+					error = "Error: " + xhr.statusText;
+				}
+				*/
+
+				//console.error(error);
+				//returnHere(null, error);
+				}
+			};
+			xhr.send(JSON.stringify(map));
+		}
+	},
+	
+	gas:{
+		openaiCallsLeft: 100,
+	},
+	
+	secret:{
+	},
+	
+	getOpenaiApiKey: function(){
+		if(!Q.secret.openaiApiKey){
+			Q.secret.openaiApiKey = prompt('openai api key?');
+		}
+		return Q.secret.openaiApiKey;
+	}
+};
+
+</script>
