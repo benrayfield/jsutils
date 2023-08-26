@@ -1,0 +1,375 @@
+<html><head><script>
+
+//I Ben F Rayfield made this 2023-8-26 and put it on jsfiddle Simple physics sim of 3 balls bouncing in 2d so 12 dimensions of state.
+//Energy not normed yet. Small javascript code see it moving. Thinking about defining neural-qlearning by least-squares
+//constraint per 12d point -> qscore. Ball Y position is addToReward https://jsfiddle.net/dwn6b53c/
+//Acceleration is by energy function gradient. Energy function is weighted sum of a few arbitrarily chosen energy functions.
+//You could add any energy function, such as try to stay a prime number distance between balls
+//If neural-qlearning is done by least-squares constraint, then the perfect solution is the lowest energy, though may not find it.
+//If using feedforward neuralnet, or maybe that with 2 input nodes each and multiplies them (could learn mandelbrot)
+//then weights of that neuralnet are another state space. For each possible state, could sum many of the (qscore-max(qscoreNearby)
+//.. and decay stuff)^2 at many states
+
+
+
+//reads and writes nodes. reads weights. weights.length==nodes.length**2;
+//nodes[0] should always be 1, used as bias per weightedSum.
+//Then normally theres input nodes. And the rest are internal or output nodes. Outputs are at end of nodes.
+//Example: a size 4096 Float32Array weights, and size 64 nodes, with 1 constant, then 12 input nodes,
+//and 50 internal nodes, and 1 output node,
+//used as a qscore function of 12 numbers in to 1 number out. Those 12 numbers are yPos xPos yVel xVel of 3 pucks,
+//for example, but this function is more general than pucks. Its a kind of feedforward neuralnet
+//that stores 2 triangle arrays in a square array. In that example its 64 neural layers deep.
+//That could in theory learn mandelbrot about 30 cycles deep.
+//TODO get this kind of neuralnet working by training it on mandelbrot data and having it predict other colors
+//(black or white depending if its in the mandelbrot or not).
+//When thats working, use it for neural-qlearning of airhockey-like games.
+//
+//This is starting to look like a cellular automata, where each 2d cell's few numbers are computed from the
+//cell up and the cell left of it. Those numbers include celltype being triangleA triangleB diagonalInputNode
+//diagonalOutputNode, incomingNodeVal, cumulativeSumA cumulativeSumB
+//if so, that could simplify backprop.
+//that means i could in theory use my 15376 dimensional convolutional SAT solver (that in this demo converges
+//to rule110 with crystal defects) as a learning algorithm with
+//very low overfitting https://memecombinator.io/experiments/ConvfieldDemo3.html
+//
+//In theory... it could represent any nand forest of n nodes in n^2 weights. fit 64 neuralnet layers in a single
+//gpu core's (which there are a few thousand of per GPU) opencl private memory (or glsl shader memory?),
+//run on a 1 trillion thread cellular automata processor, etc.
+//
+var doubleTriangleNeuralnet = function(nodes, weights){
+	if(nodes.length**2 != weights.length){
+		throw '('+nodes.length+'=nodes.length)**2 != weights.length == '+weights.length;
+	}
+	let side = nodes.length;
+	for(let n=0; n<side; n++){
+		let isInputNode = weights[n*side+n]; //on diagonal. 1 for input node. 0 for internal or output node.
+		let sumA = 0;
+		let sumB = 0;
+		for(let i=0; i<n; i++){ //sum left n-1 weights, and other is sum top n-1 weights, multiplied by other nodes.
+			sumA += weights[n*side+i]*nodes[i];
+			sumB += weights[i*side+n]*nodes[i];
+		}
+		//range -2 to 2. Similar to GRU or LSTM node but simpler and feedforward.
+		let thisNeuralActivation = (Math.tanh(sumA)+1)*Math.tanh(sumB);
+		nodes[n] = nodes[n]*isInputNode + (1-isInputNode)*thisNeuralActivation;
+	}
+};
+
+//weighted sum of energyfuncs. each takes a Float32Array param and returns a number.
+//returns a function wrapping that.
+let treeEnergyFunc = function(weights, childs){
+	//this.childs = [];
+	//this.weights = [];
+	let ret = function(state){
+		let sum = 0;
+		for(let i=0; i<weights.length; i++){
+			sum += weights[i]*childs[i](state);
+		}
+		return sum;
+	};
+	ret.weights = weights;
+	ret.childs = childs;
+	return ret;
+};
+/*TreeEnergyFunc.prototype.add = function(weight, energyFunc){
+	this.weights.push(weight);
+	this.childs.push(energyFunc);
+};*/
+
+//returns height/potentialEnergy, but just the part due to the distance between 2 specific pucks
+let defaultPuckToPuckRepelFunc = function(distance){
+	let sumOf2Radius = .2; //FIXME
+	var repelStrength = -2.1; //FIXME
+	let adjustedDistance = distance-sumOf2Radius;
+	if(adjustedDistance < 0){
+		let overlapFraction = adjustedDistance/-sumOf2Radius; //1 if same center. 0 if touching at tangent.
+		//return repelStrength*overlapFraction; //cone shaped energy hill
+		return repelStrength*Math.sqrt(overlapFraction); //upsidedown parabola shaped energy hill, tight tangent bounce, weak repel if alot of overlap
+		//return repelStrength*overlapFraction**2; //springlike repel
+	}
+	return 0;
+};
+
+let energyFuncKeepPuckNearCenter = function(ay, ax){
+	let strength = -41.2;
+	let ret = function(state){
+		let dy = state[ay];
+		let dx = state[ax];
+		//let distSq = dy*dy+dx*dx; //parabola shaped bowl
+		//return strength*distSq;
+		let dist = Math.hypot(dy,dx);
+		return strength*dist;
+		//let adjustedDist = dist*.3;
+		//return strength
+	};
+	ret.ay = ay;
+	ret.ax = ax;
+	return ret;
+};
+
+let distanceEnergyFunc = function(ay, ax, by, bx, distToHeight){
+	let ret = function(state){
+		let dy = state[ay]-state[by];
+		let dx = state[ax]-state[bx];
+		let dist = Math.hypot(dy,dx);
+		return distToHeight(dist);
+	};
+	ret.ay = ay;
+	ret.ax = ax;
+	ret.by = by;
+	ret.bx = bx;
+	return ret;
+};
+
+let derivative = function(energyFunc, state, index){
+	let epsilon = .0001;
+	//let state2 = state.slice();
+	//state2[index] += epsilon;
+	//return (energyFunc(state2)-energyFunc(state))/epsilon;
+	let beforeEn = energyFunc(state);
+	let prevNum = state[index];
+	state[index] += epsilon;
+	let afterEn = energyFunc(state);
+	state[index] = prevNum;
+	return (afterEn-beforeEn)/epsilon;
+};
+
+//For qlearning, or just counting score while 2 humans play airhockey with mouse or gamepads. TODO.
+//derivative of reward per time at that state, such as when puck is in enemy goal, and negative of puck is in the goal im defending, etc.
+let changeInReward = function(state){
+	//return state[0]; //just try to make this higher. its y position of some puck. FIXME
+	return -(state[Y]+state[numPucks+Y]+state[numPucks*Y]); //try to make all 3 pucks go toward -y (top of screen)
+};
+
+const Y = 0;
+const X = 1;
+const YVEL = 2;
+const XVEL = 3;
+const PUCKVARS = 4;
+
+//defaultPuckToPuckRepelFunc(3)(list of 6 numbers as y x y x y x) -> potentialEnergy
+let energyFuncOfNPucksInParabolaShapedBowl = function(nPucks){
+	let weights = [];
+	let childs = [];
+	//let puckVars = 4; //y and x and yVel and xVel
+	let weightEach = .04; //this it to scale total potentialEnergy. FIXME?
+	for(let n=0; n<nPucks; n++){
+		weights.push(weightEach);
+		childs.push(energyFuncKeepPuckNearCenter(PUCKVARS*n+Y, PUCKVARS*n+X));
+	}
+	for(let n=1; n<nPucks; n++){
+		for(let m=0; m<n; m++){ //all pairs of pucks
+			weights.push(1);
+			childs.push(distanceEnergyFunc(PUCKVARS*n+Y, PUCKVARS*n+X, PUCKVARS*m+Y, PUCKVARS*m+X, defaultPuckToPuckRepelFunc));
+		}
+	}
+	return treeEnergyFunc(weights, childs);
+};
+
+var htmlToDisplayState = function(state){
+	let html = '<div style="background-color:#abcdef">';
+	let text = '';
+	for(let n=0; n<state.length; n+=PUCKVARS){
+		let y = state[n+Y];
+		let x = state[n+X];
+		let top = 150+y*100;
+		let left = 150+x*100;
+		html += '<svg style="position:absolute" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg"><g color="green"><circle stroke="currentcolor" fill="blue" cx="'+left+'" cy="'+top+'" r="10" /></g></svg>';
+		text += ' y'+top+'x'+left;
+		//html += '<div style="position:absolute; top:'+(y*500)+'px; left:'+(300+x*500)+'px; width:30px; height:30px; background-color:blue;"></div>';
+	}
+	let potentialEn = theEnFunc(state);
+	let kineticEn = kineticEnergy(state);
+	let totalEnergy = potentialEn+kineticEn;
+	text += ' potentialEnergy='+potentialEn+' kineticEn='+kineticEn+' totalEnergy='+totalEnergy;
+	text += ' time='+Date.now();
+	html += '</div> '+text;
+	return html;
+};
+
+var kineticEnergy = function(){
+	//.5*mass*velocity^2 ??? or just velocity^2?
+	let sum = 0;
+	for(let p=0; p<numPucks; p++){
+		sum += state[p*PUCKVARS+YVEL]**2;
+		sum += state[p*PUCKVARS+XVEL]**2;
+	}
+	return sum;
+}
+
+var numPucks = 3;
+var state = new Float32Array(numPucks*PUCKVARS);
+for(let p=0; p<numPucks; p++){
+	state[p*PUCKVARS+Y] = Math.random()*2-1;
+	state[p*PUCKVARS+X] = Math.random()*2-1;
+	state[p*PUCKVARS+YVEL] = Math.random()*2-1;
+	state[p*PUCKVARS+XVEL] = Math.random()*2-1;
+}
+
+var gradient = function(state, energyFunc){
+	let ret = new Float32Array(state.length);
+	for(let n=0; n<state.length; n++){
+		ret[n] = derivative(energyFunc, state, n);
+	}
+	return ret;
+};
+
+//change by gradient. FIXME use YVELs and XVELs instead of Y and X directly
+var nextState = function(state, energyFunc, dt){
+	//let grad = gradient(state, energyFunc);
+	let st = new Float32Array(state.length);
+	//for(let n=0; n<state.length; n++){
+	//	st[n] = state[n]+grad[n]*dt;
+	//}
+	for(let p=0; p<numPucks; p++){
+		st[p*PUCKVARS+Y] = state[p*PUCKVARS+Y]+state[p*PUCKVARS+YVEL]*dt;
+		st[p*PUCKVARS+X] = state[p*PUCKVARS+X]+state[p*PUCKVARS+XVEL]*dt;
+		let derivativeY = derivative(energyFunc, state, p*PUCKVARS+Y);
+		let derivativeX = derivative(energyFunc, state, p*PUCKVARS+X);
+		st[p*PUCKVARS+YVEL] = state[p*PUCKVARS+YVEL]+derivativeY*dt;
+		st[p*PUCKVARS+XVEL] = state[p*PUCKVARS+XVEL]+derivativeX*dt;
+	}
+	return st;
+};
+
+var displayState = function(state){
+	document.getElementById('display').innerHTML = htmlToDisplayState(state);
+};
+
+var theState = [Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,
+	Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,Math.random()*2-1,Math.random()*2-1];
+
+let theEnFunc = energyFuncOfNPucksInParabolaShapedBowl(3);
+
+var loopNextState = function(){
+	let dt = .01; //FIXME measure it
+	theState = nextState(theState, theEnFunc, dt);
+	displayState(theState);
+	requestAnimationFrame(loopNextState);
+}
+
+window.onload = function(){
+	displayState(theState);
+	loopNextState();
+};
+
+
+
+
+
+/*
+
+//For each puck theres yPos xPos yVel xVel. and maybe other vars? These go in state/vec param in heightmaps etc.
+const PUCKS = 3;
+
+//index offsets in vec. puckNum*
+var PUCKVARS_ = 0;
+const YP = PUCKVARS_++; //y position
+const XP = PUCKVARS_++; //x position
+const YV = PUCKVARS_++; //y velocity
+const XV = PUCKVARS_++; //x velocity
+//const YA = PUCKVARS_++; //y accel
+//const XA = PUCKVARS_++; //x accel
+const RED = PUCKVARS_++;
+const GREEN = PUCKVARS_++;
+const BLUE = PUCKVARS_++;
+const RADIUS = PUCKVARS_++;
+const PUCKVARS = PUCKVARS_;
+
+//Maybe myScore, enemyScore, andOr other vars?
+const OTHERVARS = 0;
+
+const VARS = PUCKS*PUCKVARS+OTHERVARS;
+
+const defaultPuckRadius = .05;
+
+var newMutableDefaultState = function(){
+	let state = new Float32Array(VARS);
+	for(let p=0; p<PUCKS; p++){
+		state[p*PUCKS+RADIUS] = defaultPuckRadius;
+	}
+	return state;
+};
+
+//sigmoid(x) ranges 0 to 1 and averages .5 as x ranges -infinity to infinity
+const sigmoid = function(x){
+	//wolframalpha "graph y = (2/(1+e^(-2*x))-1)-tanh(x)" is flat, so they equal.
+	//(2/(1+e^(-2*x))-1) = tanh(x)
+	//2/(1+e^(-2*x)) = tanh(x)+1
+	//1/(1+e^(-2*x)) = (tanh(x)+1)/2
+	//1/(1+e^-x) = (tanh(x/2)+1)/2
+	//sigmoid(x) = (tanh(x/2)+1)/2
+	return (Math.tanh(x/2)+1)/2; //TODO test
+	//return 1/(1+Math.exp(-x))
+};
+
+var repelStrength = .3;
+
+//state/vec is a Float32Array(VARS) or js list [] of numbers that size.
+var heightmapA = function(state){
+	//let puckRadiusSquared = puckRadius**2;
+	let height = 0;
+	for(let p=1; p<PUCKS; p++){
+		let pOffset = p*PUCKVARS;
+		let radiusP = state[pOffset+RADIUS];
+		for(let q=0; q<p; q++){ //forall pairs of pucks, triangle loop
+			let qOffset = p*PUCKVARS;
+			let dy = state[qOffset+YP]-state[pOffset+YP]; //puckP to putQ
+			let dx = state[qOffset+XP]-state[pOffset+XP];
+			let radiusQ = state[qOffset+RADIUS];
+			let radiusSum = radiusP+radiusQ;
+			//let distanceSquared = dy*dy+dx*dx;
+			let centerDistance = Math.hypot(dy,dx);
+			let distance = centerDistance-radiusSum; //0 if touching as tangent. negative if overlapping. positive if not touching.
+			//repel if overlapping
+			if(distance < 0){
+				//distance ranges -2*puckRadius (if same center) to 0 (2 circles touching at a tangent)
+				let overlapFraction = distance/-radiusSum; //1 if same center. 0 if touching at tangent.
+				//height += repelStrength*overlapFraction; //cone shaped energy hill
+				height += repelStrength*Math.sqrt(overlapFraction); //upsidedown parabola shaped energy hill, tight tangent bounce, weak repel if alot of overlap
+				//height += repelStrength*overlapFraction**2; //springlike repel
+			}
+		}
+	}
+	for(let p=0; p<PUCKS; p++){
+		let pOffset = p*PUCKVARS;
+		let radiusP = state[pOffset+RADIUS];
+		let distanceFromGameCenter = Math.hypot(state[pOffset+YP],state[pOffset+XP]);
+		//game is played inside a radius 1 circle.
+		let distanceFromEdge = 1-distanceFromGameCenter-radiusP;
+		if(distanceFromEdge < 0){
+			height += repelStrength*distanceFromEdge; //TODO **2 or sqrt?
+		}
+	}
+	return height;
+};
+
+var nextState = function(state){
+
+};
+*/
+
+
+</script>
+</head>
+<body>
+	<center>
+		Display div...
+	</center>
+	<div id="display" style="width:50%;background-color:gray"></div>
+	<center>
+		TODO make state be twice as big cuz include velocity, not just position,
+		and learn, by some kind of feedforward neuralnet, a qscore function (1 output node of the neuralnet, 4*numPucks input nodes).
+		Learn it by leastSquares at many randomly chosen or observed states (12 numbers each),
+		that available actions are state + a 2d bellcurve of how much can accelerate myPuck (2 numbers in that state),
+		and of the available actions, qscore = changeInReward(state)*mulA + mulB*max(changeInReward(state different by that 2d bellcurve)).
+		Then take gradient of qscore along myPuck changing by that (todo is it position andor velocity andor accel?)
+		and do that action and display it and adjust state by game rules (energyFuncOfNPucksInParabolaShapedBowl(3)).
+		In theory, this will use myPuck to hit wantHighYPuck near top of screen, and it will keep falling toward center,
+		and it will keep hitting it back up or holding it up and balancing etc.
+		After those basics are working, try more complex game rules for fun. <b>TODO norm potentialEnergy+kineticEnergy = constant. potentialEnergy is theEnFunc(theState)</b>
+	</center>
+	
+</body>
+</html>
