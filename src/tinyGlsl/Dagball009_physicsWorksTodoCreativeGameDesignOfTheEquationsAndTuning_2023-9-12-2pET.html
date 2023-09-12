@@ -1,0 +1,1674 @@
+<script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*TODO "you might want to compare each float to the float down and to the float right and display that 2d vector
+in 2 or 3 colors (see complexnum graphics, for example). You'll get more precision by displaying the 2d angle
+than the float directly."
+
+DONE using dagball.byteRectTrail: display history of ball positions, a trail behind them, so i can check it for curves
+vs are they always moving in straight lines?
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//TODO
+//Ben F Rayfield offers Dagball under opensource MIT license.
+//Dagball aka Directed Acyclic Graph Ball, is a game of n dimensional heightmap,
+//which balls roll on 2d crossSection of, and which crossSection varies by player (Humans andOr AIs) controls.
+//The DAG part is equations of n dimensions to scalar, as heightmap.
+//Those can be viewed as a javascript function of Float32Array to number, or in parallel using TinyGLSL, TODO.
+//Its a sparse game world where each part in 2d is bell curve windowed,
+//so what it adds to heightmap is multiplied by height of that bellcurve.
+//Its also 2d affine transformed (aftrans), which I might do as centerX centerY and 2 2d vectors from there
+//OR I might do it as centerX centerY normalVec2d OR centerX centerY angle, or something like that.
+//The aftrans makes the DAGs more reusable.
+//The DAGs (dag nodes) will be javascript objects but be optimizable as javascript eval andOr TinyGLSL in some cases.
+//Each DAG can have 0 or more childs and is immutable.
+//Roundoff is allowed.
+
+
+const tinyGlsl = {
+	/* TODO take some parts of this and merge into tinyGlsl.description. Remove the other parts to keep it tiny.
+	https://twitter.com/benrayfield/status/1701290751877882096
+
+	TinyGLSL is an opensource 25kB javascript file that brings teraflop speed (trillion+ adds multiplies per second) to
+	the browser. tinyGlsl.testAfterBoot() or tinyGlsl.simple(code,aFloat32Array(upTo1024),height,width) -> floatsOut.
+	1 GPU thread per float out https://github.com/benrayfield/jsutils/blob/master/src/tinyGlsl/TinyGLSL_2023-9-11-130pET.js
+	1:44 PM · Sep 11, 2023
+	·
+	34
+	Views
+	View post analytics
+	2
+	Quotes
+
+	Lambda Rick /acc
+	@benrayfield
+	·
+	1h
+	id is GPU thread id, ranges 0 to ids-1 (flattens 2d to 1d). idy ranges 0 to idh-1 (height). idx ranges 0 to idw-1 (width).
+	par[0] is first float param. par[theFloatArray.length-1] is last float param. Set ret = anything you want; to return that
+	float from that GPU thread.
+	Lambda Rick /acc
+	@benrayfield
+	·
+	1h
+	Here's an instant demo in browser of 3d mandelbulb fractal using an older version of TinyGLSL. I'm planning to use
+	TinyGLSL for making high dimensional browser games and AGI in peer to peer networks.
+	https://memecombinator.io/experiments/ForestCurveFit012.html
+	Lambda Rick /acc
+	@benrayfield
+	·
+	1h
+	TinyGLSL in browser is about as fast as native OpenCL. Eat my dust TensorflowJS.
+	Lambda Rick /acc
+	@benrayfield
+	·
+	57m
+	let tenThousandFloatsOut = tinyGlsl.simple('ret = float(id)*float(id);', Float32Array.of(0), 1000, 10);
+	*/
+	description: 'TinyGLSL forked 2023-9-10-8pET from ForestCurveFit (and might modify it?). TinyGLSL (by Ben F Rayfield Y2023, opensource MIT license) is a javascript library that runs GPU code in browser using webgl2 glsl code, but only at most about 1000 floats in for efficiency (IO is the bottleneck of GPUs, so this can be alot faster than matmul in theory), 1 kernel at a time, many times in parallel, with each GPU thread returning 1 float. Use tinyGlsl.simple function to do that. On a good gaming computer it should, as of Y2023, do about 1 teraflop. You might use it to compute 3d fractals with 1 GPU thread per pixel, or ForestCurveFit kind of neuralnet (thats my first usecase), etc. If your use cases need more inputs or multiple kernels used together, you should either make multiple calls in sequence, each time getting a Float32Array back to CPU, or more efficiently, use glsl directly instead of this software. I might add those more complex abilities later.',
+	
+	todos: [
+		'plan for how to have AI do airhockey and the moving heightmap game using ForestCurveFit software. rubberbandlike paths vs qlearning etc?',
+		'options.useGPUIn_predict_ifNumOutsIs1 and make sure GPU works by computing TriTriRect.predict with it, so graphics and curve fitting work by GPU',
+		'optionsuseGPUIn_lossGradient, optimize it by GPU',
+		'fix all webgl2/glsl memory leaks such as by gl.deleteTexture etc, or put them in tinyGlsl.caches to reuse them. but dont keep allocating more each call',
+		'Test max loop size, like in GPU.js i think it defaults to max loop size of 1000. is that inherited from GLSL?',
+		'Use this software to GPU optimize ForestCurveFit',
+		'Clean up unnecessary code, comments, etc in this software',
+		'Check this 1024 limit on multiple computers. it likely varies across different computers andOr implementations of webgl2. if(floatsPar.length > 1024)',
+		"put error checking back in after fix it: TODO if(correctOut != observedOut) throw 'i='+i+' correctOut='+correctOut+' observedOut='+observedOut;",
+	],
+
+	dones: [
+		'fix the id var which duplicates and skips numbers if you count it from 0 to 19 (ids==20). Im trying gl_VertexID for that instead of getting it from coord.x.',
+		'Use this software to GPU optimize 3d mandelbrot fractal andOr raytracing of n mirror balls',
+		'Cache the compiled glsl program (createProgram) etc',
+		'Test speed with double loop triple loop etc - See mandelbulb fractal, runs about 1 teraflop as a ballpark estimate',
+	],
+
+	//TODO param optionalBlobs is undefined or something like {AB: aFloat32Array, BC: aFloat32Array},
+	//and also allow uniform/const int and float params in there such as sizeA sizeB sizeC, for matmul.
+	simple:
+		//(function(code, par, outs){
+			//let outsLen = typeof(outs)=='number' ? outs : outs.length;
+		(function(beforeCode, code, par, height, width){
+			if(!height || !width) throw 'height='+height+' width='+width;
+			//let outsLen = typeof(outs)=='number' ? outs : outs.length;
+			let outsLen = height*width;
+			//Code string uses these vars:
+			//par - read-only float array, the param. You only get 1 input, and its this array, so put all the params here.
+			//pars - size of par array.
+			//ret - return this float. starts as 0, in case you dont set it.
+			//id - GPU thread id, range 0 to ids-1
+			//ids - number of GPU threads. Each returns 1 float.
+			//also idy idx idh idw which define the pixel rectangle, since glsl has to do rectangle. use id and ids if you want it flattened.
+			//Code can use vec2 vec3 vec4 if for float int etc, whatever you can do in webgl glsl2 #version 300 es.
+			//To efficiently use GPU, use at least as big of outs.length as you have GPU cores.
+			//Can be more, and they will take turns, but less and some go unused. Normally this is a few hundred to a few thousand.
+			//
+			//Params:
+			//par = the input floats. Float32Array, up to size 1024 or might have to be a little smaller.
+			//outs = size of output floats, or give a Float32Array of that size to reuse.
+			/*TODO? let height;
+			let width;
+			if(outsLen > 8192){
+				height = width = Math.ceil(Math.sqrt(outsLen)); //equal or slightly more than outsLen, but GLSL has to do rectangle.
+				if(outsLen != height*width){
+					throw 'TODO allow any size up to a few million, regardless of if its a multiply of 2 integers, by dropping the few extra (maybe a Float32Array backed view of the first outsLen flaots?). outsLen='+outsLen+' height='+height+' width='+width;
+				}
+			}else{
+				height = 1;
+				width = outsLen;
+			}*/
+			let code2 =
+				`${tinyGlsl.glslVersionString}
+				${beforeCode}
+				precision highp float;
+				uniform vec2 mouse;
+				uniform float par[${par.length}];
+				in vec2 coord;
+				//flat in int id;
+				out vec4 fragColor;
+				void main(){
+					const int pars = ${par.length}; //number of params in the par array
+					const int idh = ${height}; //height in pixels
+					const int idw = ${width}; //width in pixels
+					int idy = int(coord.y*float(idh)); //y position from 0 to idh-1
+					int idx = int(coord.x*float(idw)); //x position from 0 to idw-1
+					int id = idy*idw+idx; //2d pixel index in 1 int
+					const int ids = idh*idw; //height*width
+					float ret = 0.;
+					//start user code
+					${code}
+					//end user code
+					fragColor = vec4(ret, 0., 0., 1.);
+				}`;
+
+			let lines = code2.split(/(?:\r\n)|\n|\r/); //?: starts a noncapturing group, so it doesnt include those in the returned list, just whats between
+			let code3 = '';
+			let lineNum = 1;
+			for(let line of lines){
+				if(line.startsWith('#version')){ //dont comment on the first line
+					code3 += line+'\n';
+				}else{
+					code3 += line+' //'+(lineNum)+'\n';
+				}
+				lineNum++;
+			}
+			//reuse the Float32Array(height*width) if same size as last time
+			//TODO remove existing float array of different size from cache.
+			let arrCacheKey = 'floatsH'+height+'W'+width;
+			let outs = tinyGlsl.caches[arrCacheKey];
+			if(!outs){
+				outs = tinyGlsl.caches[arrCacheKey] = new Float32Array(height*width);
+			}
+			return tinyGlsl.internalGLSL_disorganizedTODO(code3, par, outs, height, width);
+		}),
+		
+	webglType: 'webgl2', //If you change this from 'webgl2' to 'webgl', some features wont be there and it will break.
+	
+	glslVersionString: '#version 300 es',
+		
+	caches: {},
+
+	//returns the last value returned by lazyVal() or reuses it if exists for same key.
+	cache: function(key, lazyVal){
+		if(key === undefined) throw 'key is undefined';
+		if(lazyVal === undefined) throw 'lazyVal is undefined';
+		let val = tinyGlsl.caches[key];
+		if(val === undefined){
+			val = tinyGlsl.caches[key] = lazyVal();
+		}
+		return val;
+	},
+	
+	internalGLSL_disorganizedTODO:
+		(function(glslCode, floatsPar, floatsOutOrOutputSize, canvasHeight, canvasWidth){
+			if(canvasHeight < 1 || canvasHeight > 8192) throw 'canvasHeight='+canvasHeight;
+			if(canvasWidth < 1 || canvasWidth > 8192) throw 'canvasWidth='+canvasWidth;
+			//console.log('internalGLSL_disorganizedTODO code=\n'+glslCode);
+			//reads glslCode. reads floatsPar. writes floatsOutOrOutputSize or reads floatsOutOrOutputSize as a number to make new Float32Array to return.
+			//runs floatsOut number of GPU threads that return 1 float each.
+			//FIXME? floatsPar.length <= 1024 or the limit might be a little less than that or may vary across computers.
+			//FIXME remove the coord and mouse arrays, and rename other vars, since im going to use this tool for a variety of things.
+			if(floatsPar.length > 1024){
+				throw 'floatsPar.length is too big: '+floatsPar.length;
+			}
+			let floatsOut = typeof(floatsOutOrOutputSize)=='number' ? (new Float32Array(floatsOutOrOutputSize)) : floatsOutOrOutputSize;
+			//FIXME also include tinyGlsl.glslVersionString?
+			let cacheKeySuffix = '_cacheKeySuffix_glType'+tinyGlsl.webglType+'_H'+canvasHeight+'_W'+canvasWidth+'_floatsOutLen'+floatsOut.length+'_glslCode['+glslCode+']';
+
+			//let canvasHeight = 512;
+			//let canvasWidth = 512;
+			//let canvasHeight = 1;
+			//let canvasWidth = 801;
+			//let canvasWidth = floatsOut.length;
+
+			//const canvas = document.getElementById("canvas");
+			
+			/*
+			//let caches = tinyGlsl.caches || (window.caches = {});
+			let cacheKey = 'glslCanvasH'+canvasHeight+'W'+canvasWidth;
+			let canvas = tinyGlsl.caches[cacheKey];
+			if(!canvas){
+				canvas = tinyGlsl.caches[cacheKey] = document.createElement("canvas");
+				canvas.setAttribute("height", ''+canvasHeight);
+				canvas.setAttribute("width", ''+canvasWidth);
+				tinyGlsl.caches.gl = canvas.getContext(tinyGlsl.webglType);
+			}
+			let gl = tinyGlsl.caches.gl;
+			if(!gl) throw 'No gl';
+			*/
+			let canvas = tinyGlsl.cache('glslCanvas'+cacheKeySuffix, function(){
+			//let canvas = tinyGlsl.cache('glslCanvas', function(){
+				//FIXME should canvas be deduped just by its size, or should it include cacheKeySuffix?
+				let c = document.createElement("canvas");
+				c.setAttribute("height", ''+canvasHeight);
+				c.setAttribute("width", ''+canvasWidth);
+				return c;
+			});
+			let gl = tinyGlsl.cache('gl'+cacheKeySuffix, function(){
+				let gl = canvas.getContext(tinyGlsl.webglType);
+				if (!gl.getExtension('EXT_color_buffer_float')){
+					throw 'EXT_color_buffer_float not supported so cant store just 1 float per pixel';
+				}
+				return gl;
+			});
+
+			let vertexCode_value = `${tinyGlsl.glslVersionString}
+			in vec4 position;
+			out vec2 coord;
+			//flat out int id;
+			void main() {
+				coord = position.xy * 0.5 + 0.5;
+				//id = gl_VertexID;
+				gl_Position = position;
+			}
+			`;
+
+			//let program;
+
+			/*
+			const positionBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW); //2 triangles covering canvas rectangle
+			*/
+			let positionBuffer = tinyGlsl.cache('positionBufferOfSquareOf2Triangles'+cacheKeySuffix, function(){
+				const p = gl.createBuffer();
+				//FIXME if gl is replaced in cache, positionBuffer must also be. likely similar for other things in cache.
+				gl.bindBuffer(gl.ARRAY_BUFFER, p);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW); //2 triangles covering canvas rectangle
+				return p;
+			});
+
+			/*let mouseX = 0;
+			let mouseY = 0;
+			canvas.addEventListener("mousemove", (event) => {
+				mouseX = event.offsetX;
+				mouseY = event.offsetY;
+			});*/
+
+
+			//use these instead of canvas[[[
+			//tested in tinyGlsl.cache: if (!gl.getExtension('EXT_color_buffer_float')){
+			//	throw 'EXT_color_buffer_float not supported so cant store just 1 float per pixel';
+			//}
+
+			
+			/*
+			//Create and configure the texture
+			const texture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, canvasWidth, canvasHeight, 0, gl.RED, gl.FLOAT, null);
+			*/
+			let texture = tinyGlsl.cache('texture_onefloatchannel'+cacheKeySuffix, function(){
+				let t = gl.createTexture();
+				//FIXME if gl is replaced in cache, texture must also be. likely similar for other things in cache.
+				gl.bindTexture(gl.TEXTURE_2D, t);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, canvasWidth, canvasHeight, 0, gl.RED, gl.FLOAT, null);
+				return t;
+			});
+
+			/*
+			//Create and configure the framebuffer
+			const framebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+			*/
+			let framebuffer = tinyGlsl.cache('framebuffer'+cacheKeySuffix, function(){
+				const f = gl.createFramebuffer();
+				//FIXME if gl is replaced in cache, framebuffer must also be. likely similar for other things in cache.
+				gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+				gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+				return f;
+			});
+			//]]]
+
+			
+			
+			/*//use these instead of canvas[[[
+			const framebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+			const renderbuffer = gl.createRenderbuffer();
+			gl.bindRenderbuffer(gl.RENDERBUFFER, renderbuffer);
+			gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA4, 512, 512);  // Change the format and dimensions as needed
+
+			// Attach the renderbuffer to the framebuffer
+			gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, renderbuffer);
+
+			// Check if framebuffer is complete
+			if(gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE){
+				console.error('Framebuffer is not complete');
+			}
+			//]]]
+			*/
+
+
+			/*
+			let createProgram = function(vertexShaderSource, fragmentShaderSource){
+				let programCacheKey = 'programCacheKey['+vertexShaderSource+']['+fragmentShaderSource+']';
+				if(tinyGlsl.caches[programCacheKey]) return tinyGlsl.caches[programCacheKey];
+
+
+				const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+				gl.shaderSource(vertexShader, vertexShaderSource);
+				gl.compileShader(vertexShader);
+				if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+					throw new Error(gl.getShaderInfoLog(vertexShader));
+				}
+
+				const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+				gl.shaderSource(fragmentShader, fragmentShaderSource);
+				gl.compileShader(fragmentShader);
+				if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+					throw new Error(gl.getShaderInfoLog(fragmentShader));
+				}
+
+				const program = gl.createProgram();
+				gl.attachShader(program, vertexShader);
+				gl.attachShader(program, fragmentShader);
+				gl.linkProgram(program);
+				if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+					throw new Error(gl.getProgramInfoLog(program));
+				}
+
+				tinyGlsl.caches[programCacheKey] = program;
+				return program;
+			};*/
+
+			let vertexShaderSource = vertexCode_value;
+			let fragmentShaderSource = glslCode;
+			let program = tinyGlsl.cache('programCacheKey_vertexShader['+vertexShaderSource+']'+cacheKeySuffix, function(){
+
+				//FIXME does this put extra stuff in gl if theres multiple fragmentShaderSource but reuses same vertexShaderSource?
+
+				/*
+				const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+				gl.shaderSource(vertexShader, vertexShaderSource);
+				gl.compileShader(vertexShader);
+				if(!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)){
+					throw new Error(gl.getShaderInfoLog(vertexShader));
+				}*/
+				//cacheKeySuffix already contains the fragmentShader, but not the vertexShader since thats always the same 2023-9-10.
+				let vertexShader = tinyGlsl.cache('vertexShader['+vertexShaderSource+']'+cacheKeySuffix, function(){
+					let v = gl.createShader(gl.VERTEX_SHADER);
+					gl.shaderSource(v, vertexShaderSource);
+					gl.compileShader(v);
+					if(!gl.getShaderParameter(v, gl.COMPILE_STATUS)){
+						throw new Error(gl.getShaderInfoLog(v)+'\n\nVERTEXSHADERCODE:\n'+vertexShaderSource);
+					}
+					return v;
+				});
+				
+				/*
+				const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+				gl.shaderSource(fragmentShader, fragmentShaderSource);
+				gl.compileShader(fragmentShader);
+				if(!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)){
+					throw new Error(gl.getShaderInfoLog(fragmentShader));
+				}*/
+				//cacheKeySuffix already contains the fragmentShader, but not the vertexShader since thats always the same 2023-9-10.
+				let fragmentShader = tinyGlsl.cache('fragmentShader'+cacheKeySuffix, function(){
+					const f = gl.createShader(gl.FRAGMENT_SHADER);
+					gl.shaderSource(f, fragmentShaderSource);
+					gl.compileShader(f);
+					if(!gl.getShaderParameter(f, gl.COMPILE_STATUS)){
+						throw new Error(gl.getShaderInfoLog(f)+'\n\nFRAGMENTSHADERCODE:\n'+fragmentShaderSource);
+					}
+					return f;
+				});
+
+				const p = gl.createProgram();
+				gl.attachShader(p, vertexShader);
+				gl.attachShader(p, fragmentShader);
+				gl.linkProgram(p);
+				if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+					throw new Error(gl.getProgramInfoLog(p));
+				}
+				return p;
+			});
+
+			let par = floatsPar;
+
+			//let outarr = new Float32Array(512*512); //FIXME should be a param
+			let outarr = floatsOut;
+
+			/*
+			// start with mandelbrot
+			//try {
+				program = createProgram(vertexCode_value, glslCode);
+				//errorTextarea.value = "OK";
+
+				/*
+				// Get the uniform location for par after the program is created
+				const parLocation = gl.getUniformLocation(program, "par");
+
+				// Set the par uniform
+				gl.uniform1fv(parLocation, par);
+				*
+			//} catch (error) {
+			//	errorTextarea.value = error.message;
+			//}
+			*/
+
+			// compile and link shader on textarea change
+			//vertexCode.addEventListener("input", updateShader);
+			//glslCode.addEventListener("input", updateShader);
+
+			/*
+			function updateShader() {
+				try{
+					const newProgram = createProgram(vertexCode.value, glslCode.value);
+					program = newProgram;
+					errorTextarea.value = "OK";
+				}catch(error){
+					errorTextarea.value = error.message;
+				}
+			}*/
+
+			//a Texture and RenderBuffer are similar. Texture can be input and output for multiple steps in glsl.
+			//RenderBuffer is output only, back to CPU or screen.
+			//A FrameBuffer contains things that contain image data
+			//but does not directly contain image data. Its more for control-flow.
+			//If you dont specify a FrameBuffer, the default one will be to a canvas.
+
+			// render loop
+			let render = function(){
+
+				//Bind the offscreen framebuffer. instead of canvas.
+				gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+				gl.clearColor(0, 0, 0, 0);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+
+				if (program) {
+					gl.useProgram(program);
+
+					// set uniforms
+					const mouseLocation = gl.getUniformLocation(program, "mouse");
+					//gl.uniform2f(mouseLocation, mouseX, mouseY);
+					gl.uniform2f(mouseLocation, .67844, .2343234); //FIXME remove mouse since tinyGlsl is not specific to graphics or UI
+
+					// draw rectangle
+					gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+					const positionLocation = gl.getAttribLocation(program, "position");
+					gl.enableVertexAttribArray(positionLocation);
+					gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+					const parLocation = gl.getUniformLocation(program, "par");
+					gl.uniform1fv(parLocation, par);
+
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+					//copy from GPU (texture or renderbuffer) to CPU (outarr)
+					gl.readPixels(0, 0, canvasWidth, canvasHeight, gl.RED, gl.FLOAT, outarr);
+					//console.log('outarr[2345]='+outarr[2345]);
+				}
+
+				//requestAnimationFrame(render);
+			};
+			
+			render();
+			if(outarr != floatsOut) throw 'Diff out arrays';
+			return outarr;
+		}),
+		
+	testAfterBoot:
+		(function(){
+			//tests work 2023-9-10.
+
+			/*
+			// Create the par array and update the uniform
+			let floatsPar = new Float32Array(1000); //at most 1024, or something like that. might be less cuz of other vars in kernels.
+			for (let i=0; i<floatsPar.length; i++){
+				floatsPar[i] = i;
+			}
+
+			let glslCode =
+				`${tinyGlsl.glslVersionString}
+				precision highp float;
+				uniform vec2 mouse;
+				uniform float par[${floatsPar.length}];
+				//in vec4 position;
+				//flat in int id;
+				in vec2 coord;
+				out vec4 fragColor;
+
+				void main() {
+					//TODO gl_VertexID
+					//vec2 coord = position.xy * 0.5 + 0.5; //FIXME?
+					//gl_Position = position; //FIXME?
+
+					float frompar = par[4]; // Get the corresponding value from par
+					float diag[10];
+					diag[0] = 1.3;
+					for(int d=1; d<10; d++){
+						diag[d] = float(d);
+					}
+					//diag[1] = 1.;
+					for(int d=1; d<10; d++){
+						diag[d] = diag[d-1]*diag[d-1]+.7*par[d];
+					}
+
+					vec2 c = vec2(coord.x, coord.y);
+					vec2 z = vec2(0.0, 0.0);
+					float i = -mouse.x * 0.71 + 1.0 * coord.x + 0.1 * mouse.y;
+
+					for (int j = 0; j < 1000; j++) {
+						vec2 v = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+						if (length(v) > 2.0)
+							break;
+						z = v;
+					}
+
+					fragColor = vec4(z.x / (4.0 + diag[2] + -1.9*frompar)+mouse.x,
+						mouse.x * 0.001, 0.0 + mouse.y * mouse.y * 0.000001, 1.0);
+				}`;
+			
+			//let floatsOut = new Float32Array(801); //TODO what size?
+
+			let floatsOut = tinyGlsl.internalGLSL_disorganizedTODO(glslCode, floatsPar, new Float32Array(801), 1, 801);
+			console.log('floatsOut[222]='+floatsOut[222]);
+			
+			
+			let parB = Float32Array.of(100,2);
+			let outsBSize = 10;
+			let testBOuts = tinyGlsl.internalGLSL_disorganizedTODO(
+				`${tinyGlsl.glslVersionString}
+				precision highp float;
+				uniform vec2 mouse;
+				uniform float par[${parB.length}];
+				in vec2 coord;
+				out vec4 fragColor;
+
+				void main(){
+					int id = int(coord.x*${outsBSize+'.'});
+					float ret = par[0]+pow(par[1],float(id));
+					fragColor = vec4(ret, 0., 0., 1.);
+				}`,
+				parB,
+				outsBSize
+			);
+			for(let i=0; i<10; i++){
+				let correctOut = 100+2**i;
+				let observedOut = testBOuts[i];
+				console.log('i='+i+' correctOut='+correctOut+' observedOut='+observedOut+' diff='+Math.abs(correctOut-observedOut));
+				if(correctOut != observedOut){
+					throw 'i='+i+' correctOut='+correctOut+' observedOut='+observedOut;
+				}
+			}
+			console.log('GLSL test pass: internalGLSL_disorganizedTODO');
+			*/
+
+			//FIXME move the tenThousandFloatsOut test to end cuz its bigger output array so tests tinyGlsl.caches.
+
+			let tenThousandFloatsOut = tinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), 1000, 10);
+			//let tenThousandFloatsOut = tinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), 8000, 1);
+			//let tenThousandFloatsOut = tinyGlsl.simple('', 'ret = float(id);', Float32Array.of(0), 1, 8000);
+			let correct5678 = 5678*5678;
+			let observed5678 = tenThousandFloatsOut[5678];
+			if(correct5678 != observed5678){
+				throw 'correct5678='+correct5678+' observed5678='+observed5678;
+			}
+			console.log('tenThousandFloatsOut test pass');
+			
+			let outsId = tinyGlsl.simple('', 'ret = float(id);', Float32Array.of(0,10,20,30,40,50), 1, 20);
+			//let outsId = tinyGlsl.simple('', 'ret = float(theId);', Float32Array.of(0,10,20,30,40,50), 20);
+			for(let i=0; i<outsId.length; i++){
+				let correctOut = i;
+				let observedOut = outsId[i];
+				console.log('outsId['+i+']='+outsId[i]);
+				if(correctOut != observedOut) throw 'i='+i+' correctOut='+correctOut+' observedOut='+observedOut;
+			}
+
+			let outsC = tinyGlsl.simple('', 'ret = par[2]+par[3]+float(id)*.001;', Float32Array.of(0,10,20,30,40,50), 1, 100);
+			//let outsC = tinyGlsl.simple('', 'ret = par[2]+par[3]+.001;', Float32Array.of(0,10,20,30,40,50), 100);
+			for(let i=0; i<outsC.length; i++){
+				let observedOut = outsC[i];
+				let approxCorrectOut = 20+30+i*.001;
+				console.log('outsC['+i+']='+observedOut);
+				let diff = Math.abs(observedOut-approxCorrectOut);
+				if(diff > .001) throw 'i='+i+' approxCorrectOut='+approxCorrectOut+' observedOut='+observedOut;
+			}
+			console.log('tinyGlsl.simple test A pass');
+			
+			let hundredFloats = new Float32Array(100);
+			for(let i=0; i<hundredFloats.length; i++){
+				hundredFloats[i] = Math.random();
+			}
+			//TODO time it using the performance object, make tinyGlsl.time function, copy it from my other code.
+			let hundredOuts = tinyGlsl.simple(
+				'',
+				`float sum = 0.;
+				float idf = float(id);
+				for(int i=0; i<pars; i++){
+					for(int j=0; j<pars; j++){
+						sum += (par[i]+idf)*(par[j]-idf);
+					}
+				}
+				ret = sum;`,
+				hundredFloats,
+				1,
+				hundredFloats.length
+			);
+			let id = 71;
+			let sum = 0;
+			for(let i=0; i<hundredFloats.length; i++){
+				for(let j=0; j<hundredFloats.length; j++){
+					sum += (hundredFloats[i]+id)*(hundredFloats[j]-id);
+				}
+			}
+			let approxCorrectOut = sum;
+			let observedOut = hundredOuts[id];
+			let ratio = observedOut/approxCorrectOut;
+			let s = 'id='+id+' approxCorrectOut='+approxCorrectOut+' observedOut='+observedOut+' ratio='+ratio;
+			console.log(s);
+			if(Math.max(ratio,1/ratio) > 1.00001) throw s;
+			console.log('tinyGlsl.simple test B pass');
+
+			let tenThousandFloatsOutB = tinyGlsl.simple('', 'ret = float(id)*float(id)+0.;', Float32Array.of(0), 1000, 10);
+			//let tenThousandFloatsOut = tinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), 8000, 1);
+			//let tenThousandFloatsOut = tinyGlsl.simple('', 'ret = float(id);', Float32Array.of(0), 1, 8000);
+			let correct5678B = 5678*5678;
+			let observed5678B = tenThousandFloatsOutB[5678];
+			if(correct5678B != observed5678B){
+				throw 'correct5678B='+correct5678+' observed5678B='+observed5678;
+			}
+			let correct8989B = 8989*8989;
+			let observed8989B = tenThousandFloatsOutB[8989];
+			let diff = Math.abs(correct8989B-observed8989B);
+			if(diff > 10){ //cuz theres 24 digit bits in float, and 8989*8989 exceeds that. 5678*5678 does too but the answer is a multiple of 4 so its ok.
+				throw 'correct8989B='+correct8989B+' observed5678B='+observed8989B;
+			}
+			console.log('tenThousandFloatsOutB test pass');
+			
+			/*
+			//let tenThousandFloatsOut = tinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), 1000, 10);
+			let tenThousandFloatsOut = tinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), 8000, 1);
+			let correct5678 = 5678*5678;
+			let observed5678 = tenThousandFloatsOut[5678];
+			if(correct5678 != observed5678){
+				throw 'correct5678='+correct5678+' observed5678='+observed5678;
+			}
+			console.log('tenThousandFloatsOut test pass');
+			*/
+			
+		}),
+};
+
+
+//byte offsets for ByteRect, canvas, etc, in js.
+const RED = 0, GREEN = 1, BLUE = 2, ALPHA = 3;
+
+var dagball = {
+	controls:{},
+	game: null,
+	//screen: null, //a ByteRect
+	screen: null, //a FullScreenCanvas, containing a ByteRect
+	//TODO move to dagball.game, not global here.
+	byteRectTrail: null, //same size as dagball.screen.byteRect. Used to turn balls into paintbrushes so can see their path.
+	dt: .001,
+	defaultBallColorRed: 0,
+	defaultBallColorGreen: 0,
+	defaultBallColorBlue: 255,
+	sigmoid: x=>(1/(1+Math.exp(-x))),
+	mainLoop: function(){
+		dagball.dt = .01; //FIXME get from timer, and truncate into range 0 to .2 and hopefully will be at least HDMI speed of 60 FPS (TODO)
+		//dagball.game.nextState(dagball.dt, dagball.screen);
+		dagball.game.nextState(dagball.dt);
+		requestAnimationFrame(dagball.mainLoop);
+	},
+	boot: function(){
+		console.log('TinyGLSL tests starting before dagball');
+		tinyGlsl.testAfterBoot();
+		console.log('Dagball starting');
+		if(!tinyGlsl) throw 'No tinyGlsl';
+
+		let nGlo = 0;
+		let nCurve = 40;
+		//let nBall = 10;
+		//let nBall = 100;
+		let nBall = 30;
+		//let nBall = 400;
+		//let nBall = 3;
+		let mBall = 2;
+		dagball.game = new dagball.Game( //dagball.Game = function(nGlo, nCurve, nBall, mBall, tinyGlslCurveCode){
+			nGlo, nCurve, nBall, mBall,
+				`int o = oCurve;
+				float firstY = parr[o++];
+				float firstX = parr[o++];
+				float firstObservedRadius = length(vec2(firstY,firstX));
+				potenOne += .6*firstObservedRadius;
+				y += .3*firstY;
+				x += .3*firstX;
+				float angle = atan(y,x); //of (y,x) from (0,0)
+				float observedRadius = length(vec2(x,y)); //of (y,x) from (0,0)
+				potenOne -= .6*observedRadius;
+				float ditchRadius = 1.;
+				//for(int freq=5; freq<6; freq++){
+				//for(int freq=1; freq<4; freq++){
+				//for(int freq=7; freq<10; freq++){
+				//for(int freq=5; freq<9; freq++){
+				//for(int freq=5; freq<12; freq+=3){
+				//for(int freq=2; freq<8; freq+=3){
+				for(int freq=1; freq<10; freq++){
+				//for(int freq=1; freq<20; freq++){
+					//potenOne += parr[o++]*sin(parr[o++]+freq*angle*parr[o++]);
+					//ditchRadius += .07*parr[o++]*sin(parr[o++]+float(freq)*angle*parr[o++]);
+					//ditchRadius += .05*parr[o++]*sin(parr[o++]+float(freq)*angle);
+					//ditchRadius += .05*parr[o++]*sin(5.*parr[o++]+float(freq)*angle);
+					//ditchRadius += 1./(1.+exp(parr[o++]))*sin(5.*parr[o++]+float(freq)*angle);
+					ditchRadius += .24*parr[o++]*sin(12.*parr[o++]+float(freq)*angle);
+				}
+				ditchRadius = 1./(1.+exp(-ditchRadius)); //sigmoid
+				ditchRadius *= 1.+.1*sin(5.*parr[o++]);
+				ditchRadius *= .6;
+				float ditchRadiusStdDev = .04;
+				//float ditchRadiusStdDev = .09;
+				//float ditchRadiusStdDev = .18;
+				//float ditchRadiusStdDev = .3;
+				//ditchRadiusStdDev *= 13./(3.5+exp(1.5*parr[o++]));
+				float blur = parr[o++];
+				blur /= ditchRadius;
+				blur *= blur;
+				ditchRadiusStdDev *= 1.+blur;
+				float blurTarget = .8;
+				float blurDiff = blur-blurTarget;
+				potenOne += .1*blurDiff*blurDiff;
+				float observedStdDev = (observedRadius-ditchRadius)/ditchRadiusStdDev;
+				float bellHeight = exp(-observedStdDev*observedStdDev/2.); //range 0 to 1.
+				float flippedBellHeight = 1.-bellHeight; //range 0 to 1.
+				potenOne += flippedBellHeight;
+
+				`
+			
+			/*
+			`
+			potenOne += parr[oCurve]*sin(parr[oCurve+1]+angle*parr[oCurve+2]);
+			potenOne += parr[oCurve]*sin(parr[oCurve+1]+2*angle*parr[oCurve+2]);
+			potenOne += parr[oCurve]*sin(parr[oCurve+1]+3*angle*parr[oCurve+2]);
+			potenOne += parr[oCurve]*sin(parr[oCurve+1]+4*angle*parr[oCurve+2]);
+			potenOne += parr[oCurve]*sin(parr[oCurve+1]+5*angle*parr[oCurve+2]);
+			potenOne += parr[oCurve]*sin(parr[oCurve+1]+6*angle*parr[oCurve+2]);
+			potenOne += parr[oCurve]*sin(parr[oCurve+1]+7*angle*parr[oCurve+2]);
+			`
+			*/
+		);
+		//dagball.game.displayBallTrails = true;
+		dagball.game.displayBallTrails = false;
+		dagball.game.randomizePos();
+		//dagball.game.randomizeVel();
+		dagball.mainLoop();
+	},
+};
+
+dagball.Game = function(nGlo, nCurve, nBall, mBall, tinyGlslCurveCode){
+	this.nGlo = nGlo; //number of global vars
+	this.nCurve = nCurve; //number of heightmap curve vars. Must be at least 2. Should be higher so theres room to move around.
+	//this.Glo = 0; //number of global vars
+	this.nBall = nBall; //number of balls
+	//Number of vars per ball. The first 2 vars are y and x position, usually within a circle of radius 1 but could go farther, TODO.
+	//TODO have vars for red green blue radius andOr other things you in my "bobaga ball overheats" small experimental game?
+	this.mBall = mBall;
+	this.tinyGlslCurveCode = tinyGlslCurveCode;// || 'ret = 0.; //flat energy function. TODO replace this.';
+	if(this.oEnd() > 1010){
+		throw this.oEnd()+'==this.oEnd() dimensions wont fit in uniform/constant memory (the fastest) in tinyGlsl if its bigger than around 1024 (not sure where exact limit is, and that may vary across computers, TODO test that)';
+	}
+	this.pos = new Float32Array(this.oEnd());
+	this.vel = new Float32Array(this.pos.length);
+	//this.floatEpsilon = 2**-8;
+	this.floatEpsilon = 2**-6;
+	this.displayBallTrails = false;
+};
+
+dagball.Game.prototype.randomizePos = function(){
+	//TODO merge duplicate code between randomizePos and randomizeVel
+	let oBall = this.oBall();
+	let endOBall = oBall+this.nBall*this.mBall;
+	for(let i=0; i<this.pos.length; i++){
+		let isBallRange = oBall <= i && i < endOBall;
+		//let mul = isBallRange ? .03 : .4;
+		let mul = isBallRange ? .2 : .7;
+		this.pos[i] = (Math.random()*2-1)*mul;
+	}
+};
+
+dagball.Game.prototype.randomizeVel = function(){
+	//TODO merge duplicate code between randomizePos and randomizeVel
+	let oBall = this.oBall();
+	let endOBall = oBall+this.nBall*this.mBall;
+	for(let i=0; i<this.vel.length; i++){
+		let isBallRange = oBall <= i && i < endOBall;
+		let mul = isBallRange ? .05 : .5;
+		this.vel[i] = (Math.random()*2-1)*mul;
+	}
+};
+
+//Game.prototype.randomizeVel = function(){
+//};
+
+dagball.Game.prototype.tinyGlslBeforeCode = function(funcName){
+	let beforeCode = '';
+	if(funcName != 'potentialEnergiesForGradient'){
+		beforeCode += '#define parr par'; //so dont have to copy par array to parr array when not modifying it.
+	}
+	return beforeCode;
+};
+
+//funcName can be 1 of: 'potentialEnergiesForGradient' or 'potentialEnergiesForDisplay'
+dagball.Game.prototype.tinyGlslCode = function(funcName){
+	//let line = '\n		';
+	let code =
+		`//TODO make some vars here.
+		//ids will be this.oEnd()+1 cuz this.oEnd() is number of dimensions of the potentialEnergy scalarField.
+		const int oGlo = ${this.oGlo()};
+		const int oCurve = ${this.oCurve()};
+		const int nCurve = ${this.nCurve};
+		const int oBall = ${this.oBall()};
+		const int nBall = ${this.nBall};
+		const int mBall = ${this.mBall};
+		const int oEnd = ${this.oEnd()};
+		const float floatEpsilon = ${this.floatEpsilon};
+		float potenOne = 0.; //potential energy of n dimensional heightmap from current ball or pixel
+		float potenSum = 0.; //sum of potenOne.;
+		`
+	if(funcName == 'potentialEnergiesForGradient'){
+		code +=
+			`float parr[oEnd]; //for potentialEnergy. each GPU thread adds epsilon to 1 dimension of this, except highest id (oEnd) is neutral.
+			for(int p=0; p<oEnd; p++){
+				parr[p] = par[p];
+				if(p == id) parr[p] += floatEpsilon;
+			}
+			for(int b=0; b<nBall; b++){
+				int ob = oBall+b*mBall;
+				float y = parr[ob++];
+				float x = parr[ob++];
+				potenOne = 0.;
+				//START tinyGlslCurveCode for potentialEnergiesForGradient
+				${this.tinyGlslCurveCode}
+				//END tinyGlslCurveCode for potentialEnergiesForGradient
+				potenSum += potenOne;
+			}
+			ret = potenSum;
+			//TODO loop over balls, computing height at each. then loop over all pairs of balls and do bounce/repel. Return potentialEnergy.
+			`;
+	}else if(funcName == 'potentialEnergiesForDisplay'){
+		//throw 'TODO get pixel from idy idx idh idw.'
+		code +=
+			`float y = float(idy)/float(idh)*2.-1.; //screen y coordinate in range -1 to 1
+			float x = float(idx)/float(idw)*2.-1.; //screen x coordinate in range -1 to 1. TODO height/width ratio other than 1.
+			//START tinyGlslCurveCode for potentialEnergiesForDisplay
+			${this.tinyGlslCurveCode}
+			//END tinyGlslCurveCode for potentialEnergiesForDisplay
+			ret = potenOne;
+			`;
+	}else{
+		throw 'Unknown funcName='+funcName;
+	}
+	return code;
+};
+
+//offset of nGlo vars. These vars include at least const1 y x, so must be at least those 3.
+dagball.Game.prototype.oGlo = function(){
+	return 3;
+};
+
+//offset of nCurve vars.
+dagball.Game.prototype.oCurve = function(){
+	return this.oGlo()+this.nGlo;
+};
+
+//offset of nBall*mBall vars.
+dagball.Game.prototype.oBall = function(){
+	return this.oCurve()+this.nCurve;
+};
+
+//number of vars
+dagball.Game.prototype.oEnd = function(){
+	return this.oBall()+this.nBall*this.mBall;
+};
+
+//returns a Float32Array(height*width). You might want to sigmoid them then display as brightnesses,
+//or you might want to compare each float to the float down and to the float right and display that 2d vector
+//in 2 or 3 colors (see complexnum graphics, for example). You'll get more precision by displaying the 2d angle
+//than the float directly.
+dagball.Game.prototype.potentialEnergiesForDisplay = function(height, width){
+	return tinyGlsl.simple(this.tinyGlslBeforeCode('potentialEnergiesForDisplay'),
+		this.tinyGlslCode('potentialEnergiesForDisplay'), this.pos, height, width);
+};
+
+//returns this.pos.length+1 potentialEnergies. Index n uses this.pos[n]+this.floatEpsilon if n==id, else just this.pos[n],
+//where 0 <= id <= this.pos.length, and the last id (this.pos.length) is neutral with no floatEpsilon.
+//This is for calculus in gradient func.
+dagball.Game.prototype.potens = function(){
+	let potensSize = this.pos.length+1;
+	return tinyGlsl.simple(this.tinyGlslBeforeCode('potentialEnergiesForGradient'),
+		this.tinyGlslCode('potentialEnergiesForGradient'), this.pos, 1, potensSize);
+};
+
+//returns a Float32Array(this.pos.length). Calls tinyGlsl (GPU) with this.pos.length+1 threads.
+//The last thread is neutral, that is subtracted from each dimension with position + this.floatEpsilon,
+//before dividing by this.floatEpsilon (calculus basics). Each GPU thread computes potentialEnergy
+//at a combo of positions of all the balls each on the n dimensional heightmap,
+//and the heightmap movies by epsilon too, each of those dimensions +0 or +this.floatEpsilon.
+dagball.Game.prototype.gradient = function(){
+	//if(this.pos.length > 1010){
+	//	No, this is for output, which can be bigger, maybe up to 16k y and 16k x? Its the inputs
+	//	throw this.pos.length+'==this.pos.length dimensions wont fit in uniform/constant memory (the fastest) in tinyGlsl if its bigger than around 1024 (not sure where exact limit is, and that may vary across computers, TODO test that)';
+	//}
+	let potensSize = this.pos.length+1;
+	//let potens = tinyGlsl.simple(this.tinyGlslCode('potentialEnergiesForGradient'), this.pos, 1, potensSize);
+	let potens = this.potens(); //GPU optimized
+	let gradient = new Float32Array(this.pos.length);
+	let neutralPoten = potens[potensSize-1];
+	for(let i=0; i<this.pos.length; i++){
+		gradient[i] = (potens[i]-neutralPoten)/this.floatEpsilon;
+	}
+	return gradient;
+};
+
+//updates this.pos (high dimensional position) and this.vel (high dimensional velocity). dt is change in time, or might arbitrarily choose .01 etc (FIXME).
+dagball.Game.prototype.doPhysics = function(dt){
+	let gradient = this.gradient();
+	let velocityDecayPerSecond = 2.3; //FIXME make this either one of oGlo vars or Game.velocityDecayPerSecond
+	//let velocityDecayPerSecond = .1; //FIXME make this either one of oGlo vars or Game.velocityDecayPerSecond
+	//let velocityDecayPerSecond = .3; //FIXME make this either one of oGlo vars or Game.velocityDecayPerSecond
+	//let velocityDecayPerSecond = .6; //FIXME make this either one of oGlo vars or Game.velocityDecayPerSecond
+	//let velocityDecayPerSecond = 1.2; //FIXME make this either one of oGlo vars or Game.velocityDecayPerSecond
+	//let velocityDecayPerSecond = 0; //FIXME should be more than 0. FIXME make this either one of oGlo vars or Game.velocityDecayPerSecond
+	let velMul = 1-dt*velocityDecayPerSecond;
+	//let gradientMul = 1; //this is the correct way, but for experimenting im increasing it
+	//let gradientMul = 3;
+	let gradientMul = 2;
+	//let gradientMul = .3;
+	//let gradientMul = 5;
+	//let gradientMul = 15; //this is the correct way, but for experimenting im increasing it
+	//let gradientMul = 1000000000; //FIXME should be 1
+	for(let i=0; i<this.pos.length; i++){
+		this.vel[i] -= dt*gradient[i]*gradientMul;
+		this.vel[i] *= velMul;
+		this.pos[i] += dt*this.vel[i];
+		//TODO energy norm. kinetic + potential should be constant. adjust velocity to cause that.
+		//FIXME should potentialEnergy be negative?
+		//FIXME what if kineticEnergy is so big, cuz of stepping discretely instead of continuously,
+		//that potentialEnergy of 0 cant make kinetic+potential be constant?
+	}
+};
+
+dagball.Game.prototype.paintOntoByteRect = function(byteRect){
+	let potens = this.potentialEnergiesForDisplay(byteRect.height, byteRect.width);
+	//console.log('potens[0] = '+potens[0]);
+	//console.log('potens[5] = '+potens[5]);
+	//console.log('potens[25678] = '+potens[25678]);
+	let brightness = 0; //default is 0. contrast and brightness like on a screen
+	let contrast = 1.5; //default is 1.
+	for(let y=0; y<byteRect.height; y++){
+		for(let x=0; x<byteRect.width; x++){
+			let i = y*byteRect.width+x;
+			//potens[i] = Math.random();
+			let byte = Math.max(0, Math.min(dagball.sigmoid(brightness+contrast*potens[i])*256, 255));
+			let by = i<<2;
+			byteRect.bytes[by+RED] = byte;
+			byteRect.bytes[by+GREEN] = byte;
+			byteRect.bytes[by+BLUE] = byte;
+			byteRect.bytes[by+ALPHA] = 255; //visible, not transparent
+		}
+	}
+	let oBall = this.oBall(); //balls start at this index in this.pos
+	//this.nBall is number of balls. this.mBall is vars per ball.
+	for(let b=0; b<this.nBall; b++){
+		let o = oBall+b*this.mBall;
+		let y = (.5+.5*this.pos[o])*byteRect.height;
+		let x = (.5+.5*this.pos[o+1])*byteRect.width;
+		let radius = 10; //in pixels. TODO make that one of the ball vars (that increases this.mBall)?
+		//defaultBallColor* is for bytRectTrail to match where the balls are, so only trail those,
+		//but FIXME later Ill want multiple ball colors, maybe even changing their colors depending on game state.
+		let redByte = dagball.defaultBallColorRed;
+		let greenByte = dagball.defaultBallColorGreen;
+		let blueByte = dagball.defaultBallColorBlue;
+		//byteRect.paintCircleRadiusYXRGBSafe(radius, y, x, redByte, greenByte, blueByte);
+		byteRect.paintDonut(y, x, 0, radius, redByte, greenByte, blueByte); //whole circle
+	}
+};
+
+dagball.Game.prototype.nextState = function(dt){
+	this.doPhysics(dt); //TODO more physics cycles than 1 per video frame? Check how fast it is first.
+	this.pos[this.oBall()] = dagball.controls.mouseY || 0;
+	this.pos[this.oBall()+1] = dagball.controls.mouseX || 0;
+	if(!dagball.screen){
+		dagball.screen = new FullScreenCanvas();
+		//FIXME what if its not resized to screen size yet (does that happen in beforePaint or afterPaint instead?)?
+		dagball.byteRectTrail = dagball.screen.byteRect.copy();
+		let canv = dagball.screen.dom;
+		canv.addEventListener('mousemove', event=>{
+			dagball.controls.mouseY = event.clientY/canv.height*2-1; //approx range -1 to 1 but might go outside
+			dagball.controls.mouseX = event.clientX/canv.width*2-1; //approx range -1 to 1 but might go outside
+		});
+		canv.addEventListener('mousedown', event=>{
+			dagball.controls['mouseButton'+event.button] = 1;
+		});
+		canv.addEventListener('mouseup', event=>{
+			dagball.controls['mouseButton'+event.button] = 0;
+		});
+		//canv.dom.addEventListener('contextmenu', event=>event.preventDefault()); //prevent right click popup menu from canvas
+	}
+	dagball.screen.beforePaint();
+	this.paintOntoByteRect(dagball.screen.byteRect);
+	if(dagball.screen.byteRect.bytes.length != dagball.byteRectTrail.bytes.length){
+		//FIXME copy that func in ByteRect thats something like "is same size as (param byterect) from my other code"
+		throw 'Diff ByteRect sizes';
+	}
+	if(this.displayBallTrails){
+		//let h = dagball.screen.byteRect.height;
+		//let w = dagball.screen.byteRect.width;
+		//let by = h*w*4; //number of bytes per ByteRect. Should equal byteRect.bytes.length
+		let byMain = dagball.screen.byteRect.bytes;
+		let byTrail = dagball.byteRectTrail.bytes;
+		for(let i=0; i<byMain.length; i+=4){
+			let isMainDefaultBallColor = (byMain[i+RED]==dagball.defaultBallColorRed) &&
+				(byMain[i+GREEN]==dagball.defaultBallColorGreen) && (byMain[i+BLUE]==dagball.defaultBallColorBlue);
+			let isTrailDefaultBallColor = (byTrail[i+RED]==dagball.defaultBallColorRed) &&
+				(byTrail[i+GREEN]==dagball.defaultBallColorGreen) && (byTrail[i+BLUE]==dagball.defaultBallColorBlue);
+			if(isMainDefaultBallColor || isTrailDefaultBallColor){
+				byMain[i+RED] = byTrail[i+RED] = dagball.defaultBallColorRed;
+				byMain[i+GREEN] = byTrail[i+GREEN] = dagball.defaultBallColorGreen;
+				byMain[i+BLUE] = byTrail[i+BLUE] = dagball.defaultBallColorBlue;
+			}
+		}
+	}
+	dagball.screen.afterPaint();
+	/*
+	if(canv == null){
+		canv = new FullScreenCanvas();
+		canv.dom.addEventListener('mousemove', event=>{
+			controls.mouseYCell = Math.max(0, Math.min(Math.floor(event.clientY/pixelsPerCell), rule110SquareSide-1));
+			controls.mouseXCell = Math.max(0, Math.min(Math.floor(event.clientX/pixelsPerCell), rule110SquareSide-1));
+		});
+		canv.dom.addEventListener('mousedown', event=>{
+			controls['mouseButton'+event.button] = 1;
+		});
+		canv.dom.addEventListener('mouseup', event=>{
+			controls['mouseButton'+event.button] = 0;
+		});
+		canv.dom.addEventListener('contextmenu', event=>event.preventDefault()); //prevent right click popup menu from canvas, so that button paints black instead
+	}
+	let now = time();
+	let age = now-timeStarted;
+	let dt = Math.max(0, Math.min(now-prevTime, .2));
+	prevTime = now;
+	canv.beforePaint();
+	doPageTransitioningGraphics(dt, age, canv.byteRect);
+	canv.afterPaint();
+	setTimeout(nextState, 1);
+	*/
+};
+
+var between = (min,x,max)=>Math.max(min,Math.min(x,max));
+
+//https://github.com/benrayfield/jsutils/blob/master/src/FullScreenCanvasPrototype.html
+var FullScreenCanvas = function(parentDom){ //FullScreenCanvas opensource MIT licensed by Ben F Rayfield
+	if(parentDom === undefined) parentDom = document.body;
+	this.dom = document.createElement('canvas');
+	//TODO z order, in front of everything else.
+	//this.dom = document.getElementById('canv'); //FIXME remove this line, use createElement instead.
+	this.context = null;
+	this.imageData = null;
+	this.pixels = null;
+	this.byteRect = null;
+	parentDom.appendChild(this.dom);
+	this.dom.style.position = 'absolute';
+	this.dom.style.left = '0px';
+	this.dom.style.top = '0px';
+	
+	this.resizeCanvas = function(){
+		if(this.dom.width != window.innerWidth) this.dom.width = window.innerWidth;
+		if(this.dom.height != window.innerHeight) this.dom.height = window.innerHeight;
+	};
+	
+	//TODO optimize, if you're not reading from the canvas, maybe can skip parts of this or only call this once?
+	this.beforePaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		
+		//this.context = this.dom.getContext('2d');
+		//cuz got this warning 2023-9-2: ForestCurveFit004.html:1503 Canvas2D: Multiple readback operations using getImageData
+		//are faster with the willReadFrequently attribute set to true.
+		//See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
+		this.context = this.dom.getContext('2d', {willReadFrequently: true});
+
+		//console.log('this.dom.width = '+this.dom.width);
+		this.imageData = this.context.getImageData(0, 0, this.dom.width, this.dom.height);
+		this.pixels = this.imageData.data;
+		this.byteRect = new ByteRect(this.pixels, this.dom.height, this.dom.width);
+	};
+	
+	//call this after modify byteRect.bytes which contains pixel colors to write to Canvas.
+	this.afterPaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		//this.context.drawImage(this.dom, 0, 0, this.dom.width, this.dom.height);
+		this.context.putImageData(this.imageData, 0, 0);
+	};
+	
+	this.removeFromScreen = function(){
+		this.dom.remove();
+		this.dom = null;
+		this.context = null;
+		this.imageData = null;
+		this.pixels = null;
+		this.byteRect = null;
+	};
+	
+	this.resizeCanvas();
+	this.beforePaint();
+};
+
+var ByteRect = (()=>{
+	let ByteRect = function(bytes, height, width){ //ByteRect opensource MIT licensed by Ben F Rayfield (has more funcs other places)
+		this.bytes = bytes;
+		this.height = height;
+		this.width = width;
+	};
+
+	ByteRect.prototype.copy = function(){
+		//let newBytes = new Uint8Array(this.bytes.length);
+		//copyBytes(this.bytes, newBytes);
+		let newBytes = new Uint8Array(this.bytes);
+		return new ByteRect(newBytes, this.height, this.width);
+	};
+
+	//TODO choose [y x] vs [x y z scale] order. Swap y and x in ByteRect params order? aftrans is [x y z scale].
+
+	ByteRect.prototype.index = function(y, x, colorDim){
+		return (y*this.width+x)*4+colorDim;
+	};
+
+	ByteRect.prototype.read = function(y, x, colorDim){
+		return this.bytes[(y*this.width+x)*4+colorDim];
+	};
+
+	//TODO bilinear interpolation for smoother color?
+	ByteRect.prototype.readSafe = function(y, x, colorDim){
+		return this.bytes[betweenInt(0,(Math.round(y)*this.width+Math.round(x))*4+colorDim,this.bytes.length-1)];
+	};
+
+	ByteRect.prototype.readBrightnessSafe = function(y, x){
+		let i = between(0, (Math.round(y)*this.width+Math.round(x))*4, this.bytes.length-4);
+		return (this.bytes[i+RED]+this.bytes[i+GREEN]+this.bytes[i+BLUE])/3;
+	};
+
+	/** same as readBrightnessSafe but as Float32Array whose length is this.bytes.length/4. a copy, not backing. */
+	ByteRect.prototype.brightnessFloats = function(y, x){
+		let ret = new Float32Array(this.bytes.length/4);
+		let i = 0;
+		for(let j=0; j<this.bytes.length; j+=4){
+			ret[i++] = (this.bytes[j+RED]+this.bytes[j+GREEN]+this.bytes[j+BLUE])/3;
+		}
+		return ret;
+	};
+
+	ByteRect.prototype.write = function(y, x, colorDim, bright){
+		this.bytes[(y*this.width+x)*4+colorDim] = bright;
+	};
+
+	ByteRect.prototype.writeSafe = function(y, x, colorDim, bright){
+		this.bytes[between(0,(Math.round(y)*this.width+Math.round(x))*4+colorDim,this.bytes.length-1)] = bright;
+	};
+
+	ByteRect.prototype.writeSafeRGBA = function(y, x, redByte, greenByte, blueByte, optionalAlphaByte){
+		if(optionalAlphaByte === undefined) optionalAlphaByte = 255; //visible
+		let index = between(0,(Math.round(y)*this.width+Math.round(x))*4,this.bytes.length-4);
+		this.bytes[index+RED] = redByte;
+		this.bytes[index+GREEN] = greenByte;
+		this.bytes[index+BLUE] = blueByte;
+		this.bytes[index+ALPHA] = optionalAlphaByte;
+	};
+
+	ByteRect.prototype.writeSafeBright = function(y, x, brightByte){
+		let index = between(0,(Math.round(y)*this.width+Math.round(x))*4,this.bytes.length-4);
+		this.bytes[index+RED] = brightByte;
+		this.bytes[index+GREEN] = brightByte;
+		this.bytes[index+BLUE] = brightByte;
+		this.bytes[index+ALPHA] = 255;
+	};
+
+	ByteRect.prototype.atYXWriteRGB = function(y, x, redByte, greenByte, blueByte){
+		let ind = (y*this.width+x)*4;
+		this.bytes[ind+RED] = redByte;
+		this.bytes[ind+GREEN] = greenByte;
+		this.bytes[ind+BLUE] = blueByte;
+	};
+
+	ByteRect.prototype.writeHoriz = function(y, fromX, toXExclusive, colorDim, fromBright, toBright){
+		var indexStart = this.index(y, fromX, colorDim);
+		var pixelSiz = toXExclusive-fromX;
+		var siz = pixelSiz*4;
+		var bright = fromBright;
+		var brightAdd = (toBright-fromBright)/pixelSiz;
+		for(var i=0; i<siz; i+=4){
+			bright += brightAdd;
+			this.bytes[indexStart+i] = Math.floor(bright) & 0xff;
+		}
+	};
+
+	ByteRect.prototype.flipHorizontal = function(){
+		let bytes = this.bytes;
+		for(let y=0; y<this.height; y++){
+			let xMid = Math.floor(this.width/2);
+			let offsetA = y*this.width*4; //first byte index of first pixel in row
+			let offsetB = ((y+1)*this.width-1)*4; //first byte of last pixel in row
+			for(let x=0; x<xMid; x++){
+				for(let colorDim=0; colorDim<4; colorDim++){ //swap 2 pixels as 4 bytes each
+					let temp = bytes[offsetA+colorDim];
+					bytes[offsetA+colorDim] = bytes[offsetB+colorDim];
+					bytes[offsetB+colorDim] = temp;
+				}
+				offsetA += 4;
+				offsetB -= 4;
+			}
+		}
+	};
+
+	ByteRect.prototype.verifySameSizeAs = function(byteRect){
+		if(!byteRect) throw 'Param ByteRect = '+byteRect;
+		if(this.height != byteRect.height) throw this.height+' == this.height != byteRect.height == '+byteRect.height;
+		if(this.width != byteRect.width) throw this.width+' == this.width != byteRect.width == '+byteRect.width;
+	};
+
+	ByteRect.prototype.loopAve = function(loopSize, firstByteIndex, addByteIndex){
+		let sum = 0;
+		let i = firstByteIndex;
+		for(let a=0; a<loopSize; a++){
+			sum += this.bytes[i];
+			i += addByteIndex;
+		}
+		return sum/loopSize;
+	};
+
+	ByteRect.prototype.loopFractionOfBytesThatAreAtLeastVal = function(loopSize, firstByteIndex, addByteIndex, brightnessIsAtLeastThisByteVal){
+		let count = 0;
+		let i = firstByteIndex;
+		for(let a=0; a<loopSize; a++){
+			if(brightnessIsAtLeastThisByteVal <= this.bytes[i]) count++;
+			i += addByteIndex;
+		}
+		return count/loopSize;
+	};
+
+	ByteRect.prototype.loopWriteByte = function(loopSize, firstByteIndex, addByteIndex, writeByteVal){
+		let i = firstByteIndex;
+		for(let a=0; a<loopSize; a++){
+			this.bytes[i] = writeByteVal;
+			i += addByteIndex;
+		}
+	};
+
+	ByteRect.prototype.loopWriteBlack = function(loopSize, firstByteIndex, addByteIndex){
+		let i = firstByteIndex;
+		for(let a=0; a<loopSize; a++){
+			this.bytes[i+RED] = 0;
+			this.bytes[i+GREEN] = 0;
+			this.bytes[i+BLUE] = 0;
+			i += addByteIndex;
+		}
+	};
+
+	/** stdDev of looping over bytes (a row or column and colorDim).
+	optionalAve is from loopAve or as optional param it computes that.
+	*/
+	ByteRect.prototype.loopDev = function(loopSize, firstByteIndex, addByteIndex, optionalAve){
+		if(optionalAve === undefined) optionalAve = this.loopAve(byteRect, firstByteIndex, addByteIndex);
+		let sumOfSquares = 0;
+		let i = firstByteIndex;
+		for(let a=0; a<loopSize; a++){
+			let diff = this.bytes[i]-optionalAve;
+			sumOfSquares += diff*diff;
+			i += addByteIndex;
+		}
+		return Math.sqrt(sumOfSquares/loopSize);
+	};
+
+	/** ave brightness of a certain row and [RED, GREEN, BLUE, or ALPHA]. Range 0 to 255. */
+	ByteRect.prototype.rowAve = function(y, colorDim){
+		return this.loopAve(this.width, y*this.width*4+colorDim, 4);
+	};
+
+	/** stdDev of brightness of a certain row and [RED, GREEN, BLUE, or ALPHA]. Range 0 to 255. */
+	ByteRect.prototype.rowDev = function(y, colorDim, optionalAve){
+		return this.loopDev(this.width, y*this.width*4+colorDim, 4, optionalAve);
+	};
+
+	/** ave brightness of a certain column and [RED, GREEN, BLUE, or ALPHA]. Range 0 to 255. */
+	ByteRect.prototype.colAve = function(x, colorDim){
+		return this.loopAve(this.height, x*4+colorDim, this.width*4);
+	};
+
+	/** stdDev of brightness of a certain column and [RED, GREEN, BLUE, or ALPHA]. Range 0 to 255. */
+	ByteRect.prototype.colDev = function(x, colorDim, optionalAve){
+		return this.loopDev(this.height, x*4+colorDim, this.width*4, optionalAve);
+	};
+
+	ByteRect.prototype.setRowAndColordimToByte = function(y, colorDim, byteVal){
+		this.loopWriteByte(this.width, y*this.width*4+colorDim, 4, byteVal);
+	};
+
+	ByteRect.prototype.setColAndColordimToByte = function(x, colorDim, byteVal){
+		this.loopWriteByte(this.height, x*4+colorDim, this.width*4, byteVal);
+	};
+
+	ByteRect.prototype.rowFractionOfBytesThatAreAtLeastVal = function(y, colorDim, brightnessIsAtLeastThisByteVal){
+		return this.loopFractionOfBytesThatAreAtLeastVal(this.width, y*this.width*4+colorDim, 4, brightnessIsAtLeastThisByteVal);
+	};
+
+	ByteRect.prototype.colFractionOfBytesThatAreAtLeastVal = function(x, colorDim, brightnessIsAtLeastThisByteVal){
+		return this.loopFractionOfBytesThatAreAtLeastVal(this.height, x*4+colorDim, this.width*4, brightnessIsAtLeastThisByteVal);
+	};
+
+	ByteRect.prototype.setRowToBlack = function(y){
+		this.loopWriteBlack(this.width, y*this.width*4, 4);
+	};
+
+	ByteRect.prototype.setColToBlack = function(x){
+		this.loopWriteBlack(this.height, x*4, this.width*4);
+	};
+
+	//centerY, centerX, and radius can be scalars. Does bounds checking
+	ByteRect.prototype.paintDonut = function(centerY, centerX, minRadius, maxRadius, redByte, greenByte, blueByte){
+		let byteRect = this;
+		if(minRadius > maxRadius) throw 'minRadius='+minRadius+' maxRadius='+maxRadius;
+		var minYI = Math.max(0, Math.min(Math.floor(centerY-maxRadius), byteRect.height-1));
+		var maxYI = Math.max(0, Math.min(Math.ceil(centerY+maxRadius), byteRect.height-1));
+		var minXI = Math.max(0, Math.min(Math.floor(centerX-maxRadius), byteRect.width-1));
+		var maxXI = Math.max(0, Math.min(Math.ceil(centerX+maxRadius), byteRect.width-1));
+		var minRadiusSq = minRadius*minRadius;
+		var maxRadiusSq = maxRadius*maxRadius;
+		for(var y=minYI; y<=maxYI; y++){
+			var i = byteRect.index(y, minXI, 0);
+			for(var x=minXI; x<=maxXI; x++){
+				var dy = y-centerY;
+				var dx = x-centerX;
+				let sq = dy*dy + dx*dx;
+				if((minRadiusSq <= sq) && (sq <= maxRadiusSq)){
+					//TODO optimize by skipping parts where this isnt true, in the loop before getting here.
+					byteRect.bytes[i+RED] = redByte;
+					byteRect.bytes[i+GREEN] = greenByte;
+					byteRect.bytes[i+BLUE] = blueByte;
+				}
+				i += 4;
+			}
+		}
+	};
+
+	ByteRect.prototype.paintLineYXYXRGB = function(fromY, fromX, toY, toX, redByte, greenByte, blueByte){
+		let diffY = toY-fromY;
+		let diffX = toX-fromX;
+		let len = Math.hypot(diffY, diffX);
+		let numPoints = Math.ceil(len*1.5);
+		for(let i=0; i<numPoints; i++){
+			//TODO optimize
+			let y = Math.round(fromY+diffY*i/numPoints);
+			let x = Math.round(fromX+diffX*i/numPoints);
+			this.atYXWriteRGB(y, x, redByte, greenByte, blueByte);
+		}
+	};
+
+	ByteRect.prototype.paintCircleRadiusYXRGBSafe = function(radius, cy, cx, redByte, greenByte, blueByte){
+		let circle = 2*Math.PI;
+		let numPoints = Math.ceil(radius*circle*1.5);
+		let anglePerPoint = 2*Math.PI/numPoints;
+		for(let i=0; i<numPoints; i++){
+			let angle = anglePerPoint*i;
+			let x = cx+radius*Math.cos(angle);
+			let y = cy+radius*Math.sin(angle);
+			this.writeSafeRGBA(y, x, redByte, greenByte, blueByte);
+		}
+	};
+
+	return ByteRect;
+})();
+
+window.onload = dagball.boot;
+
+
+
+
+/*
+const BIAS = 0;
+const Y = 1;
+const X = 2;
+
+
+Dagball
+Make the crossection move by ball weight.
+Make line at angle door on hinge that ball can push.
+Make whitneymusicbox that any of its circling icons can be pushed.
+Make balancing scale at torque ratio.
+Make 1way valve ball rolls on like ramp thats pushed down but then
+fall into hole and hard to get out.
+Make interesting game out of scalarfield, and make more dims of scalarfield
+including balls, and do whole thing using gradient. And okayers can push balls
+some. Have fun. Race. Solve puzzles. Build bendy shapes. Etc.
+
+START WITH THIS SIMPLE THING... A SINE WAVE GROOVE FOR BALL TO ROLL IN, WITH WIGGLE ROOM,
+THAT IMPLEMENTS DIODE AKA 1WAYVALVE BUT TIME-SYMMETRICLY, AS BALL ROLLING ON IT
+CAN BE PUSHED A LITTLE ONE WAY BUT NOT AS EASILY THE OTHER WAY.
+...
+NO, start with wavefunctionlikeDagballExample_fourierLikeDitchAtRadiusesChosenBy(a*sine(b+3*angle)+c*sine(d+4*angle)...)AndWhereverBallsRollItFouriersOnThatByGradient
+
+Dagball...
+Play with it. Find way to make dags reusable so it goviral. Stay rubberbandpath
+compatible and tinyglsl compatible so keep it simple. Port to wikib later,
+or earlier if want the lambda opcode for scalar fields.
+
+
+
+var Rect = function(y, x, h, w){
+	this.y = y;
+	this.x = x;
+	this.h = h;
+	this.w = w;
+};
+
+var MultiRectMap = function(rects){
+	this.rects = rects;
+};
+MultiRectMap.prototype.height = function(vec){
+	throw 'TODO';
+};
+
+//a rectangle windowed heightmap of n dimensions (including Y and X) to 1 dimension (scalar field).
+//Its not a dag, or if viewed that way, is just 1 level above Vars.
+//TODO make rectangle editor and javascript code editor inside it and get started making curvy shapes
+//to roll balls around and game controls to change the n input dims that varies the heightmap shape
+//by moving crossSection viewed of constant high dimensional heightmap.
+var RectMap = function(rect, code){
+	this.rect = rect;
+	this.code = code;
+};
+RectMap.prototype.height = function(vec){
+	return vec[this.index];
+};
+
+var Var = function(index){
+	this.index = index;
+};
+Var.prototype.height = function(vec){
+	return vec[this.index];
+};
+
+
+
+//FIXME should this be part of the state? How else is it going to
+//be optimized for "rubberbandlike path of allballstogether pos and vel and input dims, between state now"?
+//Or could just start with funDagballPrototypeButNoAIYet without that rubberbandy paths stuff.
+var Ball = function(id){
+	this.id = id;
+};
+
+
+
+
+
+
+
+/*TODO how can it be both sparse (aftrans bellcurve windowed dags) AND work by dag.height(vec)?
+It seems each dag would need to depend on specific indexs in vec.
+Maybe I should name them a to z, for the first 26. Might need more dims but could generate more names later.
+Or f0 f982 etc like I named them in audivolv is another option. In any case,
+those vars are shared between multiple bellcurves while reused at different aftranses
+and summed into a combined heightmap. So its at least well defined what the height is.
+All vars except x and y (2d on screen) are NOT aftransed.
+Each aftransedBellcurveDagGroup (bedag).
+*
+
+//Like ForestCurveFit, lets make index 0 in vec always have value 1, and put y and x at indexs 1 and 2.
+
+//TODO include bellcurves in the .height functions.
+
+//This is a a whole game world's heightmap.
+//sparse dag, a set (actually list, but order has no effect except roundoff) of Bedags that are summed.
+//TODO could this be a Dag?
+var Spag = function(childs){
+	this.childs = childs;
+};
+Spag.prototype.height = function(vec){
+	throw 'TODO aftrans x and y (2 values in vec)';
+};
+
+//Example: Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), 0, 0.
+//FIXME order of the 6 params.
+var Aftrans = function(yx, yy, xy, xx, y, x){
+	this.yx = yx;
+	this.yy = yy;
+	this.xy = xy;
+	this.xx = xx;
+	this.y = y;
+	this.x = x;
+	//this.radius is for optimization by not computing things that cant overlap.
+	//circle centered at [this.y,this.x] that this fits in, if the thing transformed by this coordinate system fits in a unit circle.
+	//FIXME check dotproduct and add something cuz if their angle is very parallel then it can add.
+	this.radius = Math.sqrt(Math.max(this.yx**2+this.yy**2, this.xy**2+this.xx**2));
+};
+//a bellcurve whose max height is 1. FIXME how many stdDevs is radius outward.
+//And should it be bellcurve or only similar to bellcurve but make it smoothly drop to exactly 0 within a finite distance?
+Aftrans.prototype.bellHeightAtYX = function(y,x){
+	throw 'TODO';
+};
+Aftrans.prototype.height = function(vec){
+	return this.bellHeightAtYX(vec[Y], vec[X]);
+};
+Aftrans.prototype.forwardY = function(y,x){
+	throw 'TODO';
+};
+Aftrans.prototype.forwardX = function(y,x){
+	throw 'TODO';
+};
+Aftrans.prototype.reverseY = function(y,x){
+	throw 'TODO';
+};
+Aftrans.prototype.reverseX = function(y,x){
+	throw 'TODO';
+};
+
+/*Maybe later, but for now just do 2d aftrans and if need multiple instances of something, just copy it with different Vars...
+TODO?? make a sparse permutation (of subset of dims in vec) thats similar to how Aftrans moves and rotates
+to allow reuse of Vars and Dags on them...
+I might want some SparsePermutation object that maybe goes in Bedag or something like Bedag,
+that allows something higher in forest to permutate the Vars lower in it,
+so the same Dags can be used as multiple instances of those Dags with separate input controls (indexs in vec),
+like 2 of the "mostly flat platform with walls and obstacles in middle, that you tilt in 2d with 2 other dims" dags
+that can be tilted by 4 dimensions, 2 dimensions each, even though theyre made of same dags.
+Higher dimensional affine transforms can do that, so should I do that instead, merge Aftrans and SparsePermutation?
+Not exactly, cuz storing it those 2 separate ways is more efficient.
+Im not sure if I want such permutations or not.
+*
+
+var Bedag = function(dag, aftrans){
+	this.dag = dag;
+	this.aftrans = aftrans;
+};
+Bedag.prototype.height = function(vec){
+	throw 'TODO bellcurveOrSomethingsimilarbutsmoothlydropsto0atfinitedistance-windowed aftrans x and y (2 values in vec)';
+};
+
+var Dag = function(childs, code){
+	this.childs = childs;
+	this.code = code; //TODO use cachedEval of this code, though it could also be TinyGLSL optimized.
+	this.v = 0; //last val returned by cachedEval(this.code)(vec) or something like that.
+};
+
+Dag.prototype.height = function(vec){
+	throw 'TODO use cachedEval(this.code)(vec) or something like that, but remember to ';
+};
+
+var Var = function(index){
+	this.index = index;
+};
+Var.prototype.height = function(vec){
+	return vec[this.index];
+};
+
+//TODO implement aftrans2d as Dag or make a new object type for it?
+//Hopefully Dag is general enuf to do that itself? But maybe for sparse optimization, a few different types are good?
+
+
+//FIXME should this be part of the state? How else is it going to
+//be optimized for "rubberbandlike path of allballstogether pos and vel and input dims, between state now"?
+//Or could just start with funDagballPrototypeButNoAIYet without that rubberbandy paths stuff.
+var Ball = function(id){
+	this.id = id;
+};
+
+
+var makeExampleGame = function(){
+	let vars = [];
+	for(let v=0; v<20; v++){
+		vars.push(new Var(v));
+	}
+	let varBias = vars[BIAS]; //value should always be 1
+	let varY = vars[Y];
+	let varX = vars[X];
+	let dagdistanceFromCenter = new Dag([varY,varX], '(a,b)=>Math.hypot(a,b)');
+
+	throw 'TODO';
+};
+
+
+/*
+TODO make a few of the nDimensionalHeightmap objects I planned, including...
+* intersection of horizontal and vertical but ball cant take right turn, and which of horizontal vs vertical
+	it can go on depends on 1 or more other dimensions.
+* circular wall rises around a ball and moves it around, as if grabbed by a circular hand and moved then released.
+* screw, sine wave, or sum of sine waves, etc.
+* constant curvy paths to roll down.
+* mostly flat platform with walls and obstacles in middle, that you tilt in 2d with 2 other dims.
+* elevator controlled by 1 dim.
+* something like those scissorlike lines in screwballscramble game that ball rolls along.
+*/
+
+</script>
