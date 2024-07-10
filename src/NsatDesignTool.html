@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <title>NSAT Evaluation Tool</title>
+    <meta name="description" content="Opensource MIT licensed by Ben F Rayfield. https://tinyurl.com/NsatDesignTool is a tool (8kB html file) for brute-forcing every combo of vars u write each being 0 or 1. Var is displayed brighter when 1. You set a 'loss' var, and it minimizes loss, the exact minimum. It sets the vars that way. Only Vars That Start With Capital Letter">
 </head>
 <body>
-    Auto saves and loads in cookie. Edit. Close page. Come back. Its still here.<br>
+    Auto saves and loads in cookie. Edit. Close page. Come back. Its still here. (that doesnt work thru github preview but does as local html)<br>
     <div id="container" style="position: relative; width: 100%; height: 100vh; overflow: hidden; margin: 0; padding: 0; font-family: 'Courier New', monospace;">
         <div id="codeDisplay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: auto; border: none; padding: 10px; box-sizing: border-box; font-size: 16px; line-height: 20px; color: black; pointer-events: none; z-index: 1; padding-bottom: 40px;"></div>
         <textarea id="codeInput" spellcheck=false style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: auto; border: none; padding: 10px; box-sizing: border-box; font-size: 16px; line-height: 20px; background: transparent; color: transparent; caret-color: black; resize: none; outline: none; z-index: 2; spellcheck: false; padding-bottom: 40px; font-family: 'Courier New', monospace;"></textarea>
@@ -94,7 +95,7 @@ if(!EveryForestShapeValid) loss += .01; //Without this, its harder to dovetail a
                 const func = new Function(...uniqueVars, `"use strict"; ${script}`);
                 for (let i = 0; i < (1 << uniqueVars.length); i++) {
                     const loss = func(...uniqueVars.map(varName => Boolean(i & (1 << uniqueVars.indexOf(varName)))));
-                    if (loss < bestLoss) {
+                    if (loss <= bestLoss) { //<= to prefer vars be true if theres a tie. < to prefer false if tie.
                         bestLoss = loss;
                         bestInput = i;
                     }
@@ -118,7 +119,8 @@ if(!EveryForestShapeValid) loss += .01; //Without this, its harder to dovetail a
 
         function adjustColorBrightness(color, isBright) {
             if (!color) return 'lightgray'; // Default to lightgray if color is undefined
-            let s = isBright ? '52%' : '14%';
+            //let s = isBright ? '52%' : '14%';
+            let s = isBright ? '68%' : '20%';
             return color.replace('87%', s);
         }
 
