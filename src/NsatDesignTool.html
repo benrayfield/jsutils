@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NSAT Evaluation Tool</title>
+</head>
+<body>
+    Auto saves and loads in cookie. Edit. Close page. Come back. Its still here.<br>
+    <div id="container" style="position: relative; width: 100%; height: 100vh; overflow: hidden; margin: 0; padding: 0; font-family: 'Courier New', monospace;">
+        <div id="codeDisplay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: auto; border: none; padding: 10px; box-sizing: border-box; font-size: 16px; line-height: 20px; color: black; pointer-events: none; z-index: 1; padding-bottom: 40px;"></div>
+        <textarea id="codeInput" spellcheck=false style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: auto; border: none; padding: 10px; box-sizing: border-box; font-size: 16px; line-height: 20px; background: transparent; color: transparent; caret-color: black; resize: none; outline: none; z-index: 2; spellcheck: false; padding-bottom: 40px; font-family: 'Courier New', monospace;"></textarea>
+    </div>
+    <div id="results" style="position: absolute; bottom: 20px; left: 0; width: 100%; color: #228B22; font-size: 16px;"></div>
+
+    <script>
+        const codeInput = document.getElementById('codeInput');
+        const codeDisplay = document.getElementById('codeDisplay');
+        const resultsDiv = document.getElementById('results');
+        let colorMap = {};
+        let bestInput = 0;
+        let bestLoss = Infinity;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const defaultText = `if(!FnTwoChilds) loss += .01; //having 3 or 4 childs (instead of 2) makes it harder to use and less efficient
+if(FnTwoChilds && Ax && Lz) loss++; //if ax opcode exists and lz opcode exists and theres no HaltTwoBits child of fn then a call of ax in a lazyeval/lz wouldnt know its opcode since opcode must be 0 for evaling and between 1 and 2**8-1 or 2**12-1 (different softwares i made) if is halted but ax cant be lazyevaled that way because it takes up to infinite time to verify an ax call is halted but compare that to other opcodes that know the number curries they are waiting on before evaling so that is known instantly, they create math paradox.
+if(!Nondet) loss += .03; //nondeterministic is a permission that can be tightened higher on stack such as strictfp. nondet here means do nondeterministic levels exist at all vs is it only the 1 deterministic layer below them.
+if(!Cardinality && FnCanSeeEvalsToEdgeInGraph) loss++; //without the cardinality param (C (C C C) C) in Hyper child of fn, the infinite size constant directed graph that is every possible lambda of this kind and their relations between eachother, can be seen by the lambdas its made of, that a lambda can navigate around it in turing complete patterns. To do that across E/EvalsTo edges that do not halt, you need 1 hypercomputing/cardinality higher. The Cardinality var here means does infinite cardinality exist in the system at all vs everything is just the usual turing complete level.
+//if(Cardinality) loss++;
+loss += .001; //testing, dont like loss of 0 vs did it compute the loss at all or just say 0.
+//loss = loss*2;
+if(!FnCanSeeEvalsToEdgeInGraph) loss += .01; 
+if(!EveryForestShapeValid) loss += .01; //Without this, its harder to dovetail and harder to make UIs and has less self-reference ability.\n\n\n`;
+            codeInput.value = defaultText;
+            evaluateCode(defaultText);
+            updateDisplay();
+        });
+
+        codeInput.addEventListener('input', function() {
+            evaluateCode(codeInput.value);
+            updateDisplay();
+            localStorage.setItem('nsatDesignTool_textAreaContent', codeInput.value); //save textarea content to cookie
+        });
+
+        codeInput.addEventListener('scroll', syncScroll);
+
+        function updateDisplay() {
+            const text = codeInput.value;
+            const strippedText = text.replace(/\/\/.*$/gm, '');
+            const varNames = strippedText.match(/\b([A-Z][a-zA-Z]*)\b/g) || [];
+            const uniqueVars = [...new Set(varNames)];
+            assignColors(uniqueVars);
+
+            const html = text.replace(/\/\/.*$/gm, function(match) {
+                return `<span style="color: lightgray;">${match.replace(/\b([A-Z][a-zA-Z]*)\b/g, function(innerMatch) {
+                    if (uniqueVars.includes(innerMatch)) {
+                        const color = colorMap[innerMatch];
+                        const adjustedColor = color ? adjustColorBrightness(color, bestInput & (1 << uniqueVars.indexOf(innerMatch))) : 'lightgray';
+                        return `<span style="color: ${adjustedColor};">${innerMatch}</span>`;
+                    } else {
+                        return `<span style="color: lightgray;">${innerMatch}</span>`;
+                    }
+                })}</span>`;
+            }).replace(/\b([A-Z][a-zA-Z]*)\b/g, function(match) {
+                const color = colorMap[match];
+                if (color) {
+                    const adjustedColor = adjustColorBrightness(color, bestInput & (1 << uniqueVars.indexOf(match)));
+                    return `<span style="color: ${adjustedColor};">${match}</span>`;
+                } else {
+                    return `<span style="color: lightgray;">${match}</span>`;
+                }
+            }).replace(/\n/g, '<br>');
+
+            codeDisplay.innerHTML = html + '<div style="height: 40px;"></div>';
+
+            const trueVars = uniqueVars.filter(varName => bestInput & (1 << uniqueVars.indexOf(varName)));
+            const falseVars = uniqueVars.filter(varName => !(bestInput & (1 << uniqueVars.indexOf(varName))));
+            resultsDiv.innerHTML = `Loss = ${bestLoss.toFixed(3)}, Best Input = ${bestInput} (binary: ${bestInput.toString(2)}), Variables: ${uniqueVars.length}<br>
+                                    True Variables: ${trueVars.join(', ')}<br>
+                                    False Variables: ${falseVars.join(', ')}`;
+        }
+
+        function syncScroll() {
+            codeDisplay.scrollTop = codeInput.scrollTop;
+            codeDisplay.scrollLeft = codeInput.scrollLeft;
+        }
+
+        function evaluateCode(code) {
+            const strippedCode = code.replace(/\/\/.*$/gm, '');
+            const varNames = strippedCode.match(/\b([A-Z][a-zA-Z]*)\b/g) || [];
+            const uniqueVars = [...new Set(varNames)];
+            bestLoss = Infinity;
+            const script = 'let loss = 0; ' + strippedCode + ' return loss;';
+            try {
+                const func = new Function(...uniqueVars, `"use strict"; ${script}`);
+                for (let i = 0; i < (1 << uniqueVars.length); i++) {
+                    const loss = func(...uniqueVars.map(varName => Boolean(i & (1 << uniqueVars.indexOf(varName)))));
+                    if (loss < bestLoss) {
+                        bestLoss = loss;
+                        bestInput = i;
+                    }
+                }
+            } catch (err) {
+                resultsDiv.textContent = "Error in function: " + err.message;
+            }
+        }
+
+        function assignColors(vars) {
+            let hueDelta = 360 / vars.length;
+            let hue = 0;
+            vars.forEach(varName => {
+                if (!colorMap[varName]) {
+                    let baseColor = `hsl(${hue}, 87%, 50%)`;
+                    hue = (hue + hueDelta) % 360;
+                    colorMap[varName] = baseColor;
+                }
+            });
+        }
+
+        function adjustColorBrightness(color, isBright) {
+            if (!color) return 'lightgray'; // Default to lightgray if color is undefined
+            let s = isBright ? '52%' : '14%';
+            return color.replace('87%', s);
+        }
+
+        window.onload = ()=>{
+            let loadedFromCookie = localStorage.getItem('nsatDesignTool_textAreaContent');
+            if(loadedFromCookie !== null){
+                codeInput.value = loadedFromCookie; //no event, so it doesnt save to cookie until modified
+                updateDisplay();
+            }
+        };
+    </script>
+</body>
+</html>
