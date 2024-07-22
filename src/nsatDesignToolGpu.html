@@ -1,0 +1,2295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NSAT Evaluation Tool</title>
+    <meta name="description" content="Opensource MIT licensed by Ben F Rayfield. https://tinyurl.com/NsatDesignTool is a tool (8kB html file) for brute-forcing every combo of vars u write each being 0 or 1. Var is displayed brighter when 1. You set a 'loss' var, and it minimizes loss, the exact minimum. It sets the vars that way. Only Vars That Start With Capital Letter">
+	<!--script src="lib/TinyGLSL.js"></script-->
+<script>
+//Ben F Rayfield offers TinyGLSL under opensource MIT license.
+const Todo = str=>{ throw new Error(str || 'TODO'); };
+const Err = str=>{ throw new Error(str || '(Err with no message)'); };
+const TinyGlsl = {
+	/* TODO take some parts of this and merge into TinyGlsl.description. Remove the other parts to keep it tiny.
+	https://twitter.com/benrayfield/status/1701290751877882096
+
+	TinyGLSL is an opensource 58kB javascript file that brings teraflop speed (trillion+ adds multiplies per second) to
+	the browser. TinyGlsl.testAfterBoot() or TinyGlsl.simple(code,aFloat32Array(upTo1024),height,width) -> floatsOut.
+	1 GPU thread per float out https://github.com/benrayfield/jsutils/blob/master/src/tinyGlsl/TinyGLSL_2023-9-11-130pET.js
+	1:44 PM · Sep 11, 2023
+	·
+	34
+	Views
+	View post analytics
+	2
+	Quotes
+
+	Lambda Rick /acc
+	@benrayfield
+	·
+	1h
+	id is GPU thread id, ranges 0 to ids-1 (flattens 2d to 1d). idy ranges 0 to idh-1 (height). idx ranges 0 to idw-1 (width).
+	par[0] is first float param. par[theFloatArray.length-1] is last float param. Set ret = anything you want; to return that
+	float from that GPU thread.
+	Lambda Rick /acc
+	@benrayfield
+	·
+	1h
+	Here's an instant demo in browser of 3d mandelbulb fractal using an older version of TinyGlsl. I'm planning to use
+	TinyGLSL for making high dimensional browser games and AGI in peer to peer networks.
+	https://memecombinator.io/experiments/ForestCurveFit012.html
+	Lambda Rick /acc
+	@benrayfield
+	·
+	1h
+	TinyGLSL in browser is about as fast as native OpenCL. Eat my dust TensorflowJS.
+	Lambda Rick /acc
+	@benrayfield
+	·
+	57m
+	let tenThousandFloatsOut = TinyGlsl.simple('ret = float(id)*float(id);', Float32Array.of(0), 1000, 10);
+	*/
+	description: 'TinyGLSL forked 2023-9-10-8pET from ForestCurveFit (and might modify it?). TinyGLSL (by Ben F Rayfield Y2023, opensource MIT license) is a javascript library that runs GPU code in browser using webgl2 glsl code, but only at most about 1000 floats in for efficiency (IO is the bottleneck of GPUs, so this can be alot faster than matmul in theory), 1 kernel at a time, many times in parallel, with each GPU thread returning 1 float. Use TinyGlsl.simple function to do that. On a good gaming computer it should, as of Y2023, do about 1 teraflop. You might use it to compute 3d fractals with 1 GPU thread per pixel, or ForestCurveFit kind of neuralnet (thats my first usecase), etc. If your use cases need more inputs or multiple kernels used together, you should either make multiple calls in sequence, each time getting a Float32Array back to CPU, or more efficiently, use glsl directly instead of this software. I might add those more complex abilities later.',
+	
+	todos: [
+		'2024-5-21 clean up these todos and dones lists. they havent been updated in a long time. things might be done in them but marked as todo. Lots of new todos are written other places, though thats mostly for stuff that calls TinyGLSL.',
+		'TinyGlsl.clearAllCache is doing it not the best way, not sure how well it will work, by just making webgl buffers, off-screen canvases, etc, not reachable by javascript pointers. Need to keep track of which gl instance and canvas instance etc (maybe a dependnet) things were created with and use gl.delete* funcs. TODO also reuse canvas and gl instance if same size (which I tried when making tinyGlsl but it didnt work, dont know why).',
+		'very simple 3d voxel system similar to https://github.com/benrayfield/statvoxel , that around each near local area has a 2d grid of voxels, 1 per direction that would be seen from screen there (bucket in that direction, keep nearest that matches, when loop thru other near "near local area"s to copy relevant voxels into here). Do that and make some fun 3d shapes of twisty caves and bridges etc. for monkeyball-like and snakepass-like games etc. will hook in ape language for various stuff maybe NPCs.',
+		'TinyGlsl.clearAllCache is doing it not the best way, not sure how well it will work, by just making webgl buffers, off-screen canvases, etc, not reachable by javascript pointers. Need to keep track of which gl instance and canvas instance etc (maybe a dependnet) things were created with and use gl.delete* funcs. TODO also reuse canvas and gl instance if same size (which I tried when making tinyGlsl but it didnt work, dont know why). Maybe those should be grouped by ape code that defines arrays since they are all in parrMem (the part of it that a circ is computed in, which varies in offset in parrMem, ???, or maybe leave ape out of this since that ape code can be changed?). Maybe ape parrMem arrays should be circs at a lower dag level than where the ape code goes?',
+		"make a version of this that reads matAB and matBC from bigMem and reads built in var 'id' from tinyGlsl to know which dotProd to do.",
+		'the x y and if 3d also z apeTypes',
+		'dagballScalarPortsAndDagForest see the big comment near top of the html file 2023-9-14.',
+		'plan for how to have AI do airhockey and the moving heightmap game using ForestCurveFit software. rubberbandlike paths vs qlearning etc?',
+		'options.useGPUIn_predict_ifNumOutsIs1 and make sure GPU works by computing TriTriRect.predict with it, so graphics and curve fitting work by GPU',
+		'optionsuseGPUIn_lossGradient, optimize it by GPU. Is this just the dagball.Game.prototype.potens and dagball.Game.prototype.potentialEnergiesForDisplay funcs? Those are already GPU optimized 2023-10.',
+		'fix all webgl2/glsl memory leaks such as by gl.deleteTexture etc, or put them in TinyGlsl.caches to reuse them. but dont keep allocating more each call',
+		'Test max loop size, like in GPU.js i think it defaults to max loop size of 1000. is that inherited from GLSL?',
+		'Use this software to GPU optimize ForestCurveFit',
+		'Clean up unnecessary code, comments, etc in this software',
+		'Check this 1024 limit on multiple computers. it likely varies across different computers andOr implementations of webgl2. if(floatsPar.length > 1024)',
+		"put error checking back in after fix it: TODO if(correctOut != observedOut) throw 'i='+i+' correctOut='+correctOut+' observedOut='+observedOut;",
+		'Its like curling. It would be cool if it moved forward. --@Ken67547214. @benrayfield In-game editor will let players live build and share custom shaped curling game areas or airhockey in chosen parts of endless shared 2d world, custom size/shape of pucks and the end of the sticks but not the poles. Since its 2d cross-section of many dimensions u only get the ends. Might be a problem with the friction being "velocity decay" instead of "subtract from velocity", but might could add both kinds to dimensions in general. Will put that in dagball.todos list but not sure if can do normal friction. Manifold would contain all possible curling games. Actually, the friction limits are only relevant to the balls. If I define the puck and stick-ends as part of the curve itself, I can make them move by any smooth equation I want. -- https://twitter.com/Ken67547214/status/1702442156843995187',
+		'Ill probably make a 3d view of the hills and valleys / heightmap, but for now bright is hill and dark is valley.',
+	],
+
+	dones: [
+		'fix the id var which duplicates and skips numbers if you count it from 0 to 19 (ids==20). Im trying gl_VertexID for that instead of getting it from coord.x.',
+		'Use this software to GPU optimize 3d mandelbrot fractal andOr raytracing of n mirror balls',
+		'Cache the compiled glsl program (createProgram) etc',
+		'Test speed with double loop triple loop etc - See mandelbulb fractal, runs about 1 teraflop as a ballpark estimate',
+	],
+
+	//of TinyGlsl.simple(...) calls.
+	//measureTime: false, //normal
+	measureTime: true, //test
+	measureTime_ifTakesLongerThanThis: .05, //If TinyGlsl.simple(...) takes at least this long, log it. This is for tracking down compiler lag 2024-5-10+.
+	measureTime_start: 0,
+	measureTime_end: 0,
+
+	//times in seconds that TinyGlsl.simple(...) takes to return, but only if its not cached.
+	//firstCallTimes: [],
+	//like first
+	//allCallTimes: [],
+
+
+	//in TinyGlsl.simple(...), when this is nonnull, it copies the params of simple(...) to a {...} and calls callListener on that.
+	//Its main use case as of 2024-5-19 (creating it then) is to track down the NaN bug where GPU outputs are all NaN when
+	//no input is NaN and transformFloatValsToVArray checkbox is checked in dagball.html. A button in dagball should
+	//set this to find such a call, ignoring the calls where inputs contain any NaNs, and display it in left textarea or console,
+	//then set this back to null automatically cuz it found that, when found so user can track down the bug.
+	callListener: null,
+
+	//This is how you call GPU from browser. It returns a Float32Array(height*width*floatsOutPerPixel) using height*width GPU threads.
+	//If you use the same code, height, width and floatsOutPerPixel, it will reuse the same canvas and GL object and compiled shaders
+	//so happens in a few milliseconds without recompiling. That is important in dagball.html for reaching 60 FPS
+	//and doing 1 or more tiny neuralnet training batches, physics, and graphics, per video frame, as multiple calls of TinyGlsl.simple.
+	//Other than caching and nondeterministic-float32-roundoff, this is a stateless pure-function that blocks/returnsSynchronously.
+	//
+	//TODO param optionalBlobs is undefined or something like {AB: aFloat32Array, BC: aFloat32Array},
+	//and also allow uniform/const int and float params in there such as sizeA sizeB sizeC, for matmul.
+	//floatsOutPerPixel can be 1 or 4. Returned Float32Array is size height*width*floatsOutPerPixel. Defaults to 1 if that optional param is not given.
+	simple:
+		//(function(code, par, outs){
+			//let outsLen = typeof(outs)=='number' ? outs : outs.length;
+			//parMem and bigMem are Float32Arrays. bigMem can be null and as of 2023-11-3 is for future expansion.
+		(function(beforeCode, code, par, big, height, width, optionalFloatsOutPerPixel){
+			if(TinyGlsl.measureTime){
+				TinyGlsl.measureTime_start = TinyGlsl.time();
+			}
+			if(typeof(beforeCode) != 'string') Err('beforeCode must be a string but is a '+typeof(beforeCode));
+			if(typeof(code) != 'string') Err('code must be a string but is a '+typeof(code));
+			if(par.length === undefined) Err('par has no length field. Its normally a Float32Array but potentially could be a js [] list of numbers.');
+			if(big && big.length === undefined) Err('big exists but has no length field. Its normally a Float32Array but potentially could be a js [] list of numbers.');
+			if(typeof(height) != 'number') Err('height must be a number but is a '+typeof(height));
+			if(typeof(width) != 'number') Err('width must be a number but is a '+typeof(width));
+			let ret = null;
+			let code3 = null; //the final code after all transforms, given to GL.
+			try{
+				let floatsOutPerPixel = optionalFloatsOutPerPixel || 1;
+				if(typeof(floatsOutPerPixel) != 'number') Err('floatsOutPerPixel must be a number but is a '+typeof(floatsOutPerPixel));
+				if(floatsOutPerPixel != 1 && floatsOutPerPixel != 4){
+					throw 'floatsOutPerPixel='+floatsOutPerPixel+' but must be 1 or 4';
+				}
+				if(par.length == 0){
+					console.log('making it an array size 1 of 0.0. TODO??? throw par.length must be at least 1 (and at most 1000 or what was the exact limit?) cuz glsl doesnt allow empty arrays, and would take time to find the code that depends on it being there for the case when its empty.');
+					par = Float32Array.of(0); //FIXME this might cause a problem since Ap.Call.par will think its size 0.
+				}
+				if(!height || !width) throw 'height='+height+' width='+width;
+				TinyGlsl.boot(); //only the first time
+				//let outsLen = typeof(outs)=='number' ? outs : outs.length;
+				let outsLen = height*width;
+				//Code string uses these vars:
+				//par - read-only float array, the param. You only get 1 input, and its this array, so put all the params here.
+				//pars - size of par array.
+				//ret - return this float. starts as 0, in case you dont set it.
+				//id - GPU thread id, range 0 to ids-1
+				//ids - number of GPU threads. Each returns 1 float.
+				//also idy idx idh idw which define the pixel rectangle, since glsl has to do rectangle. use id and ids if you want it flattened.
+				//Code can use vec2 vec3 vec4 if for float int etc, whatever you can do in webgl glsl2 #version 300 es.
+				//To efficiently use GPU, use at least as big of outs.length as you have GPU cores.
+				//Can be more, and they will take turns, but less and some go unused. Normally this is a few hundred to a few thousand.
+				//
+				//Params:
+				//par = the input floats. Float32Array, up to size 1024 or might have to be a little smaller.
+				//outs = size of output floats, or give a Float32Array of that size to reuse.
+				/*TODO? let height;
+				let width;
+				if(outsLen > 8192){
+					height = width = Math.ceil(Math.sqrt(outsLen)); //equal or slightly more than outsLen, but GLSL has to do rectangle.
+					if(outsLen != height*width){
+						throw 'TODO allow any size up to a few million, regardless of if its a multiply of 2 integers, by dropping the few extra (maybe a Float32Array backed view of the first outsLen flaots?). outsLen='+outsLen+' height='+height+' width='+width;
+					}
+				}else{
+					height = 1;
+					width = outsLen;
+				}*/
+				/*2023-11-26 before adding functions that return float and take float params. "func4 and call apeTypes (distFunc func4 {fhypot {f- temp0$ temp1$} {f- temp2$ temp3$}})"
+				let code2 =
+					`${TinyGlsl.glslVersionString}
+					precision highp float;
+					${beforeCode}
+					uniform vec2 mouse;
+					uniform float par[${par.length}];
+					in vec2 coord;
+					//flat in int id;
+					out vec4 fragColor;
+					void main(){
+						const int pars = ${par.length}; //number of params in the par array
+						const int idh = ${height}; //height in pixels
+						const int idw = ${width}; //width in pixels
+						int idy = int(coord.y*float(idh)); //y position from 0 to idh-1
+						int idx = int(coord.x*float(idw)); //x position from 0 to idw-1
+						int id = idy*idw+idx; //2d pixel index in 1 int
+						const int ids = idh*idw; //height*width
+						float ret = 0.; //floatsOutPerPixel=${floatsOutPerPixel} use ret retb retc retd if 4, use just ret if 1.
+						float retb = 0.;
+						float retc = 0.;
+						float retd = 0.;
+						//TODO for funcs of up to 10 float params, math expressions to refer to child float outputs multiple times, etc.
+						float temp0 = 0.; float temp1 = 0.; float temp2 = 0.; float temp3 = 0.; float temp4 = 0.;
+						float temp5 = 0.; float temp6 = 0.; float temp7 = 0.; float temp8 = 0.; float temp9 = 0.;
+						float circY = 0.; //each dagball.Circ.y //FIXME remove dagball-specific and Ap.Ape-specific code.
+						float circX = 0.; //each dagball.Circ.x
+						float circR = 0.; //each dagball.Circ.r
+						float circInfluence = 0.; //each dagball.Circ.influence
+						float circWindow = 0.; //0 to 1. using the circle as a windowing function
+						float potenCirc = 0.; //circs GPU code sets this. gets added into potenOne automatically. then in outer loop over balls, potenOne gets added into potenSum.
+						//start user code
+						${code}
+						//end user code
+						fragColor = vec4(ret, retb, retc, retd);
+					}`;
+				*/
+				/*2023-12-5 let code2 =
+					`${TinyGlsl.glslVersionString}
+					precision highp float;
+					uniform vec2 mouse;
+					uniform float par[${par.length}];
+					in vec2 coord;
+					//flat in int id;
+					out vec4 fragColor;
+					const int pars = ${par.length}; //number of params in the par array
+					const int idh = ${height}; //height in pixels
+					const int idw = ${width}; //width in pixels
+					const int ids = idh*idw; //height*width
+					float ret = 0.; //floatsOutPerPixel=${floatsOutPerPixel} use ret retb retc retd if 4, use just ret if 1.
+					float retb = 0.;
+					float retc = 0.;
+					float retd = 0.;
+					//TODO for funcs of up to 10 float params, math expressions to refer to child float outputs multiple times, etc.
+					float temp0 = 0.; float temp1 = 0.; float temp2 = 0.; float temp3 = 0.; float temp4 = 0.;
+					float temp5 = 0.; float temp6 = 0.; float temp7 = 0.; float temp8 = 0.; float temp9 = 0.;
+					float circY = 0.; //each dagball.Circ.y //FIXME remove dagball-specific and Ap.Ape-specific code.
+					float circX = 0.; //each dagball.Circ.x
+					float circR = 0.; //each dagball.Circ.r
+					float circInfluence = 0.; //each dagball.Circ.influence
+					float circWindow = 0.; //0 to 1. using the circle as a windowing function
+					float potenCirc = 0.; //circs GPU code sets this. gets added into potenOne automatically. then in outer loop over balls, potenOne gets added into potenSum.
+					//float testFunctionASDFASDF(int idABC, float a, float b){ //FIXME remove this
+					//	return a+b;
+					//}
+					${beforeCode}
+					void main(){
+						int idy = int(coord.y*float(idh)); //y position from 0 to idh-1. FIXME if idy idx or id is used in beforeCode, will need to be passed as param. Maybe just id?
+						int idx = int(coord.x*float(idw)); //x position from 0 to idw-1
+						int id = idy*idw+idx; //2d pixel index in 1 int
+						//start user code
+						${code}
+						//end user code
+						//ret = testFunctionASDFASDF(id, ret,-.5); //FIXME remove this
+						fragColor = vec4(ret, retb, retc, retd);
+					}`;*/
+					let code2 =
+					`${TinyGlsl.glslVersionString}
+					precision highp float;
+					uniform vec2 mouse;
+					uniform float par[${par.length}];
+					in vec2 coord;
+					//flat in int id;
+					out vec4 fragColor;
+					const int pars = ${par.length}; //number of params in the par array
+					const int idh = ${height}; //height in pixels
+					const int idw = ${width}; //width in pixels
+					const int ids = idh*idw; //height*width
+					${beforeCode}
+					void main(){
+						int idy = int(coord.y*float(idh)); //y position from 0 to idh-1. FIXME if idy idx or id is used in beforeCode, will need to be passed as param. Maybe just id?
+						int idx = int(coord.x*float(idw)); //x position from 0 to idw-1
+						int id = idy*idw+idx; //2d pixel index in 1 int
+						float ret = 0.; //floatsOutPerPixel=${floatsOutPerPixel} use ret retb retc retd if 4, use just ret if 1.
+						float retb = 0.;
+						float retc = 0.;
+						float retd = 0.;
+						//start user code
+						${code}
+						//end user code
+						//ret = testFunctionASDFASDF(id, ret,-.5); //FIXME remove this
+						fragColor = vec4(ret, retb, retc, retd);
+					}`;
+
+				code3 = TinyGlsl.addLineNumbers(code2);
+				TinyGlsl.last_code3 = code3;
+				//if(TinyGlsl.logNextN_code3){
+				//	console.log('TinyGlsl.simple, code3=\n'+code3);
+				//	TinyGlsl.logNextN_code3--;
+				//}
+				//reuse the Float32Array(height*width) if same size as last time
+				//TODO remove existing float array of different size from cache.
+				let arrCacheKey = 'floatsH'+height+'W'+width+'C'+floatsOutPerPixel;
+				let outs = TinyGlsl.caches[arrCacheKey];
+				if(!outs){
+					outs = TinyGlsl.caches[arrCacheKey] = TinyGlsl.putTid(new Float32Array(height*width*floatsOutPerPixel)); //would automaticaly putTid if use TinyGlsl.cache(key, lazyEvalIfKeyNotFound)
+				}
+				if(outs.length != height*width*floatsOutPerPixel){
+					throw 'outs.length='+outs.length+' but must be height*width*floatsOutPerPixel='+(height*width*floatsOutPerPixel);
+				}
+				ret = TinyGlsl.internalGLSL_disorganizedTODO(code3, par, big, outs, height, width);
+				if(TinyGlsl.measureTime){
+					TinyGlsl.measureTime_end = TinyGlsl.time();
+					let duration = TinyGlsl.measureTime_end-TinyGlsl.measureTime_start;
+					if(duration >= TinyGlsl.measureTime_ifTakesLongerThanThis){
+						console.log('TinyGlsl.simple, duration='+duration+', now='+TinyGlsl.measureTime_end);
+					}
+				}
+			}finally{
+				if(TinyGlsl.callListener){
+					TinyGlsl.callListener({type: 'tinyglsl_simple_call', beforeCode, code, par, big, height, width, floatsOutPerPixel:optionalFloatsOutPerPixel, code3, ret});
+				}
+			}
+			return ret;
+		}),
+
+	//the kind of callMap TinyGlsl.callListener is called on if its nonnull, when TinyGlsl.simple(...) is called.
+	//does not include callMap.ret.
+	callMapToJsCode: callMap=>{
+		//FIXME escape strings
+		return 'TinyGlsl.simple(`'+callMap.beforeCode+'`,`'+callMap.code+'`,\nFloat32Array.of('+callMap.par.join(',')+'),\nFloat32Array.of('+callMap.big.join(',')+'),\n'+callMap.height+','+callMap.width+','+callMap.floatsOutPerPixel+')';
+	},
+
+	//created by TinyGlsl.simple(...). code3 is a string just before anything happens in GL, the unmodified GLSL code.
+	//Set this to 1 or higher to get the next code3 in console.log, when you call TinyGlsl.simple.
+	last_code3: '',
+	//use TinyGlsl.last_code3 instead
+	//logNextN_code3: 0,
+
+	//counts down each time glsl code is made in fragmentShaderSource (not vertex shader which just puts a rectangle grid on 2 triangles).
+	logNextNGlslCodes: 0,
+
+	logNumGlContexts: false,
+
+	//eval 1 code string in 1 gpu thread
+	one: function(code){
+		return TinyGlsl.simple('', code, Float32Array.of(0), null, 1, 1);
+	},
+		
+	webglType: 'webgl2', //If you change this from 'webgl2' to 'webgl', some features wont be there and it will break.
+	
+	glslVersionString: '#version 300 es',
+
+	skip_gl_getProgramParameter_LINK_STATUS: false, //2024-5-9-640pET defaulting this to false (dont skip) cuz of I turned SKLT=F (dont skip) by clicking the button and this neuralnet nnet_1715286589.548.dagball compiled in about .1 second when I changed {nodes 12} to {nodes 13}.
+	//skip_gl_getProgramParameter_LINK_STATUS: true, //normal as of 2024-5-9 cuz it made compiling GLSL alot faster, probably some thread thing it didnt have to wait on, considering theres multiple off-screen canvases.
+	//skip_gl_getProgramParameter_LINK_STATUS: false, //normal before 2024-5-9, but TODO experimentally trying skipping it cuz this line takes .1 to 20 seconds and is likely causing threads to wait on eachother
+	//skip_gl_getProgramParameter_LINK_STATUS: true, //for testing, or maybe it will work out this way?
+
+	//as comments at end of most lines
+	addLineNumbers: function(code){
+		let lines = code.split(/(?:\r\n)|\n|\r/); //?: starts a noncapturing group, so it doesnt include those in the returned list, just whats between
+		let code3 = '';
+		let lineNum = 1;
+		for(let line of lines){
+			if(line.startsWith('#version')){ //dont comment on the first line
+				code3 += line+'\n';
+			}else{
+				code3 += line+' //'+(lineNum)+'\n';
+			}
+			lineNum++;
+		}
+		return code3;
+	},
+
+
+	//returns 'Uint8Array' or 'Float64Array' or 'object' or 'number' or 'string' for example.
+	//https://stackoverflow.com/questions/58280379/how-to-find-the-type-of-a-typedarray
+	//FIXME also check (x instanceof DataView)?
+	//TODO also check vm.isWikibinator203Lambda(x) and return 'fn' if so?
+	jsType: x=>(ArrayBuffer.isView(x) ? x.constructor.name : typeof(x)),
+		
+	caches: {},
+
+	delete: (glOrCanvasObject,optionalDescription)=>{
+		let jsType = TinyGlsl.jsType(glOrCanvasObject);
+		if(jsType == 'Float32Array'){
+			console.log('Dont need to do extra stuff to delete Float32Array '+glOrCanvasObject);
+		}else if(jsType == 'Int32Array'){
+			console.log('Dont need to do extra stuff to delete Float32Array '+glOrCanvasObject);
+		}else if(glOrCanvasObject instanceof WebGLRenderingContext || glOrCanvasObject instanceof WebGL2RenderingContext){
+			/*github copilot says 2023-10-19: console.log('Deleting WebGLRenderingContext '+glOrCanvasObject);
+			glOrCanvasObject._gl.getExtension('WEBGL_lose_context').loseContext();
+			glOrCanvasObject._gl = null;
+			glOrCanvasObject = null;
+			*/
+			/*GPT4 says 2023-10-19 To delete a WebGL2RenderingContext, you don't actually delete the context itself.
+			Instead, you delete the resources associated with that context, and if you want to entirely remove WebGL
+			rendering, you can remove the associated canvas element from the DOM.
+			*/
+			console.log('Dont need to do extra stuff to delete WebGLRenderingContext or WebGL2RenderingContext: '+glOrCanvasObject);
+		}else if(glOrCanvasObject instanceof Number){
+			console.log('Dont need to do extra stuff to delete Number '+glOrCanvasObject);
+		}else if(glOrCanvasObject instanceof WebGLBuffer){
+			console.log('Deleting WebGLBuffer '+glOrCanvasObject);
+			glOrCanvasObject._gl.deleteBuffer(glOrCanvasObject);
+		}else if (glOrCanvasObject instanceof WebGLTexture){
+			console.log('Deleting WebGLTexture '+glOrCanvasObject);
+			glOrCanvasObject._gl.deleteTexture(glOrCanvasObject);
+		}else if (glOrCanvasObject instanceof WebGLFramebuffer){
+			console.log('Deleting WebGLFramebuffer '+glOrCanvasObject);
+			glOrCanvasObject._gl.deleteFramebuffer(glOrCanvasObject);
+		}else if (glOrCanvasObject instanceof WebGLShader){
+			console.log('Deleting WebGLShader '+glOrCanvasObject);
+			glOrCanvasObject._gl.deleteShader(resource);
+		}else if (glOrCanvasObject instanceof WebGLProgram){
+			console.log('Deleting WebGLProgram '+glOrCanvasObject);
+			glOrCanvasObject._gl.deleteProgram(resource);
+		}else if (glOrCanvasObject instanceof HTMLCanvasElement){
+			console.log('Deleting HTMLCanvasElement '+glOrCanvasObject);
+			glOrCanvasObject.remove();
+		}else if(glOrCanvasObject instanceof String){
+			console.log('Dont need to delete String '+glOrCanvasObject);
+		}else{
+			throw 'Dont know how to delete this type '+typeof(glOrCanvasObject)+' val='+glOrCanvasObject+' optionalDescription='+optionalDescription;
+		}
+		glOrCanvasObject = null; //helps garbcol?
+	},
+
+	count_clearAllCache: 0, //number of times TinyGlsl.clearAllCache() was called.
+	
+	//an "ugly hack"/workaround (TODO test it) for the hard to predict
+	//"WARNING: Too many active WebGL contexts. Oldest context will be lost." appearing on browser console warnings.
+	//By clearing the cache, all off-screen-canvases and gl contexts will become garbage-collectible,
+	//but it might cause immediate errors in expecting that after trying to create a context that it exists.
+	//It will compute the wrong thing in GPU or not compute in GPU (i see strange things on screen 2024-2-24
+	//in the 2d canvas which is not a WebGL canvas but things from off-screen-canvases thru webgl are copied
+	//to cpu memory then cpu modifies that on screen canvas.
+	//do_clearAllCache_whenWebglContextLost: false,
+	do_clearAllCache_whenWebglContextLost: true,
+
+	clearAllCache: function(){
+		let startTime = TinyGlsl.time();
+		console.log('START TinyGlsl.clearAllCache(), startTime='+startTime);
+		TinyGlsl.count_clearAllCache++;
+
+		console.log('TinyGlsl.clearAllCache is doing it not the best way, not sure how well it will work, by just making webgl buffers, off-screen canvases, etc, not reachable by javascript pointers. Need to keep track of which gl instance and canvas instance etc (maybe a dependnet) things were created with and use gl.delete* funcs. TODO also reuse canvas and gl instance if same size (which I tried when making tinyGlsl but it didnt work, dont know why).');
+		/*
+		let list = Object.keys(TinyGlsl.caches);
+		for(let key in TinyGlsl.caches){
+			if(!TinyGlsl.caches[key].tid){
+				throw 'Object in TinyGlsl.caches doesnt have tid (timeId that it was created) so dont know what order to delete it in. key='+key+' val='+TinyGlsl.caches[key];
+			}
+		}
+		//creates tid field if not exist. thats why I check if its there first and throw if its not, cuz likely creates errors to delete in wrong order
+		//cuz of dependnet in webgl/canvas objects with pointers to eachother.
+		list.sort(TinyGlsl.tidComparatorForMapKeys(TinyGlsl.caches));
+		for(let key of list){
+			let val = TinyGlsl.caches[key];
+			console.log('clearAllCache, about to delete, key='+key+' tid='+val.tid); //timeId the val was created
+			TinyGlsl.delete(val, key);
+			delete tinyGlsl[key];
+		}
+		*/
+
+		TinyGlsl.caches = {};
+		let endTime = TinyGlsl.time();
+		console.log('END TinyGlsl.clearAllCache() duration='+(endTime-startTime)+' endTime='+endTime);
+	},
+
+	cachedJsEval: function(jsCodeString){
+		let key = 'jsEval_'+jsCodeString;
+		return TinyGlsl.cache(key, ()=>eval(jsCodeString));
+	},
+
+	//if this is nonnull (a {}), then TinyGlsl.cache(key,lazyVal) puts stats into it when lazyVal is called but does not store the output of lazyVal here.
+	//TODO This could get big so it waits for it to be set to {} externally (by a button in dagball normally)
+	cacheStats: null,
+
+	//returns the last value returned by lazyVal() or reuses it if exists for same key.
+	cache: function(key, lazyVal){
+		if(key === undefined) throw 'key is undefined';
+		if(lazyVal === undefined) throw 'lazyVal is undefined';
+		let val = TinyGlsl.caches[key];
+		if(val === undefined){
+			//putTid: put a .tid field that is dagball.timeId() so can be deleted in same order as created (or reverse order?) Or might help in choosing the order in some cases?
+			let startTime;
+			if(TinyGlsl.cacheStats){
+				startTime = TinyGlsl.time();
+			}
+			val = TinyGlsl.caches[key] = TinyGlsl.putTid(lazyVal());
+			if(TinyGlsl.cacheStats){
+				let now = TinyGlsl.time();
+				TinyGlsl.cacheStats[key] = TinyGlsl.cacheStats[key] || {};
+				let duration = now-startTime;
+				TinyGlsl.cacheStats[key].count = (TinyGlsl.cacheStats[key].count|0)+1;
+				TinyGlsl.cacheStats[key].lastDurationEndTime = now;
+				TinyGlsl.cacheStats[key].lastDuration = duration;
+			}
+		}
+		return val;
+	},
+
+	timeOffset_: performance.timing.navigationStart,
+	//UTC seconds with fraction. More precise than Date.now()*.001. Chrome seems to have 4 digits after decimal point, and brave and firefox 3 digits.
+	time: ()=>((TinyGlsl.timeOffset_+performance.now())*.001),
+
+	timeIdPrev: 0,
+
+	/*returns a float64 that is bigger than the last float64 returned by this and is as close to the current UTC time as possible.
+	..
+	Tested this on (Double.doubleToLongBits(1697766252.4079208)-Double.doubleToLongBits(1697766252.3960001)) in java which returned 49999.
+	I generated those 2 doubles on browser console in brave by:
+	x = TinyGlsl.time();
+	1697766252.3960001
+	for(let i=0; i<49999; i++) x = TinyGlsl.nextUpPositiveDouble(x)
+	1697766252.4079208
+	This works cuz all the positive finite doubles are sorted the same way as their raw long/int64 bits. The negatives come after that cuz high bit / sign bit is 1.
+	Name these tid (Time ID), like put that in webgl/glsl and canvas objects to know what time created them so can try deleting them in that same order or reverse order???
+	*/
+	timeId: ()=>{
+		let now = TinyGlsl.time();
+		return TinyGlsl.timeIdPrev = Math.max(now, TinyGlsl.nextUpPositiveDouble(TinyGlsl.timeIdPrev));
+	},
+
+	//put a tid field (timeId) on the object if it doesnt already have one (0 doesnt count), then return the object.
+	//Example: let floats = TinyGlsl.putTid(new Float32Array(100));
+	putTid: ob=>{
+		if(!ob.tid){
+			ob.tid = TinyGlsl.timeId();
+		}
+		return ob;
+	},
+
+	//same as TinyGlsl.putTid(ob).tid but usually faster. Returns the timeId of the object, and creates one if it doesnt have it yet.
+	tid: ob=>(ob.tid || TinyGlsl.putTid(ob).tid),
+
+	tidComparator: (a,b)=>{
+		//cant subtract cuz might lose the difference to roundoff
+		let aTid = TinyGlsl.tid(a);
+		let bTid = TinyGlsl.tid(b);
+		if(aTid < bTid) return -1;
+		if(aTid > bTid) return 1;
+		return 0;
+	},
+
+	//a js {} to sort by valA.tid, valB.tid, etc.
+	tidComparatorForMapKeys: map=>{
+		return function(a,b){
+			return TinyGlsl.tidComparator(map[a],map[b]);
+		};
+	},
+
+	//returns true (bigEndian) or false (littleEndian) or throws if overlapping Uint8Array and Float64Array dont store pi correctly either way.
+	isBigEndian: ()=>{
+		let bytes = new Uint8Array(8);
+		//java at https://www.tutorialspoint.com/compile_java_online.php
+		//says Long.toHexString(Double.doubleToLongBits(5 FIXME THIS COMMENT IS OLD)) is 400921fb54442d18L, and thats a bigEndian tostring of the long (regardless of how it is in memory).
+		bytes[0] = 0x40;
+		bytes[1] = 0x09;
+		bytes[2] = 0x21;
+		bytes[3] = 0xfb;
+		bytes[4] = 0x54;
+		bytes[5] = 0x44;
+		bytes[6] = 0x2d;
+		bytes[7] = 0x18;
+		let doubles = new Float64Array(bytes.buffer);
+		if(doubles[0] == Math.PI) return true; //bigEndian
+		bytes[7] = 0x40;
+		bytes[6] = 0x09;
+		bytes[5] = 0x21;
+		bytes[4] = 0xfb;
+		bytes[3] = 0x54;
+		bytes[2] = 0x44;
+		bytes[1] = 0x2d;
+		bytes[0] = 0x18;
+		if(doubles[0] == Math.PI) return false; //littleEndian
+		throw 'Is not bigEndian or littleEndian as tested by overlapping Uint8Array and Float64Array on pi';
+	},
+
+	twoIntsOverlappingADouble: null,
+
+	doubleOverlappingTwoInts: null,
+
+	booted: false,
+
+	doTestAfterBoot: false, //for testing other things if TinyGlsl tests are blocking it
+	//doTestAfterBoot: true, //normal
+
+	boot: ()=>{
+		if(TinyGlsl.booted){
+			return;
+		}
+		console.log('START TinyGlsl.boot()');
+		if(TinyGlsl.isBigEndian()){
+			throw 'TinyGlsl detected bigEndian, which was not needed until 2023-10-19 (coding Dagball072), but that is not supported in the TinyGlsl.timeId code (which needs to overlap a Float64Array with an Int32Array and is not supported in Wikibinator203, for example.';
+		}else{
+			console.log('TinyGlsl VM detected littleEndian and may use that for overlapping .buffer in Uint8Array, Int32Array, Float32Array, Float64Array, etc. Despite that bigEndian is how people usually write things, most hardware seems to be littleEndian.');
+		}
+		TinyGlsl.twoIntsOverlappingADouble = new Int32Array(2);
+		TinyGlsl.doubleOverlappingTwoInts = new Float64Array(TinyGlsl.twoIntsOverlappingADouble.buffer);
+		let high32BitsOfPi = TinyGlsl.high32BitsOfDouble(Math.PI);
+		let low32BitsOfE = TinyGlsl.low32BitsOfDouble(Math.E); //intentionally mixed the these in case something strange happens in the overlapping Int32Array and Float64Array.
+		let low32BitsOfPi = TinyGlsl.low32BitsOfDouble(Math.PI);
+		if(high32BitsOfPi != 0x400921fb){
+			//in case of something strange going on where Math.PI isnt a specific 64 bits. got this from Long.toString(Double.doubleToLongBits(Math.PI),16) in java.
+			//java and browser javascript seem to agree on float64 math at least the basics and constants. IEEE754.
+			throw 'high32BitsOfPi should be 0x400921fb but is '+Number.intToHex(high32BitsOfPi);
+		}
+		if(low32BitsOfPi != 0x54442d18){
+			throw 'low32BitsOfPi should be 0x54442d18 but is '+Number.intToHex(low32BitsOfPi); //in case of something strange going on where Math.PI isnt a specific 64 bits
+		}
+		let high32BitsOfE = TinyGlsl.high32BitsOfDouble(Math.E);
+		let rebuiltPi = TinyGlsl.twoIntsToDouble(high32BitsOfPi, low32BitsOfPi);
+		let rebuiltE = TinyGlsl.twoIntsToDouble(high32BitsOfE, low32BitsOfE);
+		let piTest = 'Math.PI='+Math.PI+" != rebuiltPi="+rebuiltPi+' high32BitsOfPi '+high32BitsOfPi+' low32BitsOfPi '+low32BitsOfPi;
+		let eTest = 'Math.E='+Math.E+" != rebuiltE="+rebuiltE+' high32BitsOfE '+high32BitsOfE+' low32BitsOfE '+low32BitsOfE;
+		if(rebuiltPi != Math.PI){
+			throw piTest;
+		}
+		if(rebuiltE != Math.E){
+			throw eTest;
+		}
+		console.log('high32BitsOfDouble and low32BitsOfDouble tests pass, '+piTest+', '+eTest);
+		TinyGlsl.booted = true;
+		if(TinyGlsl.doTestAfterBoot){
+			console.log('END TinyGlsl.boot(), about to call testAfterBoot');
+			TinyGlsl.testAfterBoot();
+			console.log('END TinyGlsl.boot() for real this time, done with testAfterBoot().');
+		}
+	},
+
+	low32BitsOfDouble: function(d){
+		//littleEndian. tested with TinyGlsl.isBigEndian(), throws in TinyGlsl.boot() if its not.
+		TinyGlsl.doubleOverlappingTwoInts[0] = d;
+		return TinyGlsl.twoIntsOverlappingADouble[0];
+	},
+	
+	high32BitsOfDouble: function(d){
+		//littleEndian. tested with TinyGlsl.isBigEndian(), throws in TinyGlsl.boot() if its not.
+		TinyGlsl.doubleOverlappingTwoInts[0] = d;
+		return TinyGlsl.twoIntsOverlappingADouble[1];
+	},
+
+	twoIntsToDouble: function(highInt, lowInt){
+		//littleEndian. tested with TinyGlsl.isBigEndian(), throws in TinyGlsl.boot() if its not.
+		TinyGlsl.twoIntsOverlappingADouble[0] = lowInt;
+		TinyGlsl.twoIntsOverlappingADouble[1] = highInt;
+		return TinyGlsl.doubleOverlappingTwoInts[0];
+	},
+
+	//If its a positive double and not the max possible positive double, returns the smallest double thats bigger.
+	//https://twitter.com/benrayfield/status/1715188907145343046
+	//Fixed it so its rolling over from 1-epsilon to 1 to 1+epsilon right now.
+	nextUpPositiveDouble: function(d){
+		//littleEndian. tested with TinyGlsl.isBigEndian(), throws in TinyGlsl.boot() if its not.
+		TinyGlsl.doubleOverlappingTwoInts[0] = d;
+		TinyGlsl.twoIntsOverlappingADouble[0]++; //low 32 bits
+		if(!TinyGlsl.twoIntsOverlappingADouble[0]){ //if wraps around back to 0
+			TinyGlsl.twoIntsOverlappingADouble[1]++; //carry
+		}
+		return TinyGlsl.doubleOverlappingTwoInts[0];
+	},
+	/*
+	//GPT4 wrote this to do same thing as java.lang.Math.nextUp(double) which returns the smallest double value thats higher than d.
+	//This is buggy. dont use.
+	nextUpDouble: d=>{
+		const EPSILON = 2.220446049250313e-16; // Number.EPSILON
+		if(isNaN(d)){
+			return NaN;
+		}
+		if(d === 0){
+			return EPSILON * EPSILON; // Smallest positive subnormal value
+		}
+		if(d === Infinity){
+			return Infinity;
+		}
+		if (d > 0){
+			return d * (1 + EPSILON);
+		}else{
+			return d + EPSILON * d;
+		}
+	},*/
+	
+	internalGLSL_disorganizedTODO:
+		(function(glslCode, floatsPar, bigMem, floatsOutOrOutputSize, canvasHeight, canvasWidth){
+			TinyGlsl.debug_lastCode = glslCode;
+			if(canvasHeight < 1 || canvasHeight > 8192) throw 'canvasHeight='+canvasHeight;
+			if(canvasWidth < 1 || canvasWidth > 8192) throw 'canvasWidth='+canvasWidth;
+			//console.log('internalGLSL_disorganizedTODO code=\n'+glslCode);
+			//reads glslCode. reads floatsPar. writes floatsOutOrOutputSize or reads floatsOutOrOutputSize as a number to make new Float32Array to return.
+			//runs floatsOut number of GPU threads that return 1 float each.
+			//FIXME? floatsPar.length <= 1024 or the limit might be a little less than that or may vary across computers.
+			//FIXME remove the coord and mouse arrays, and rename other vars, since im going to use this tool for a variety of things.
+			if(floatsPar.length > 1024){
+				Err('floatsPar.length is too big: '+floatsPar.length);
+			}
+			if(bigMem && bigMem.length==0){
+				bigMem = undefined;
+			}
+			if(bigMem){
+				Err('TODO upgrade TinyGlsl to have bigMem. As of 2023-11-3 its for future expansion and will use isample2D or texture or buffer or something.');
+			}
+			let floatsOut = typeof(floatsOutOrOutputSize)=='number' ? (new Float32Array(floatsOutOrOutputSize)) : floatsOutOrOutputSize;
+			let floatsOutPerPixel = floatsOut.length/(canvasHeight*canvasWidth);
+			if(floatsOutPerPixel != 1 && floatsOutPerPixel != 4){
+				Err('floatsOutPerPixel (computed by floatsOut.length/(canvasHeight*canvasWidth)) = '+floatsOutPerPixel+' but must be 1 or 4');
+			}
+			//FIXME also include TinyGlsl.glslVersionString?
+			let cacheKeySuffix = '_cacheKeySuffix_glType'+TinyGlsl.webglType+'_H'+canvasHeight+'_W'+canvasWidth+'_floatsOutLen'+floatsOut.length+'_glslCode['+glslCode+']';
+
+			//let canvasHeight = 512;
+			//let canvasWidth = 512;
+			//let canvasHeight = 1;
+			//let canvasWidth = 801;
+			//let canvasWidth = floatsOut.length;
+
+			//const canvas = document.getElementById("canvas");
+			
+			/*
+			//let caches = TinyGlsl.caches || (window.caches = {});
+			let cacheKey = 'glslCanvasH'+canvasHeight+'W'+canvasWidth;
+			let canvas = TinyGlsl.caches[cacheKey];
+			if(!canvas){
+				canvas = TinyGlsl.caches[cacheKey] = document.createElement("canvas");
+				canvas.setAttribute("height", ''+canvasHeight);
+				canvas.setAttribute("width", ''+canvasWidth);
+				TinyGlsl.caches.gl = canvas.getContext(TinyGlsl.webglType);
+			}
+			let gl = TinyGlsl.caches.gl;
+			if(!gl) throw 'No gl';
+			*/
+			let canvas = TinyGlsl.cache('glslCanvas'+cacheKeySuffix, function(){
+			//let canvas = TinyGlsl.cache('glslCanvas', function(){
+				//FIXME should canvas be deduped just by its size, or should it include cacheKeySuffix?
+				let c = document.createElement("canvas");
+				c.setAttribute("height", ''+canvasHeight);
+				c.setAttribute("width", ''+canvasWidth);
+				c.addEventListener('webglcontextlost', function(event){
+					//event.preventDefault();
+					//activeContexts.delete(context);
+					console.log('TinyGLSL says canvas event webglcontextlost, event='+event);
+					if(TinyGlsl.do_clearAllCache_whenWebglContextLost){
+						console.log('TinyGlsl.do_clearAllCache_whenWebglContextLost STARTING TinyGlsl.clearAllCache()...');
+						TinyGlsl.clearAllCache();
+						console.log('TinyGlsl.do_clearAllCache_whenWebglContextLost DONE TinyGlsl.clearAllCache().');
+					}
+				}, false);
+				return c;
+			});
+			let gl = TinyGlsl.cache('gl'+cacheKeySuffix, function(){
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				//FIXME this will make it thrash between gradient and display, since need at least 2 of these at once in dagball. but just for testing 2023-11-18...
+				//TinyGlsl.clearAllCache(); //Trying to fix: "TinyGLSL.js:511 WARNING: Too many active WebGL contexts. Oldest context will be lost.")
+
+
+
+
+
+
+
+
+				if(TinyGlsl.logNumGlContexts) console.log('Number of gl contexts before create another: '+Object.keys(TinyGlsl.caches).filter(x=>x.startsWith('gl_')).length);
+				let gl = canvas.getContext(TinyGlsl.webglType);
+				glErr = gl.getError();
+				if(glErr){
+					throw new Error('after canvas.getContext(TinyGlsl.webglType), gl.getError()='+glErr);
+				}
+				if(!gl.getExtension('EXT_color_buffer_float')){
+					throw 'EXT_color_buffer_float not supported so cant return 1 or 4 floats per pixel instead of bytes';
+				}
+				let isContextLost = gl.isContextLost();
+				console.log('creating gl context, gl.isContextLost()=='+isContextLost);
+				if(isContextLost){
+					throw new Error('gl.isContextLost()=='+isContextLost+', see https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/isContextLost');
+				}
+				console.log('Returning new webgl context '+gl);
+				return gl;
+			});
+
+			let vertexCode_value = `${TinyGlsl.glslVersionString}
+			in vec4 position;
+			out vec2 coord;
+			//flat out int id;
+			void main() {
+				coord = position.xy * 0.5 + 0.5;
+				//id = gl_VertexID;
+				gl_Position = position;
+			}
+			`;
+
+			//let program;
+
+			/*
+			const positionBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW); //2 triangles covering canvas rectangle
+			*/
+			let positionBuffer = TinyGlsl.cache('positionBufferOfSquareOf2Triangles'+cacheKeySuffix, function(){
+				const p = gl.createBuffer();
+				//FIXME if gl is replaced in cache, positionBuffer must also be. likely similar for other things in cache.
+				gl.bindBuffer(gl.ARRAY_BUFFER, p);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW); //2 triangles covering canvas rectangle
+				return p;
+			});
+
+			/*let mouseX = 0;
+			let mouseY = 0;
+			canvas.addEventListener("mousemove", (event) => {
+				mouseX = event.offsetX;
+				mouseY = event.offsetY;
+			});*/
+
+
+			//use these instead of canvas[[[
+			//tested in TinyGlsl.cache: if (!gl.getExtension('EXT_color_buffer_float')){
+			//	throw 'EXT_color_buffer_float not supported so cant store just 1 float per pixel';
+			//}
+
+			
+			/*
+			//Create and configure the texture
+			const texture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, canvasWidth, canvasHeight, 0, gl.RED, gl.FLOAT, null);
+			*/
+			let texture;
+			if(floatsOutPerPixel == 1){
+				texture = TinyGlsl.cache('texture_onefloatchannel'+cacheKeySuffix, function(){
+					let t = gl.createTexture();
+					//FIXME if gl is replaced in cache, texture must also be. likely similar for other things in cache.
+					gl.bindTexture(gl.TEXTURE_2D, t);
+					gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, canvasWidth, canvasHeight, 0, gl.RED, gl.FLOAT, null);
+					return t;
+				});
+			}else if(floatsOutPerPixel == 4){
+				texture = TinyGlsl.cache('texture_fourfloatchannels'+cacheKeySuffix, function(){
+					let t = gl.createTexture();
+					//FIXME if gl is replaced in cache, texture must also be. likely similar for other things in cache.
+					gl.bindTexture(gl.TEXTURE_2D, t);
+					//gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, canvasWidth, canvasHeight, 0, gl.RED, gl.FLOAT, null);
+					gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, canvasWidth, canvasHeight, 0, gl.RGBA, gl.FLOAT, null);
+					return t;
+				});
+			}else{
+				throw 'floatsOutPerPixel='+floatsOutPerPixel+' but must be 1 or 4. TODO use "multiple render targets" aka 8 of vec4/float4 with the "out" keyword, instead of just 1 out of gl_fragColor. 8*4=32 floats out are the theoretical limit for WebGL2 GLSL ES 300. Put them in a Ret[up to 32] array. Require it be either 1 or a multiple of 4, and use that instead of ret, retb, retc, and retd if its more than 4.';
+			}
+
+			/*
+			//Create and configure the framebuffer
+			const framebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+			*/
+			let framebuffer = TinyGlsl.cache('framebuffer'+cacheKeySuffix, function(){
+				const f = gl.createFramebuffer();
+				//FIXME if gl is replaced in cache, framebuffer must also be. likely similar for other things in cache.
+				gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+				gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+				return f;
+			});
+			//]]]
+
+			
+			
+			/*//use these instead of canvas[[[
+			const framebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+			const renderbuffer = gl.createRenderbuffer();
+			gl.bindRenderbuffer(gl.RENDERBUFFER, renderbuffer);
+			gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA4, 512, 512);  // Change the format and dimensions as needed
+
+			// Attach the renderbuffer to the framebuffer
+			gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, renderbuffer);
+
+			// Check if framebuffer is complete
+			if(gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE){
+				console.error('Framebuffer is not complete');
+			}
+			//]]]
+			*/
+
+
+			/*
+			let createProgram = function(vertexShaderSource, fragmentShaderSource){
+				let programCacheKey = 'programCacheKey['+vertexShaderSource+']['+fragmentShaderSource+']';
+				if(TinyGlsl.caches[programCacheKey]) return TinyGlsl.caches[programCacheKey];
+
+
+				const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+				gl.shaderSource(vertexShader, vertexShaderSource);
+				gl.compileShader(vertexShader);
+				if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+					throw new Error(gl.getShaderInfoLog(vertexShader));
+				}
+
+				const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+				gl.shaderSource(fragmentShader, fragmentShaderSource);
+				gl.compileShader(fragmentShader);
+				if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+					throw new Error(gl.getShaderInfoLog(fragmentShader));
+				}
+
+				const program = gl.createProgram();
+				gl.attachShader(program, vertexShader);
+				gl.attachShader(program, fragmentShader);
+				gl.linkProgram(program);
+				if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+					throw new Error(gl.getProgramInfoLog(program));
+				}
+
+				TinyGlsl.caches[programCacheKey] = program;
+				return program;
+			};*/
+
+			let vertexShaderSource = vertexCode_value;
+			let fragmentShaderSource = glslCode;
+			if(TinyGlsl.logNextNGlslCodes > 0){
+				console.log('TinyGlsl.logNextNGlslCodes='+TinyGlsl.logNextNGlslCodes+' fragmentShaderSource=\n'+fragmentShaderSource);
+				TinyGlsl.logNextNGlslCodes--;
+			}
+			let program = TinyGlsl.cache('programCacheKey_vertexShader['+vertexShaderSource+']'+cacheKeySuffix, function(){
+
+				//FIXME does this put extra stuff in gl if theres multiple fragmentShaderSource but reuses same vertexShaderSource?
+
+				/*
+				const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+				gl.shaderSource(vertexShader, vertexShaderSource);
+				gl.compileShader(vertexShader);
+				if(!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)){
+					throw new Error(gl.getShaderInfoLog(vertexShader));
+				}*/
+				//cacheKeySuffix already contains the fragmentShader, but not the vertexShader since thats always the same 2023-9-10.
+				let vertexShader = TinyGlsl.cache('vertexShader['+vertexShaderSource+']'+cacheKeySuffix, function(){
+					let v = gl.createShader(gl.VERTEX_SHADER);
+					gl.shaderSource(v, vertexShaderSource);
+					gl.compileShader(v);
+					if(!gl.getShaderParameter(v, gl.COMPILE_STATUS)){
+						throw new Error(gl.getShaderInfoLog(v)+'\n\nVERTEXSHADERCODE:\n'+vertexShaderSource);
+					}
+					return v;
+				});
+				
+				/*
+				const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+				gl.shaderSource(fragmentShader, fragmentShaderSource);
+				gl.compileShader(fragmentShader);
+				if(!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)){
+					throw new Error(gl.getShaderInfoLog(fragmentShader));
+				}*/
+				//cacheKeySuffix already contains the fragmentShader, but not the vertexShader since thats always the same 2023-9-10.
+				let fragmentShader = TinyGlsl.cache('fragmentShader'+cacheKeySuffix, function(){
+					const f = gl.createShader(gl.FRAGMENT_SHADER);
+					gl.shaderSource(f, fragmentShaderSource);
+					gl.compileShader(f);
+					if(!gl.getShaderParameter(f, gl.COMPILE_STATUS)){
+						throw new Error(gl.getShaderInfoLog(f)+'\n\nFRAGMENTSHADERCODE:\n'+fragmentShaderSource);
+					}
+					return f;
+				});
+
+				const p = gl.createProgram();
+				gl.attachShader(p, vertexShader);
+				gl.attachShader(p, fragmentShader);
+				gl.linkProgram(p);
+				if(!TinyGlsl.skip_gl_getProgramParameter_LINK_STATUS && !gl.getProgramParameter(p, gl.LINK_STATUS)){
+					throw new Error(gl.getProgramInfoLog(p));
+				}
+				return p;
+			});
+
+			let par = floatsPar;
+
+			//let outarr = new Float32Array(512*512); //FIXME should be a param
+			let outarr = floatsOut;
+
+			/*
+			// start with mandelbrot
+			//try {
+				program = createProgram(vertexCode_value, glslCode);
+				//errorTextarea.value = "OK";
+
+				/*
+				// Get the uniform location for par after the program is created
+				const parLocation = gl.getUniformLocation(program, "par");
+
+				// Set the par uniform
+				gl.uniform1fv(parLocation, par);
+				*
+			//} catch (error) {
+			//	errorTextarea.value = error.message;
+			//}
+			*/
+
+			// compile and link shader on textarea change
+			//vertexCode.addEventListener("input", updateShader);
+			//glslCode.addEventListener("input", updateShader);
+
+			/*
+			function updateShader() {
+				try{
+					const newProgram = createProgram(vertexCode.value, glslCode.value);
+					program = newProgram;
+					errorTextarea.value = "OK";
+				}catch(error){
+					errorTextarea.value = error.message;
+				}
+			}*/
+
+			//a Texture and RenderBuffer are similar. Texture can be input and output for multiple steps in glsl.
+			//RenderBuffer is output only, back to CPU or screen.
+			//A FrameBuffer contains things that contain image data
+			//but does not directly contain image data. Its more for control-flow.
+			//If you dont specify a FrameBuffer, the default one will be to a canvas.
+
+			// render loop
+			let render = function(){
+
+				//Bind the offscreen framebuffer. instead of canvas.
+				gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+				gl.clearColor(0, 0, 0, 0);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+
+				if (program) {
+					gl.useProgram(program);
+
+					// set uniforms
+					const mouseLocation = gl.getUniformLocation(program, "mouse");
+					//gl.uniform2f(mouseLocation, mouseX, mouseY);
+					gl.uniform2f(mouseLocation, .67844, .2343234); //FIXME remove mouse since tinyGlsl is not specific to graphics or UI
+
+					// draw rectangle
+					gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+					const positionLocation = gl.getAttribLocation(program, "position");
+					gl.enableVertexAttribArray(positionLocation);
+					gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+					const parLocation = gl.getUniformLocation(program, "par");
+					gl.uniform1fv(parLocation, par);
+
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+					if(floatsOutPerPixel == 1){
+						//copy from GPU (texture or renderbuffer) to CPU (outarr)
+						gl.readPixels(0, 0, canvasWidth, canvasHeight, gl.RED, gl.FLOAT, outarr); //getting gl.RED only uses EXT_color_buffer_float (which may exist only in desktop browsers not mobile?)
+						//console.log('outarr[2345]='+outarr[2345]);
+					}else if(floatsOutPerPixel == 4){
+						//copy from GPU (texture or renderbuffer) to CPU (outarr)
+						gl.readPixels(0, 0, canvasWidth, canvasHeight, gl.RGBA, gl.FLOAT, outarr);
+					}else{
+						throw 'floatsOutPerPixel='+floatsOutPerPixel+' but must be 1 or 4';
+					}
+				}
+
+				//requestAnimationFrame(render);
+			};
+			
+			render();
+			if(outarr != floatsOut) throw 'Diff out arrays';
+			TinyGlsl.debug_lastGlGetError = gl.getError();
+			return outarr;
+		}),
+		
+	testAfterBoot: (function(){
+		//tests work 2023-9-10.
+		console.log('START: TinyGlsl.testAfterBoot()');
+
+		/*
+		// Create the par array and update the uniform
+		let floatsPar = new Float32Array(1000); //at most 1024, or something like that. might be less cuz of other vars in kernels.
+		for (let i=0; i<floatsPar.length; i++){
+			floatsPar[i] = i;
+		}
+
+		let glslCode =
+			`${TinyGlsl.glslVersionString}
+			precision highp float;
+			uniform vec2 mouse;
+			uniform float par[${floatsPar.length}];
+			//in vec4 position;
+			//flat in int id;
+			in vec2 coord;
+			out vec4 fragColor;
+
+			void main() {
+				//TODO gl_VertexID
+				//vec2 coord = position.xy * 0.5 + 0.5; //FIXME?
+				//gl_Position = position; //FIXME?
+
+				float frompar = par[4]; // Get the corresponding value from par
+				float diag[10];
+				diag[0] = 1.3;
+				for(int d=1; d<10; d++){
+					diag[d] = float(d);
+				}
+				//diag[1] = 1.;
+				for(int d=1; d<10; d++){
+					diag[d] = diag[d-1]*diag[d-1]+.7*par[d];
+				}
+
+				vec2 c = vec2(coord.x, coord.y);
+				vec2 z = vec2(0.0, 0.0);
+				float i = -mouse.x * 0.71 + 1.0 * coord.x + 0.1 * mouse.y;
+
+				for (int j = 0; j < 1000; j++) {
+					vec2 v = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+					if (length(v) > 2.0)
+						break;
+					z = v;
+				}
+
+				fragColor = vec4(z.x / (4.0 + diag[2] + -1.9*frompar)+mouse.x,
+					mouse.x * 0.001, 0.0 + mouse.y * mouse.y * 0.000001, 1.0);
+			}`;
+		
+		//let floatsOut = new Float32Array(801); //TODO what size?
+
+		let floatsOut = TinyGlsl.internalGLSL_disorganizedTODO(glslCode, floatsPar, new Float32Array(801), 1, 801);
+		console.log('floatsOut[222]='+floatsOut[222]);
+		
+		
+		let parB = Float32Array.of(100,2);
+		let outsBSize = 10;
+		let testBOuts = TinyGlsl.internalGLSL_disorganizedTODO(
+			`${TinyGlsl.glslVersionString}
+			precision highp float;
+			uniform vec2 mouse;
+			uniform float par[${parB.length}];
+			in vec2 coord;
+			out vec4 fragColor;
+
+			void main(){
+				int id = int(coord.x*${outsBSize+'.'});
+				float ret = par[0]+pow(par[1],float(id));
+				fragColor = vec4(ret, 0., 0., 1.);
+			}`,
+			parB,
+			outsBSize
+		);
+		for(let i=0; i<10; i++){
+			let correctOut = 100+2**i;
+			let observedOut = testBOuts[i];
+			console.log('i='+i+' correctOut='+correctOut+' observedOut='+observedOut+' diff='+Math.abs(correctOut-observedOut));
+			if(correctOut != observedOut){
+				throw 'i='+i+' correctOut='+correctOut+' observedOut='+observedOut;
+			}
+		}
+		console.log('GLSL test pass: internalGLSL_disorganizedTODO');
+		*/
+
+		//FIXME move the tenThousandFloatsOut test to end cuz its bigger output array so tests TinyGlsl.caches.
+
+		let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), null, 1000, 10);
+		//let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), null, 8000, 1);
+		//let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id);', Float32Array.of(0), null, 1, 8000);
+		let correct5678 = 5678*5678;
+		let observed5678 = tenThousandFloatsOut[5678];
+		if(correct5678 != observed5678){
+			throw 'correct5678='+correct5678+' observed5678='+observed5678;
+		}
+		console.log('tenThousandFloatsOut test pass');
+		
+		let outsId = TinyGlsl.simple('', 'ret = float(id);', Float32Array.of(0,10,20,30,40,50), null, 1, 20);
+		//let outsId = TinyGlsl.simple('', 'ret = float(theId);', Float32Array.of(0,10,20,30,40,50), null, 20);
+		for(let i=0; i<outsId.length; i++){
+			let correctOut = i;
+			let observedOut = outsId[i];
+			console.log('outsId['+i+']='+outsId[i]);
+			if(correctOut != observedOut) throw 'i='+i+' correctOut='+correctOut+' observedOut='+observedOut;
+		}
+
+		let outsC = TinyGlsl.simple('', 'ret = par[2]+par[3]+float(id)*.001;', Float32Array.of(0,10,20,30,40,50), null, 1, 100);
+		//let outsC = TinyGlsl.simple('', 'ret = par[2]+par[3]+.001;', Float32Array.of(0,10,20,30,40,50), null, 100);
+		for(let i=0; i<outsC.length; i++){
+			let observedOut = outsC[i];
+			let approxCorrectOut = 20+30+i*.001;
+			console.log('outsC['+i+']='+observedOut);
+			let diff = Math.abs(observedOut-approxCorrectOut);
+			if(diff > .001) throw 'i='+i+' approxCorrectOut='+approxCorrectOut+' observedOut='+observedOut;
+		}
+		console.log('TinyGlsl.simple test A pass');
+		
+		let hundredFloats = new Float32Array(100);
+		for(let i=0; i<hundredFloats.length; i++){
+			hundredFloats[i] = Math.random();
+		}
+		//TODO time it using the performance object, make TinyGlsl.time function, copy it from my other code.
+		let hundredOuts = TinyGlsl.simple(
+			'',
+			`float sum = 0.;
+			float idf = float(id);
+			for(int i=0; i<pars; i++){
+				for(int j=0; j<pars; j++){
+					sum += (par[i]+idf)*(par[j]-idf);
+				}
+			}
+			ret = sum;`,
+			hundredFloats,
+			null,
+			1,
+			hundredFloats.length
+		);
+		let id = 71;
+		let sum = 0;
+		for(let i=0; i<hundredFloats.length; i++){
+			for(let j=0; j<hundredFloats.length; j++){
+				sum += (hundredFloats[i]+id)*(hundredFloats[j]-id);
+			}
+		}
+		let approxCorrectOut = sum;
+		let observedOut = hundredOuts[id];
+		let ratio = observedOut/approxCorrectOut;
+		let s = 'id='+id+' approxCorrectOut='+approxCorrectOut+' observedOut='+observedOut+' ratio='+ratio;
+		console.log(s);
+		if(Math.max(ratio,1/ratio) > 1.00001) throw s;
+		console.log('TinyGlsl.simple test B pass');
+
+		let tenThousandFloatsOutB = TinyGlsl.simple('', 'ret = float(id)*float(id)+0.;', Float32Array.of(0), null, 1000, 10);
+		//let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), null, 8000, 1);
+		//let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id);', Float32Array.of(0), null, 1, 8000);
+		let correct5678B = 5678*5678;
+		let observed5678B = tenThousandFloatsOutB[5678];
+		if(correct5678B != observed5678B){
+			throw 'correct5678B='+correct5678+' observed5678B='+observed5678;
+		}
+		let correct8989B = 8989*8989;
+		let observed8989B = tenThousandFloatsOutB[8989];
+		let diff = Math.abs(correct8989B-observed8989B);
+		if(diff > 10){ //cuz theres 24 digit bits in float, and 8989*8989 exceeds that. 5678*5678 does too but the answer is a multiple of 4 so its ok.
+			throw 'correct8989B='+correct8989B+' observed5678B='+observed8989B;
+		}
+		console.log('tenThousandFloatsOutB test pass');
+
+		let fourFloatsOnePixel_observedOut = TinyGlsl.simple(
+			'',
+			`ret = par[0]*par[1];
+			retb = par[0]+par[1];
+			retc = par[0]-par[1];
+			retd = par[0]/par[1];`,
+			Float32Array.of(10,20),
+			null,
+			1,
+			1,
+			4
+		);
+		let fourFloatsOnePixel_correctOut = Float32Array.of(200,30,-10,.5);
+		for(let i=0; i<4; i++){
+			if(fourFloatsOnePixel_observedOut[i] != fourFloatsOnePixel_correctOut[i]){
+				throw 'fourFloatsOnePixel_observedOut['+i+']='+fourFloatsOnePixel_observedOut[i]+' fourFloatsOnePixel_correctOut['+i+']='+fourFloatsOnePixel_correctOut[i];
+			}
+		}
+		console.log('fourFloatsOnePixel test pass');
+
+		let fourHundredFloatsOneHundredPixels_observedOut = TinyGlsl.simple(
+			'',
+			`float add = float(id)*1000.;
+			ret = add+par[0]*par[1];
+			retb = add+par[0]+par[1];
+			retc = add+par[0]-par[1];
+			retd = add+par[0]/par[1];`,
+			Float32Array.of(10,20),
+			null,
+			1,
+			1,
+			4
+		);
+		let fourHundredFloatsOneHundredPixels_correctOut = new Float32Array(400);
+		for(let i=0; i<100; i++){
+			fourHundredFloatsOneHundredPixels_correctOut[i*4] = i*1000+200;
+			fourHundredFloatsOneHundredPixels_correctOut[i*4] = i*1000+30;
+			fourHundredFloatsOneHundredPixels_correctOut[i*4] = i*1000-10;
+			fourHundredFloatsOneHundredPixels_correctOut[i*4] = i*1000+.5;
+		}
+		for(let i=0; i<400; i++){
+			if(fourHundredFloatsOneHundredPixels_observedOut[i] != fourFloatsOnePixel_correctOut[i]){
+				throw 'fourHundredFloatsOneHundredPixels_observedOut['+i+']='+fourHundredFloatsOneHundredPixels_observedOut[i]+
+					' fourHundredFloatsOneHundredPixels_correctOut['+i+']='+fourHundredFloatsOneHundredPixels_correctOut[i];
+			}
+		}
+		console.log('fourHundredFloatsOneHundredPixels test pass');
+
+		console.log("How to use TinyGLSL with 4 floats per pixel: TinyGlsl.simple('', 'ret = par[0]*par[1]; retb = float(id)*1000.+par[0]+par[1]; retc = par[0]-par[1]; retd = par[0]/par[1];', Float32Array.of(10,20), null, 1, 3, 4) -> Float32Array.of(200, 30, -10, 0.5, 200, 1030, -10, 0.5, 200, 2030, -10, 0.5)");
+		
+		/*
+		//let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), null, 1000, 10);
+		let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), null, 8000, 1);
+		let correct5678 = 5678*5678;
+		let observed5678 = tenThousandFloatsOut[5678];
+		if(correct5678 != observed5678){
+			throw 'correct5678='+correct5678+' observed5678='+observed5678;
+		}
+		console.log('tenThousandFloatsOut test pass');
+		*/
+		console.log('END: TinyGlsl.testAfterBoot()');
+	}),
+
+	jsNumToGlslFloat: jsNum=>{
+		let s = ''+jsNum;
+		if(!s.includes('.') && !s.includes('e')) s += '.'; //Examples: '3.', '3.45', '5e-10', '-5e-10'
+		return s;
+	},
+};
+
+
+/*
+Possible test cases to add...
+
+reads loc before writes it. returns all NaNs.
+
+TinyGlsl.simple('', `
+float loc[10];
+float externalVarX = loc[0];
+float externalVarY = loc[1];
+float externalVarZ = loc[2];
+float externalVarW = loc[3];
+float result_f = 0.0;
+float intermediate_f = 0.0;
+float anotherIntermediate_f = 0.0;
+float temp_f = 0.0;
+
+// Initialize loc array
+for(int i=0; i<10; i++) loc[i] = par[i];
+
+// Nested loop with complex operations
+for (int j = 0; j < 3; j++) {
+    for (int k = 0; k < 3; k++) {
+        intermediate_f = length(vec2(externalVarX, externalVarY)) + float(j) + float(k);
+        anotherIntermediate_f = externalVarZ * loc[4] - loc[5] + float(j) - float(k);
+
+        temp_f = exp(intermediate_f) * log(anotherIntermediate_f + 1.0);
+
+        if (temp_f > 5.0) {
+            result_f += sin(temp_f) * externalVarW;
+        } else {
+            result_f += cos(temp_f) + 2.71 * externalVarZ;
+        }
+    }
+}
+
+ret = result_f;
+`, 
+Float32Array.of(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0),
+Float32Array.of(),
+1,10,1);
+
+TinyGLSL.js:532 START TinyGlsl.boot()
+TinyGLSL.js:536 TinyGlsl VM detected littleEndian and may use that for overlapping .buffer in Uint8Array, Int32Array, Float32Array, Float64Array, etc. Despite that bigEndian is how people usually write things, most hardware seems to be littleEndian.
+TinyGLSL.js:562 high32BitsOfDouble and low32BitsOfDouble tests pass, Math.PI=3.141592653589793 != rebuiltPi=3.141592653589793 high32BitsOfPi 1074340347 low32BitsOfPi 1413754136, Math.E=2.718281828459045 != rebuiltE=2.718281828459045 high32BitsOfE 1074118410 low32BitsOfE -1961601175
+TinyGLSL.js:721 creating gl context, gl.isContextLost()==false
+TinyGLSL.js:725 Returning new webgl context [object WebGL2RenderingContext]
+Float32Array(10) [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, tid: 1716149172.857, buffer: ArrayBuffer(40), byteLength: 40, byteOffset: 0, length: 10, …]
+
+
+
+
+
+
+
+
+This error shouldnt happen:
+TinyGlsl.simple(
+  '',
+  `
+  float loc[106]; // contains all locMem, locparMem, parlocMem arrays. ptrLoc or ptr can point into here.
+  const int par_o = 0; // view of whole {par} shared array
+  const int loc_o = 0; // view of whole {loc} shared array
+  float epsilon_f = 0.0009765625;
+  
+  // Initialize loc array
+  for (int i = 0; i < 106; i++) loc[i] = 0.0;
+  
+  // Copy values from par to loc with epsilon addition
+  for (int gradientCopyIndex_i = 0; gradientCopyIndex_i < 106; gradientCopyIndex_i++) {
+    loc[loc_o + gradientCopyIndex_i] = par[par_o + gradientCopyIndex_i] +
+      ((gradientCopyIndex_i == id) ? epsilon_f : 0.0);
+  }
+  
+  // Verify the values in loc
+  ret = loc[id];
+  `,
+  Float32Array.of(
+    17.90561294555664, 6.370355606079102, 0.0428168959915638, 2.261533260345459, -5.8961029052734375, -7.1521196365356445,
+    -0.8353716135025024, -4.276762962341309, -1.009261131286621, 16.826656341552734, -0.13536247611045837, 1.0682892799377441,
+    -0.09514517337083817, 0.6129559278488159, 0.27901530265808105, 2.691152811050415, 3.357168436050415, 5.711653709411621,
+    0.00581826688721776, 0.880428671836853, 3.6259515285491943, 9.176390647888184, -20.007644653320312, 5.293992519378662,
+    0.0009765625, 0, 0, 8.050000190734863, 0, 0.07000000029802322, 0.07000000029802322, 2, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+    0.20000000298023224, 33, 0, 1, 8.050000190734863, 0, 0.07000000029802322, 0.07000000029802322, 2, 2.3499999046325684,
+    2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -2, 2, -2, -2, 2, 2, 2, 2, 2, -2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 10000,
+    1, -0.6017442941665649, 1.1215028762817383, 1.840000033378601, 1, 225, 300, 60, 60, 0.30212801694869995, -0.30655813217163086,
+    0.4198278784751892, 0.21975739300251007, -0.05462523549795151, -1.1615443229675293
+  ),
+  Float32Array.of(),
+  1, 106, 1
+);
+Float32Array(106) [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, …]
+TestTinyGLSL.html:1 [.WebGL-0000114400720700] GL_INVALID_OPERATION: Error: 0x00000502, in ..\..\third_party\angle\src\libANGLE\renderer\d3d\d3d11\Context11.cpp, rx::Context11::triggerDrawCallProgramRecompilation:1054. Internal D3D11 error: HRESULT: 0x80004005: Error compiling dynamic pixel executable
+
+
+
+
+
+
+
+
+try {
+  TinyGlsl.simple(
+    '',
+    `
+    float loc[106]; // contains all locMem, locparMem, parlocMem arrays. ptrLoc or ptr can point into here.
+    const int par_o = 0; // view of whole {par} shared array
+
+    // Initialize loc array to zero
+    for (int i = 0; i < 106; i++) loc[i] = 0.0;
+
+    // Copy values from par to loc
+    for (int i = 0; i < 10; i++) {
+      loc[i] = par[par_o + i];
+    }
+
+    // Sum the copied values
+    float sum_f = 0.0;
+    for (int i = 0; i < 10; i++) {
+      sum_f += loc[i];
+    }
+
+    // Output the sum to ret
+    ret = sum_f;
+    `,
+    Float32Array.of(
+      17.90561294555664, 6.370355606079102, 0.0428168959915638, 2.261533260345459, -5.8961029052734375, -7.1521196365356445,
+      -0.8353716135025024, -4.276762962341309, -1.009261131286621, 16.826656341552734, -0.13536247611045837, 1.0682892799377441,
+      -0.09514517337083817, 0.6129559278488159, 0.27901530265808105, 2.691152811050415, 3.357168436050415, 5.711653709411621,
+      0.00581826688721776, 0.880428671836853, 3.6259515285491943, 9.176390647888184, -20.007644653320312, 5.293992519378662,
+      0.0009765625, 0, 0, 8.050000190734863, 0, 0.07000000029802322, 0.07000000029802322, 2, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+      0.20000000298023224, 33, 0, 1, 8.050000190734863, 0, 0.07000000029802322, 0.07000000029802322, 2, 2.3499999046325684,
+      2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -2, 2, -2, -2, 2, 2, 2, 2, 2, -2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 10000,
+      1, -0.6017442941665649, 1.1215028762817383, 1.840000033378601, 1, 225, 300, 60, 60, 0.30212801694869995, -0.30655813217163086,
+      0.4198278784751892, 0.21975739300251007, -0.05462523549795151, -1.1615443229675293
+    ),
+    Float32Array.of(),
+    1, 106, 1
+  );
+} finally {
+  console.log('code3:\n' + TinyGlsl.last_code3);
+}
+
+VM435:40 code3:
+#version 300 es
+					precision highp float; //2
+					uniform vec2 mouse; //3
+					uniform float par[104]; //4
+					in vec2 coord; //5
+					//flat in int id; //6
+					out vec4 fragColor; //7
+					const int pars = 104; //number of params in the par array //8
+					const int idh = 1; //height in pixels //9
+					const int idw = 106; //width in pixels //10
+					const int ids = idh*idw; //height*width //11
+					 //12
+					void main(){ //13
+						int idy = int(coord.y*float(idh)); //y position from 0 to idh-1. FIXME if idy idx or id is used in beforeCode, will need to be passed as param. Maybe just id? //14
+						int idx = int(coord.x*float(idw)); //x position from 0 to idw-1 //15
+						int id = idy*idw+idx; //2d pixel index in 1 int //16
+						float ret = 0.; //floatsOutPerPixel=1 use ret retb retc retd if 4, use just ret if 1. //17
+						float retb = 0.; //18
+						float retc = 0.; //19
+						float retd = 0.; //20
+						//start user code //21
+						 //22
+    float loc[106]; // contains all locMem, locparMem, parlocMem arrays. ptrLoc or ptr can point into here. //23
+    const int par_o = 0; // view of whole {par} shared array //24
+ //25
+    // Initialize loc array to zero //26
+    for (int i = 0; i < 106; i++) loc[i] = 0.0; //27
+ //28
+    // Copy values from par to loc //29
+    for (int i = 0; i < 10; i++) { //30
+      loc[i] = par[par_o + i]; //31
+    } //32
+ //33
+    // Sum the copied values //34
+    float sum_f = 0.0; //35
+    for (int i = 0; i < 10; i++) { //36
+      sum_f += loc[i]; //37
+    } //38
+ //39
+    // Output the sum to ret //40
+    ret = sum_f; //41
+     //42
+						//end user code //43
+						//ret = testFunctionASDFASDF(id, ret,-.5); //FIXME remove this //44
+						fragColor = vec4(ret, retb, retc, retd); //45
+					} //46
+
+Float32Array(106) [24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, 24.237356185913086, …]
+Its all 24.237356185913086
+correct cuz [17.90561294555664, 6.370355606079102, 0.0428168959915638, 2.261533260345459, -5.8961029052734375, -7.1521196365356445, -0.8353716135025024, -4.276762962341309, -1.009261131286621, 16.826656341552734].reduce((x,y)=>(x+y))
+returns 24.237356800585985 .
+
+
+TinyGlsl.simple('','ret = par[id*2]+par[id*2+1];',Float32Array.of(5,6,7,8,9,10),[],3,1,1)
+Float32Array(3) [11, 15, 19, tid: 1716299274.657, buffer: ArrayBuffer(12), byteLength: 12, byteOffset: 0, length: 3, …]
+My core GPU API is a pure-function. This 1 line instantly runs a million GPU threads: TinyGlsl.simple('','ret = par[(id&3)*2]+par[(id&3)*2+1];',Float32Array.of(5,6,7,8,9,10,100,200),[],1000,1000,1) returns Float32Array.of(11, 15, 19, 300, 11, 15, 19, 300.. https://github.com/benrayfield/DagBall/blob/main/lib/TinyGLSL.js
+You can call TinyGlsl.simple('','ret = par[(id&3)*2]+par[(id&3)*2+1];',Float32Array.of(5,6,7,8,9,10,100,200),[],1000,1000,1) from webpages in windows desktop browsers. Its still buggy in linux desktop browsers and android browsers, TODO.
+
+*/
+</script>
+</head>
+<body>
+    <input type=checkbox id="alwaysUseCPU" oninput="mainEvent();"><label for="alwaysUseCPU">Always use CPU instead of GPU</label>
+	<input type=button onclick="mainEvent();" value="mainEvent">
+	<input type=button onclick="powerset.testAllLossesGpuCpu();" value="powerset.testAllLossesGpuCpu(); see console"><br>
+	FIXME when using GPU make sure the vars compute the same thing as CPU cuz i might have mixed them up. Auto saves and loads in cookie. Edit. Close page. Come back. Its still here. (that doesnt work thru github preview but does as local html). If lib/TinyGLSL.js is loaded=<b><div style="display:inline" id=divIsTinyGlslLoaded>false</div></b> (only uses GPU if theres enough vars, maybe if its more than 15 vars), will GPU optimize so its fast for up to around 35 vars (max 48) instead of 18-25 in CPU.<br>
+    <div id="container" style="position: relative; width: 100%; height: 100vh; overflow: hidden; margin: 0; padding: 0; font-family: 'Courier New', monospace;">
+        <div id="codeDisplay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: auto; border: none; padding: 10px; box-sizing: border-box; font-size: 16px; line-height: 20px; color: black; pointer-events: none; z-index: 1; padding-bottom: 40px;"></div>
+        <textarea id="codeInput" spellcheck=false style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: auto; border: none; padding: 10px; box-sizing: border-box; font-size: 16px; line-height: 20px; background: transparent; color: transparent; caret-color: black; resize: none; outline: none; z-index: 2; spellcheck: false; padding-bottom: 40px; font-family: 'Courier New', monospace;"></textarea>
+    </div>
+    <div id="results" style="z-index: 2222;background-color:rgb(223, 223, 223);position: absolute; bottom: 100px; left: 0; width: 100%; color: #228B22; font-size: 16px;"></div>
+	<div id="errors" style="position: absolute; bottom: 20px; left: 0; height:80px;width: 100%; color: #bd6634; font-size: 16px; overflow:auto;"></div>
+
+    <script>
+
+	const utf8TextEncoder = new TextEncoder('utf-8');
+	const utf8TextDecoder = new TextDecoder('utf-8');
+	const stringToBytes = function(s){ return utf8TextEncoder.encode(s); };
+	const bytesToString = function(bytes){ return utf8TextDecoder.decode(bytes); };
+	const hexDigits = '0123456789abcdef';
+	const mapOfHexDigitToInt = {}; //vals are 0 to 15. filled in boot.
+	const mapOfDoubleHexDigitsToInt = {}; //vals are 0 to 255. filled in boot.
+	const bytesToHex = function(bytes){ return bytesAndRangeToHex(bytes,0,bytes.length); };
+	const bytesAndRangeToHex = function(bytes,from,toExcl){
+		let s = '';
+		for(let i=from; i<toExcl; i++) s += doubleHexDigits[bytes[i]];
+		return s;
+	};
+	const sha256HexOfString = function(s){ return bytesToHex(sha256(stringToBytes(s))); };
+	//returns 8 hex digits including any leading zeros.
+	const intToHex = function(i){ return doubleHexDigits[(i>>24)&0xff]+doubleHexDigits[(i>>16)&0xff]+doubleHexDigits[(i>>8)&0xff]+doubleHexDigits[i&0xff]; };
+	console.log('Filling in some data structures.');
+	//256 pairs of hex digits
+	let doubleHexDigits = []; //TODO move bytesToHex func to DV/Dagverse.js (started that 2024-2-19) and remove duplicate funcs in other js/html files
+	for(let i=0; i<16; i++){
+		mapOfHexDigitToInt[hexDigits[i]] = i;
+		for(let j=0; j<16; j++){
+			let hh = hexDigits[i]+hexDigits[j];
+			doubleHexDigits.push(hh);
+			mapOfDoubleHexDigitsToInt[hh] = ((i<<4)|j);
+		}
+	}
+
+	//https://raw.githubusercontent.com/benrayfield/jsutils/master/src/sha256.js
+	const sha256 = function(bytesIn){
+		//var t = typeof bytesIn;
+		//if(t != 'Uint8Array') throw 'Expected Uint8Array but got a '+t; //this check wont work because its like a map of index to byte
+		
+		var chunks = Math.floor((bytesIn.byteLength+9+63)/64); //512 bit each
+		
+		//Copy bytesIn[] into b[], then pad bit1, then pad bit0s,
+		//then append int64 bit length, finishing the last block of 512 bits.
+		//byte b[] = new byte[chunks*64];
+		var b = new Uint8Array(chunks*64);
+		
+		//System.arraycopy(bytesIn, 0, b, 0, bytesIn.byteLength);
+		b.set(bytesIn, 0);
+		
+		b[bytesIn.byteLength] = 0x80;
+		
+		//long bitLenTemp = bytesIn.byteLength*8;
+		var bitLenTemp = bytesIn.byteLength*8; //in js, this has float64 precision, which is more than enough for Uint8Array size
+		for(var i=7; i>=0; i--){
+			b[b.byteLength-8+i] = bitLenTemp&0xff;
+			bitLenTemp >>>= 8;
+		}
+		
+		//log('b as hex = '+bitfuncs.uint8ArrayToHex(b));
+		
+		
+		var a = new Uint32Array(136);
+		//"first 32 bits of the fractional parts of the cube roots of the first 64 primes 2..311"
+		a[0]=0x428a2f98;
+		a[1]=0x71374491;
+		a[2]=0xb5c0fbcf;
+		a[3]=0xe9b5dba5;
+		a[4]=0x3956c25b;
+		a[5]=0x59f111f1;
+		a[6]=0x923f82a4;
+		a[7]=0xab1c5ed5;
+		a[8]=0xd807aa98;
+		a[9]=0x12835b01;
+		a[10]=0x243185be;
+		a[11]=0x550c7dc3;
+		a[12]=0x72be5d74;
+		a[13]=0x80deb1fe;
+		a[14]=0x9bdc06a7;
+		a[15]=0xc19bf174;
+		a[16]=0xe49b69c1;
+		a[17]=0xefbe4786;
+		a[18]=0x0fc19dc6;
+		a[19]=0x240ca1cc;
+		a[20]=0x2de92c6f;
+		a[21]=0x4a7484aa;
+		a[22]=0x5cb0a9dc;
+		a[23]=0x76f988da;
+		a[24]=0x983e5152;
+		a[25]=0xa831c66d;
+		a[26]=0xb00327c8;
+		a[27]=0xbf597fc7;
+		a[28]=0xc6e00bf3;
+		a[29]=0xd5a79147;
+		a[30]=0x06ca6351;
+		a[31]=0x14292967;
+		a[32]=0x27b70a85;
+		a[33]=0x2e1b2138;
+		a[34]=0x4d2c6dfc;
+		a[35]=0x53380d13;
+		a[36]=0x650a7354;
+		a[37]=0x766a0abb;
+		a[38]=0x81c2c92e;
+		a[39]=0x92722c85;
+		a[40]=0xa2bfe8a1;
+		a[41]=0xa81a664b;
+		a[42]=0xc24b8b70;
+		a[43]=0xc76c51a3;
+		a[44]=0xd192e819;
+		a[45]=0xd6990624;
+		a[46]=0xf40e3585;
+		a[47]=0x106aa070;
+		a[48]=0x19a4c116;
+		a[49]=0x1e376c08;
+		a[50]=0x2748774c;
+		a[51]=0x34b0bcb5;
+		a[52]=0x391c0cb3;
+		a[53]=0x4ed8aa4a;
+		a[54]=0x5b9cca4f;
+		a[55]=0x682e6ff3;
+		a[56]=0x748f82ee;
+		a[57]=0x78a5636f;
+		a[58]=0x84c87814;
+		a[59]=0x8cc70208;
+		a[60]=0x90befffa;
+		a[61]=0xa4506ceb;
+		a[62]=0xbef9a3f7;
+		a[63]=0xc67178f2;
+		//h0-h7 "first 32 bits of the fractional parts of the square roots of the first 8 primes 2..19"
+		a[64]=0x6a09e667;
+		a[65]=0xbb67ae85;
+		a[66]=0x3c6ef372;
+		a[67]=0xa54ff53a;
+		a[68]=0x510e527f;
+		a[69]=0x9b05688c;
+		a[70]=0x1f83d9ab;
+		a[71]=0x5be0cd19;
+		//a[72..135] are the size 64 w array of ints
+		for(var chunk=0; chunk<chunks; chunk++){
+			var bOffset = chunk<<6;
+			//copy chunk into first 16 words w[0..15] of the message schedule array
+			for(var i=0; i<16; i++){
+				//Get 4 bytes from b[]
+				var o = bOffset+(i<<2);
+				a[72+i] = ((b[o]&0xff)<<24) | ((b[o+1]&0xff)<<16) | ((b[o+2]&0xff)<<8) | (b[o+3]&0xff);
+			}
+			//Extend the first 16 words into the remaining 48 words w[16..63] of the message schedule array:
+			for(var i=16; i<64; i++){
+				//s0 := (w[i-15] rightrotate 7) xor (w[i-15] rightrotate 18) xor (w[i-15] rightshift 3)
+				//s1 := (w[i-2] rightrotate 17) xor (w[i-2] rightrotate 19) xor (w[i-2] rightshift 10)
+				//w[i] := w[i-16] + s0 + w[i-7] + s1
+				var wim15 = a[72+i-15];
+				var s0 = ((wim15>>>7)|(wim15<<25)) ^ ((wim15>>>18)|(wim15<<14)) ^ (wim15>>>3);
+				var wim2 = a[72+i-2];
+				var s1 = ((wim2>>>17)|(wim2<<15)) ^ ((wim2>>>19)|(wim2<<13)) ^ (wim2>>>10);
+				a[72+i] = a[72+i-16] + s0 + a[72+i-7] + s1;
+			}
+			var A = a[64];
+			var B = a[65];
+			var C = a[66];
+			var D = a[67];
+			var E = a[68];
+			var F = a[69];
+			var G = a[70];
+			var H = a[71];
+			for(var i=0; i<64; i++){
+				/* S1 := (e rightrotate 6) xor (e rightrotate 11) xor (e rightrotate 25)
+				ch := (e and f) xor ((not e) and g)
+				temp1 := h + S1 + ch + k[i] + w[i]
+				S0 := (a rightrotate 2) xor (a rightrotate 13) xor (a rightrotate 22)
+				maj := (a and b) xor (a and c) xor (b and c)
+				temp2 := S0 + maj
+				h := g
+				g := f
+				f := e
+				e := d + temp1
+				d := c
+				c := b
+				b := a
+				a := temp1 + temp2
+				*/
+				var s1 = ((E>>>6)|(E<<26)) ^ ((E>>>11)|(E<<21)) ^ ((E>>>25)|(E<<7));
+				var ch = (E&F) ^ ((~E)&G);
+				var temp1 = H + s1 + ch + a[i] + a[72+i];
+				var s0 = ((A>>>2)|(A<<30)) ^ ((A>>>13)|(A<<19)) ^ ((A>>>22)|(A<<10));
+				var maj = (A&B) ^ (A&C) ^ (B&C);
+				var temp2 = s0 + maj;
+				H = G;
+				G = F;
+				F = E;
+				E = D + temp1;
+				D = C;
+				C = B;
+				B = A;
+				A = temp1 + temp2;
+			}
+			a[64] += A;
+			a[65] += B;
+			a[66] += C;
+			a[67] += D;
+			a[68] += E;
+			a[69] += F;
+			a[70] += G;
+			a[71] += H;
+		}
+		//RETURN h0..h7 = a[64..71]
+		//byte ret[] = new byte[32];
+		var ret = new Uint8Array(32);
+		for(var i=0; i<8; i++){
+			var ah = a[64+i];
+			ret[i*4] = (ah>>>24)&0xff;
+			ret[i*4+1] = (ah>>>16)&0xff;
+			ret[i*4+2] = (ah>>>8)&0xff;
+			ret[i*4+3] = ah&0xff;
+		}
+		return ret;
+	};
+
+	const codeInput = document.getElementById('codeInput');
+	const codeDisplay = document.getElementById('codeDisplay');
+	const resultsDiv = document.getElementById('results');
+	const errorsDiv = document.getElementById('errors');
+	var colorMap = {};
+	var bestInput = 0; //bestIndex from 0 to 2**vars.length-1.
+	var bestLoss = Infinity;
+	var floatsFromGPU = null; //if uses TinyGlsl
+	var uniqueVars = [];
+	var cpuFunc = null;
+	var isError = false;
+	var powerset = null; //a Powerset object whose code field is the textarea content. when textarea is updated, this will be updated in the event.
+
+	var mainEvent = function(){
+		powerset = new Powerset(codeInput.value);
+		evaluateCode(codeInput.value);
+		updateDisplay();
+		localStorage.setItem('nsatDesignTool_textAreaContent', codeInput.value); //save textarea content to cookie
+	};
+
+	document.addEventListener('DOMContentLoaded', function() {
+		const defaultText =
+/*`if(TheFather == TheSon) loss++;
+if(TheFather == TheHolySpirit) loss++;
+if(TheHolySpirit == TheSon) loss++;
+if(God != TheFather) loss++;
+if(God != TheSon) loss++;
+if(God != TheHolySpirit) loss++;\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n`;
+*/
+/*`loss += 2*A*B*Cc*K*L*M*N*O*P;
+//TODO upgrade to TinyGLSL to get 35 vars in this system
+loss += .01*!FnTwoChilds; //having 3 or 4 childs (instead of 2) makes it harder to use and less efficient
+ loss += FnTwoChilds*Ax*Lz; //if ax opcode exists and lz opcode exists and theres no HaltTwoBits child of fn then a call of ax in a lazyeval/lz wouldnt know its opcode since opcode must be 0 for evaling and between 1 and 2**8-1 or 2**12-1 (different softwares i made) if is halted but ax cant be lazyevaled that way because it takes up to infinite time to verify an ax call is halted but compare that to other opcodes that know the number curries they are waiting on before evaling so that is known instantly, they create math paradox.
+loss += !SimStack*FnTwoChilds*Salt; //salt is a child or is part of hyper child, either way, its more than 2 childs per fn. unless SimStack  cuz then salt 
+//if(Lz) loss += .001;
+loss += !Cardinality*FnCanSeeEvalsToEdgeInGraph; //without the cardinality param (C (C C C) C) in Hyper child of fn, the infinite size constant directed graph that is every possible lambda of this kind and their relations between eachother, can be seen by the lambdas its made of, that a lambda can navigate around it in turing complete patterns. To do that across E/EvalsTo edges that do not halt, you need 1 hypercomputing/cardinality higher. The Cardinality var here means does infinite cardinality exist in the system at all vs everything is just the usual turing complete level. 
+ loss += .03*!Nondet; //nondeterministic is a permission that can be tightened higher on stack such as strictfp. nondet here means do nondeterministic levels exist at all vs is it only the 1 deterministic layer below them.
+//if(Cardinality) loss+=3;
+loss += .1*!B;
+loss += 1111111331.*Cc;
+loss += N*.1;
+loss += 100+Cc;`*/
+`//TODO upgrade to TinyGLSL to get 35 vars in this system
+loss += .01*!FnTwoChilds; //having 3 or 4 childs (instead of 2) makes it harder to use and less efficient
+ loss += FnTwoChilds*Ax*Lz; //if ax opcode exists and lz opcode exists and theres no HaltTwoBits child of fn then a call of ax in a lazyeval/lz wouldnt know its opcode since opcode must be 0 for evaling and between 1 and 2**8-1 or 2**12-1 (different softwares i made) if is halted but ax cant be lazyevaled that way because it takes up to infinite time to verify an ax call is halted but compare that to other opcodes that know the number curries they are waiting on before evaling so that is known instantly, they create math paradox.
+loss += !SimStack*FnTwoChilds*Salt; //salt is a child or is part of hyper child, either way, its more than 2 childs per fn. unless SimStack  cuz then salt 
+//if(Lz) loss += .001; 
+loss += !Cardinality*FnCanSeeEvalsToEdgeInGraph; //without the cardinality param (C (C C C) C) in Hyper child of fn, the infinite size constant directed graph that is every possible lambda of this kind and their relations between eachother, can be seen by the lambdas its made of, that a lambda can navigate around it in turing complete patterns. To do that across E/EvalsTo edges that do not halt, you need 1 hypercomputing/cardinality higher. The Cardinality var here means does infinite cardinality exist in the system at all vs everything is just the usual turing complete level.
+ loss += .03*!Nondet; //nondeterministic is a permission that can be tightened higher on stack such as strictfp. nondet here means do nondeterministic levels exist at all vs is it only the 1 deterministic layer below them.
+//if(Cardinality) loss+=3;
+loss += .001; //testing, dont like loss of 0 vs did it compute the loss at all or just say 0.
+//loss = loss*2;
+loss += .01*FnCanSeeEvalsToEdgeInGraph;
+loss += .01*!EveryForestShapeValid; //Without this, its harder to dovetail and harder to make UIs and has less self-reference ability.
+ loss += HaltTwoBits*EveryForestShapeValid; //HaltTwoBits has 3 possible values (knowIsHalted, knowIsNotHalted, unknownIfIsHalted) and only 2 are allowed for each node, if HaltTwoBits exists, so EveryForestShapeValid is not true in that case cuz that would mean all 3 are allowed or theres no HaltTwoBits child to vary.
+loss += A*B*C*D*E*F;`
+		codeInput.value = defaultText;
+		evaluateCode(defaultText);
+		updateDisplay();
+	});
+
+	codeInput.addEventListener('input', mainEvent);
+
+	codeInput.addEventListener('scroll', syncScroll);
+
+	function updateDisplay() {
+		console.log('updateDisplay');
+		//if(isError){
+		//	resultsDiv.innerHTML = '(fix error first...)';
+		//	//return;
+		//}
+		const text = codeInput.value;
+		const strippedText = text.replace(/\/\/.*$/gm, '');
+		const varNames = strippedText.match(/\b([A-Z][a-zA-Z]*)\b/g) || [];
+		uniqueVars = [...new Set(varNames)];
+		uniqueVars.sort();
+		assignColors(uniqueVars);
+
+		const html = text.replace(/\/\/.*$/gm, function(match) {
+			return `<span style="color: lightgray;">${match.replace(/\b([A-Z][a-zA-Z]*)\b/g, function(innerMatch) {
+				if (uniqueVars.includes(innerMatch)) {
+					const color = colorMap[innerMatch];
+					const adjustedColor = color ? adjustColorBrightness(color, bestInput & (1 << uniqueVars.indexOf(innerMatch))) : 'lightgray';
+					return `<span style="color: ${adjustedColor};">${innerMatch}</span>`;
+				} else {
+					return `<span style="color: lightgray;">${innerMatch}</span>`;
+				}
+			})}</span>`;
+		}).replace(/\b([A-Z][a-zA-Z]*)\b/g, function(match) {
+			const color = colorMap[match];
+			if (color) {
+				const adjustedColor = adjustColorBrightness(color, bestInput & (1 << uniqueVars.indexOf(match)));
+				return `<span style="color: ${adjustedColor};">${match}</span>`;
+			} else {
+				return `<span style="color: lightgray;">${match}</span>`;
+			}
+		}).replace(/\n/g, '<br>');
+
+		codeDisplay.innerHTML = html + '<div style="height: 40px;"></div>';
+
+		if(isError){
+			resultsDiv.innerHTML = '(fix error first...)';
+		}else{
+			const trueVars = uniqueVars.filter(varName => bestInput & (1 << uniqueVars.indexOf(varName)));
+			const falseVars = uniqueVars.filter(varName => !(bestInput & (1 << uniqueVars.indexOf(varName))));
+			resultsDiv.innerHTML = `Loss = ${bestLoss.toFixed(3)}, Best Input = ${bestInput} (binary: ${bestInput.toString(2)}), Variables: ${uniqueVars.length}<br>
+								True Variables: ${trueVars.join(', ')}<br>
+								False Variables: ${falseVars.join(', ')}<br>
+								All Variables: ${uniqueVars.join(', ')}`;
+		}
+	}
+
+	function syncScroll() {
+		codeDisplay.scrollTop = codeInput.scrollTop;
+		codeDisplay.scrollLeft = codeInput.scrollLeft;
+	}
+
+	const tinyGlslIsLoaded = (()=>{
+		try{
+			//FIXME: as of 2024-7-13 TinyGlsl works in windows desktop browsers but does not work in linux or android,
+			//bug report: https://github.com/benrayfield/DagBall/tree/main/doc/gpu/ubuntuTestFailed2023-11-24
+			//It also may simply not be loaded, this html used by itself with CPU only.
+			//Either way it will throw here and tinyGlslIsLoaded get set to false, unless it passes test cases.
+			TinyGlsl.testAfterBoot();
+			return true;
+		}catch(e){}
+		return false;
+	})();
+
+	let codeToVars = code=>{
+		let strippedCode = code.replace(/\/\/.*$/gm, '');
+		let varNames = strippedCode.match(/\b([A-Z][a-zA-Z]*)\b/g) || [];
+		let vars = [...new Set(varNames)];
+		vars.sort();
+		return vars;
+	};
+
+	//code is in a javascript-like language but that is transformed to js andOr glsl, which sets a loss var that starts as 0.
+	//this.vars is a list of string names of vars sorted ascending.
+	//Those vars are divided into 2 groups: inThreadId and inLoop.
+	//The bitIndex v of a var is used as 1<<v to mask in index which contains a bit val for each var.
+	//TODO should threadId take the low 16 or the high 16 vars?
+	let Powerset = function(code){
+		this.code = code;
+		this.vars = codeToVars(code);
+	};
+
+	//Powerset.prototype.generalCode = function(isGpu){
+	/*let funcBodyString = `"use strict"; ${script}`;
+	let fileName = sha256HexOfString(funcBodyString)+'.js';
+	let funcBodyString2 = funcBodyString+'\n//# sourceURL='+fileName;
+	const func = new Function(...uniqueVars, funcBodyString2);
+	cpuFunc = func;
+	for (let i = 0; i < (1 << uniqueVars.length); i++) {
+		//const loss = func(...uniqueVars.map(varName => Boolean(i & (1 << uniqueVars.indexOf(varName)))));
+		//const loss = func(...uniqueVars.map(varName => ((i & (1 << uniqueVars.indexOf(varName)))?1:0)));
+		const loss = func(...uniqueVars.map(varName => ((i & (1 << uniqueVars.indexOf(varName)))?1:0)));
+		if (loss <= bestLoss) { //<= to prefer vars be true if theres a tie. < to prefer false if tie.
+			bestLoss = loss;
+			bestInput = i;
+		}
+	}
+	*/
+
+	//returns a func of 1 param: an integer ranging 0 to 2**this.vars.length-1 that is the sum of this.vars[v]*2**v forall v.
+	Powerset.prototype.cpuFunc = function(){
+		if(!this.cpuFunc_){
+			let jsCode = '(index=>{\n	let loss = 0;\n';
+			for(let v=0; v<this.vars.length; v++){
+				jsCode += '	let '+this.vars[v]+' = index&1; index /= 2;\n';
+			}
+			jsCode += this.code.trim()+'\nreturn loss;\n});';
+			this.cpuFunc_ = eval(jsCode);
+		}
+		return this.cpuFunc_;
+		/*let funcBodyString = `"use strict"; ${this.code}`;
+		let fileName = sha256HexOfString(funcBodyString)+'.js';
+		let funcBodyString2 = funcBodyString+'\n//# sourceURL='+fileName;
+		const func = new Function(...this.vars, funcBodyString2);
+		cpuFunc = func;
+		*/
+	};
+	
+	//get a Float32Array(1<<this.vars.length)
+	Powerset.prototype.allLosses = function(isGpu){
+		if(this.vars.length > 30) throw new Error('vars.length='+this.vars.length+' is too big to return all losses at once');
+		if(isGpu){ //1 gpu thread per set in the powerset. No loop inside the thread. Cuz this is allLosses, not just finding the lowest loss.
+			let glslCode = '';
+			for(let v=0; v<this.vars.length; v++){
+				glslCode += '	float '+this.vars[v]+' = float((id>>'+v+')&1);\n';
+				glslCode += 'float Not'+this.vars[v]+' = 1.-'+this.vars[v]+';\n';
+			}
+			glslCode += 'float loss = 0.;\n';
+			glslCode += this.code.replace(/!(?!=)/g, 'Not'); //change !VarName to NotVarName, but leave != as !=.
+			glslCode += 'ret = loss;\n';
+			let yVars = this.vars.length>>1;
+			let xVars = this.vars.length-yVars;
+			let floatsFromGPU = TinyGlsl.simple('', glslCode, Float32Array.of(0), null, 2**yVars, 2**xVars); //2**this.vars.length gpu threads, each returns 1 float.
+			return floatsFromGPU;
+		}else{
+			let ret = new Float32Array(2**this.vars.length);
+			let cpuFunc = this.cpuFunc();
+			for(let i=0; i<ret.length; i++){
+				ret[i] = cpuFunc(i);
+			}
+			return ret;
+		}
+	};
+
+	//calls allLosses both ways, isGpu and !isGpu, and throws if any of them differ by more than roundoff. Returns max diff of loss between cpu and gpu of all indexs
+	Powerset.prototype.testAllLossesGpuCpu = function(){
+		console.log('Start test, testAllLossesGpuCpu');
+		let allLossesFromCpu = this.allLosses(false);
+		let allLossesFromGpu = this.allLosses(true);
+		//allLossesFromGpu[177]++;
+		//allLossesFromGpu[180] += .00001;
+		if(allLossesFromCpu.length != allLossesFromGpu.length) throw new Error('lengths differ');
+		if(allLossesFromCpu.length != 2**this.vars.length) throw new Error('allLossesFromCpu.length != 2**this.vars.length');
+		let epsilon = .0001;
+		let maxDiff = 0;
+		for(let i=0; i<allLossesFromCpu.length; i++){
+			let diff = Math.abs(allLossesFromCpu[i]-allLossesFromGpu[i]);
+			maxDiff = Math.max(maxDiff, diff);
+			if(diff > epsilon){
+				throw new Error('i='+i+'/'+allLossesFromCpu.length+' diff='+diff+' allLossesFromCpu[i]='+allLossesFromCpu[i]+' allLossesFromGpu[i]='+allLossesFromGpu[i]);
+			}
+		}
+		console.log('Test pass, testAllLossesGpuCpu, maxDiff='+maxDiff+' for this.vars='+this.vars+' this.code='+this.code.trim());
+		return maxDiff;
+	};
+
+	/*Powerset.prototype.makeGlslCode = function(){
+		let glsl = '';
+
+
+		throw new Error('TODO');
+
+		/*
+		console.log('TinyGlsl is loaded so TODO you can do about 35 vars in GPU before it gets slow (todo test speed). TinyGlsl='+TinyGlsl);
+		//let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), null, 1000, 10);
+		//TODO call TinyGlsl.simple
+		let glslCode = '';
+		//let numVarsGoInGpuThreadId = 16; //goes with the 2 of 256 in TinyGlsl.simple params.
+		let numVarsGoInGpuThreadId = 1; //for testing. much slower cuz only 1 gpu thread. goes with the 2 of 1 in TinyGlsl.simple params.
+		let numVarsPerGpuThread = uniqueVars.length-numVarsGoInGpuThreadId;
+		let numGpuThreads = 1<<numVarsGoInGpuThreadId;
+		for(let v=0; v<numVarsGoInGpuThreadId; v++){
+			throw new Error('TODO make a js class (by prototype as usual) for vars and what is the index and name of each, and have it generate both the js and the tinyglsl code. Redesign it to fix the bug where gpu disagrees with cpu about the loss float var and which combo of vars are 1 vs 0 in global minimum of loss.');
+			//throw new Error('gpuThreadId is aligned to indexs 0-15 here but at the high 16 bits (up to 40) in let bestInputOfThatGpuThread = threadId*(2**numVarsPerGpuThread)+floatB;. Thats why gpu is disagreeing with cpu, or at least one of the reasons.');
+			glslCode += 'float '+uniqueVars[v]+' = float((id>>'+v+')&1); //FIXME does this align with the CPU code or did it swap vars cuz of index error?\n';
+			glslCode += 'float Not'+uniqueVars[v]+' = 1.-'+uniqueVars[v]+';\n';
+		}
+		glslCode += 'float loss = 0.;\n';
+		glslCode += 'int mergedLoopCounter = 0;\n';
+		glslCode += 'int bestIndex = 0;\n';
+		glslCode += 'float bestLoss = 1.;\n'
+		glslCode += 'bestLoss /= 0.; //set bestLoss to Infinity\n'
+		for(let v=numVarsGoInGpuThreadId; v<uniqueVars.length; v++){
+			glslCode += 'for(int '+uniqueVars[v]+'_=0; '+uniqueVars[v]+'_<2; '+uniqueVars[v]+'_++){\n';
+			glslCode += 'float '+uniqueVars[v]+' = float('+uniqueVars[v]+'_);\n';
+			glslCode += 'float Not'+uniqueVars[v]+' = 1.-'+uniqueVars[v]+';\n';
+		}
+		//glslCode += code.replaceAll('!','Not'); //code from user. keep comments
+		glslCode += code.replace(/!(?!=)/g, 'Not'); //change !VarName to NotVarName, but leave != as !=.
+		glslCode += 'if(loss <= bestLoss){ //<= to prefer vars be true if theres a tie. < to prefer false if tie.\n';
+		glslCode += '	bestLoss = loss;\n';
+		glslCode += '	bestIndex = mergedLoopCounter;\n';
+		glslCode += '}\n';
+		glslCode += 'mergedLoopCounter++;\n';
+		for(let v=numVarsGoInGpuThreadId; v<uniqueVars.length; v++){
+			glslCode += '}'; //all on 1 line
+		}
+		glslCode += '\n';
+		/*glslCode += 'ret = 0.;\n';
+		if(uniqueVars.length > 24){ //the uint48 has some bits in ret (retA). those are the high24 bits. retB is the low 24 bits.
+			for(let v=24; v<uniqueVars.length; v++){
+				glslCode += 'ret = ret*2 + '+uniqueVars[v]+'; //FIXME is this mixing up the vars, wrong index?\n';
+			}
+		}
+		glslCode += 'retB = loss;\n';
+		let lowUint24Bits = Math.min(24,uniqueVars.length);
+		for(let v=0; v<lowUint24Bits; v++){
+			glslCode += 'retB = retB*2 + '+uniqueVars[v]+'; //FIXME is this mixing up the vars, wrong index?\n';
+		}*
+		glslCode += 'ret = -1.; //FIXME im leaving id/gpuThreadId out of this cuz can get it from indexs of float array GPU returns to CPU\n';
+		if(uniqueVars.length > 40) throw new Error('Max 40 vars cuz putting loop counter in a single float, so 16 vars go in gpu thread id and 24 vars in that float. vars='+uniqueVars.length);
+		glslCode += 'retb = float(bestIndex&0xffffff);\n';
+		glslCode += 'retc = bestLoss;\n'; //glslCode += 'retC = loss;\n';
+		glslCode += 'retd = -1.; //not used\n';
+		*
+	};*/
+
+	Powerset.prototype.bestLoss = function(isGpu){
+		let bestI = this.bestIndex(isGpu);
+		return this.lossOf(bestI);
+	};
+
+	//get a the index 0 to (1<<this.vars.length)-1 that has the lowest loss
+	Powerset.prototype.bestIndex = function(isGpu){
+		let bestI = 0;
+		let lowestLoss = Infinity;
+		if(isGpu){
+			let glslCode = '';
+			let numVarsGoInGpuThreadId = Math.min(16, this.vars.length); //the low n vars in this.vars
+			//let numVarsGoInGpuThreadId = 0; //FIXME
+			//let numVarsGoInGpuThreadId = 9; //FIXME
+			//throw new Error('It works 2024-7-17-823aET only when numVarsGoInGpuThreadId is 0 (cpu matches gpu very close). TODO make it work with higher numVarsGoInGpuThreadId.')
+			let numVarsInLoop = this.vars.length-numVarsGoInGpuThreadId;
+			let numGpuThreads = 2**numVarsGoInGpuThreadId;
+			for(let v=0; v<numVarsGoInGpuThreadId; v++){
+				glslCode += 'float '+this.vars[v]+' = float((id>>'+v+')&1);\n';
+				glslCode += 'float Not'+this.vars[v]+' = 1.-'+this.vars[v]+';\n';
+			}
+			glslCode += 'int mergedLoopCounter = 0;\n';
+			glslCode += 'int bestIndex = 0;\n';
+			//glslCode += 'float bestLoss = 1.;\n';
+			//glslCode += 'bestLoss /= 0.; //set bestLoss to Infinity\n';
+			glslCode += 'float bestLoss = 1e20;\n';
+			//for(let v=numVarsGoInGpuThreadId; v<this.vars.length; v++){
+			for(let v=this.vars.length-1; v>=numVarsGoInGpuThreadId; v--){
+				glslCode += 'for(int '+this.vars[v]+'_=0; '+this.vars[v]+'_<2; '+this.vars[v]+'_++){\n';
+				glslCode += 'float '+this.vars[v]+' = float('+this.vars[v]+'_);\n';
+				glslCode += 'float Not'+this.vars[v]+' = 1.-'+this.vars[v]+';\n';
+			}
+			glslCode += 'float loss = 0.;\n';
+			glslCode += this.code.replace(/!(?!=)/g, 'Not'); //change !VarName to NotVarName, but leave != as !=.
+			glslCode += 'if(loss <= bestLoss){ //<= to prefer vars be true if theres a tie. < to prefer false if tie.\n';
+			glslCode += '	bestLoss = loss;\n';
+			glslCode += '	bestIndex = mergedLoopCounter;\n';
+			glslCode += '}\n';
+			glslCode += 'mergedLoopCounter++;\n';
+			for(let v=numVarsGoInGpuThreadId; v<this.vars.length; v++){
+				glslCode += '}'; //all on 1 line
+			}
+			glslCode += 'ret = bestLoss;\n';
+			if(numVarsInLoop > 24) throw new Error('numVarsInLoop='+numVarsInLoop+' is too big');
+			glslCode += 'retb = float(bestIndex&0xffffff);\n';
+			glslCode += '\n';
+			let yVars = numVarsGoInGpuThreadId>>1;
+			let xVars = numVarsGoInGpuThreadId-yVars;
+			let floatsFromGPU = TinyGlsl.simple('', glslCode, Float32Array.of(0), null, 2**yVars, 2**xVars, 4); //2**numVarsGoInGpuThreadId gpu threads, each runs a loop for rest of vars
+			for(let threadId=0; threadId<numGpuThreads; threadId++){
+				let bestLossOfThatGpuThread = floatsFromGPU[threadId*4];
+				let bestIndexOfThatGpuThread = floatsFromGPU[threadId*4+1]*(2**numVarsGoInGpuThreadId)+threadId;
+				if (bestLossOfThatGpuThread <= lowestLoss) { //<= to prefer vars be true if theres a tie. < to prefer false if tie.
+					lowestLoss = bestLossOfThatGpuThread;
+					bestI = bestIndexOfThatGpuThread;
+				}
+			}
+			return bestI; //to get bestLoss, differing only by roundoff, use this.lossOf(bestI)
+		}else{
+			let cpuFunc = this.cpuFunc();
+			let end = 2**this.vars.length;
+			for(let i=0; i<end; i++){
+				let loss = cpuFunc(i);
+				if(loss <= lowestLoss){
+					lowestLoss = loss;
+					bestI = i;
+				}
+			}
+			return bestI;
+		}
+	};
+
+	//index ranges 0 to 2**this.vars.length-1 since thats what fits in float64, though in practice it might be limited to 2**40-1 or maybe 2**48-1?
+	Powerset.prototype.lossOf = function(index){
+		return this.cpuFunc()(index);
+	};
+
+	//returns a powOf2 thats 2**0 to 2**(this.vars.length-1), or throws if varName is not in this.vars.
+	Powerset.prototype.varNameToMask = function(varName){
+		let i = this.vars.indexOf(varName);
+		if(i < 0) throw new Error('varName not found in this.vars: '+varName);
+		return 2**i;
+	};
+
+	Powerset.prototype.indexToMap = function(index){
+		let map = {};
+		for(let v=0; v<this.vars.length; v++){ //map is in order of vars cuz thats the order they are first added.
+			map[this.vars[v]] = (index/(2**v))&1; //map var name to 0 or 1. same as (index>>>v)&1 except can use up to 53 bits instead of just 32.
+		}
+		return map;
+	};
+
+	Powerset.prototype.mapToIndex = function(map){
+		let index = 0;
+		let v = 0;
+		for(let varName in map){
+			if(map[varName]) index += 2**v;
+			v++;
+		}
+		return index;
+	};
+
+	function evaluateCode(code){
+		if(!powerset || powerset.code != code){
+			powerset = new Powerset(code);
+		}
+		let isBigPowerset = uniqueVars.length > 15;
+		//let isBigPowerset = true; //FIXME
+		let doGpu = tinyGlslIsLoaded && isBigPowerset;
+		if(document.getElementById('alwaysUseCPU').checked){
+			doGpu = false;
+		}
+		try{
+			isError = false;
+			//let maxDiff = powerset.testAllLossesGpuCpu();
+			//if(maxDiff > .0001){
+			//	throw new Error('maxDiff='+maxDiff+' is too big');
+			//}
+			bestLoss = powerset.bestLoss(doGpu);
+			bestInput = powerset.bestIndex(doGpu);
+			errorsDiv.innerHTML = "OK, doGpu="+doGpu+", bestLoss="+bestLoss+", bestInput="+bestInput+", numVars="+powerset.vars.length+" time="+(Date.now()*.001);
+			console.log('OK in evaluateCode');
+		}catch(err){
+			console.log('ERR in evaluateCode');
+			isError = true;
+			resultsDiv.innerHTML = '';
+			errorsDiv.innerHTML = "Error: "+err.message;
+			console.error(err);
+		}
+
+		/*
+		//resultsDiv.innerHTML = errorsDiv.innerHTML = 'evaluateCode...';
+		code += '\n';
+		const strippedCode = code.replace(/\/\/.*$/gm, '');
+		const varNames = strippedCode.match(/\b([A-Z][a-zA-Z]*)\b/g) || [];
+		uniqueVars = [...new Set(varNames)];
+		uniqueVars.sort();
+		if(uniqueVars.length > 48) throw new Error('vars.length='+uniqueVars.length+' is too big, max 48');
+		bestLoss = Infinity;
+		const script = 'let loss = 0; ' + strippedCode + 'if(loss == 100 && Cc == 1){\n\tthrow new Error("loss_Cc");\n}\nreturn loss;';
+		let isBigPowerset = uniqueVars.length > 15;
+		let doGpu = tinyGlslIsLoaded && isBigPowerset;
+		if(document.getElementById('alwaysUseCPU').checked){
+			doGpu = false;
+		}
+		try{
+			isError = false;
+			//if(TinyGlsl){
+			if(doGpu){ //its in var TinyGlsl, and doing a big powerset, so use GPU.
+				console.log('TinyGlsl is loaded so TODO you can do about 35 vars in GPU before it gets slow (todo test speed). TinyGlsl='+TinyGlsl);
+				//let tenThousandFloatsOut = TinyGlsl.simple('', 'ret = float(id)*float(id);', Float32Array.of(0), null, 1000, 10);
+				//TODO call TinyGlsl.simple
+				let glslCode = '';
+				//let numVarsGoInGpuThreadId = 16; //goes with the 2 of 256 in TinyGlsl.simple params.
+				let numVarsGoInGpuThreadId = 1; //for testing. much slower cuz only 1 gpu thread. goes with the 2 of 1 in TinyGlsl.simple params.
+				let numVarsPerGpuThread = uniqueVars.length-numVarsGoInGpuThreadId;
+				let numGpuThreads = 1<<numVarsGoInGpuThreadId;
+				for(let v=0; v<numVarsGoInGpuThreadId; v++){
+					throw new Error('TODO make a js class (by prototype as usual) for vars and what is the index and name of each, and have it generate both the js and the tinyglsl code. Redesign it to fix the bug where gpu disagrees with cpu about the loss float var and which combo of vars are 1 vs 0 in global minimum of loss.');
+					//throw new Error('gpuThreadId is aligned to indexs 0-15 here but at the high 16 bits (up to 40) in let bestInputOfThatGpuThread = threadId*(2**numVarsPerGpuThread)+floatB;. Thats why gpu is disagreeing with cpu, or at least one of the reasons.');
+					glslCode += 'float '+uniqueVars[v]+' = float((id>>'+v+')&1); //FIXME does this align with the CPU code or did it swap vars cuz of index error?\n';
+					glslCode += 'float Not'+uniqueVars[v]+' = 1.-'+uniqueVars[v]+';\n';
+				}
+				glslCode += 'float loss = 0.;\n';
+				glslCode += 'int mergedLoopCounter = 0;\n';
+				glslCode += 'int bestIndex = 0;\n';
+				glslCode += 'float bestLoss = 1.;\n'
+				glslCode += 'bestLoss /= 0.; //set bestLoss to Infinity\n'
+				for(let v=numVarsGoInGpuThreadId; v<uniqueVars.length; v++){
+					glslCode += 'for(int '+uniqueVars[v]+'_=0; '+uniqueVars[v]+'_<2; '+uniqueVars[v]+'_++){\n';
+					glslCode += 'float '+uniqueVars[v]+' = float('+uniqueVars[v]+'_);\n';
+					glslCode += 'float Not'+uniqueVars[v]+' = 1.-'+uniqueVars[v]+';\n';
+				}
+				//glslCode += code.replaceAll('!','Not'); //code from user. keep comments
+				glslCode += code.replace(/!(?!=)/g, 'Not'); //change !VarName to NotVarName, but leave != as !=.
+				glslCode += 'if(loss <= bestLoss){ //<= to prefer vars be true if theres a tie. < to prefer false if tie.\n';
+				glslCode += '	bestLoss = loss;\n';
+				glslCode += '	bestIndex = mergedLoopCounter;\n';
+				glslCode += '}\n';
+				glslCode += 'mergedLoopCounter++;\n';
+				for(let v=numVarsGoInGpuThreadId; v<uniqueVars.length; v++){
+					glslCode += '}'; //all on 1 line
+				}
+				glslCode += '\n';
+				/*glslCode += 'ret = 0.;\n';
+				if(uniqueVars.length > 24){ //the uint48 has some bits in ret (retA). those are the high24 bits. retB is the low 24 bits.
+					for(let v=24; v<uniqueVars.length; v++){
+						glslCode += 'ret = ret*2 + '+uniqueVars[v]+'; //FIXME is this mixing up the vars, wrong index?\n';
+					}
+				}
+				glslCode += 'retB = loss;\n';
+				let lowUint24Bits = Math.min(24,uniqueVars.length);
+				for(let v=0; v<lowUint24Bits; v++){
+					glslCode += 'retB = retB*2 + '+uniqueVars[v]+'; //FIXME is this mixing up the vars, wrong index?\n';
+				}*
+				glslCode += 'ret = -1.; //FIXME im leaving id/gpuThreadId out of this cuz can get it from indexs of float array GPU returns to CPU\n';
+				if(uniqueVars.length > 40) throw new Error('Max 40 vars cuz putting loop counter in a single float, so 16 vars go in gpu thread id and 24 vars in that float. vars='+uniqueVars.length);
+				glslCode += 'retb = float(bestIndex&0xffffff);\n';
+				glslCode += 'retc = bestLoss;\n'; //glslCode += 'retC = loss;\n';
+				glslCode += 'retd = -1.; //not used\n';
+				//floatsFromGPU = TinyGlsl.simple('', glslCode, Float32Array.of(0), null, 256, 256, 4); //2**16 GPU threads each return 4 floats
+				floatsFromGPU = TinyGlsl.simple('', glslCode, Float32Array.of(0), null, 1, 1, 4); //for testing with only 1 gpu thread.
+				for(let threadId=0; threadId<numGpuThreads; threadId++){
+					//let floatA = floatsFromGPU[threadId*4]; //ignore
+					let floatB = floatsFromGPU[threadId*4+1];
+					let floatC = floatsFromGPU[threadId*4+2];
+					//let floatD = floatsFromGPU[threadId*4+3]; //ignore
+					//let bestInputOfThatGpuThread = floatA*(2**24)+floatB; //integer from 0 to 2**48-1, for up to 48 vars. threadId duplicates some of those bits.
+					
+					
+					
+					
+					//let bestInputOfThatGpuThread = threadId*(2**numVarsPerGpuThread)+floatB; //integer from 0 to 2**uniqueVars.length-1, up to 40 vars
+					//let bestInputOfThatGpuThread = floatB*(2**16)+threadId; //integer from 0 to 2**uniqueVars.length-1, up to 40 vars
+					let bestInputOfThatGpuThread = floatB*numGpuThreads+threadId; //integer from 0 to 2**uniqueVars.length-1, up to 40 vars
+
+
+
+					let bestLossOfThatGpuThread = floatC;
+					if (bestLossOfThatGpuThread <= bestLoss) { //<= to prefer vars be true if theres a tie. < to prefer false if tie.
+						bestLoss = bestLossOfThatGpuThread;
+						bestInput = bestInputOfThatGpuThread;
+					}
+				}
+			}else{
+				console.log('Its not isBigPowerset andOr TinyGlsl is not loaded so doing it the slow way in CPU, which goes up to about 18 vars then slows down. Could optimize that up to about 25 but im skipping that and going for 35 vars in GPU.');
+				let funcBodyString = `"use strict"; ${script}`;
+				let fileName = sha256HexOfString(funcBodyString)+'.js';
+				let funcBodyString2 = funcBodyString+'\n//# sourceURL='+fileName;
+				const func = new Function(...uniqueVars, funcBodyString2);
+				cpuFunc = func;
+				for (let i = 0; i < (1 << uniqueVars.length); i++) {
+					//const loss = func(...uniqueVars.map(varName => Boolean(i & (1 << uniqueVars.indexOf(varName)))));
+					//const loss = func(...uniqueVars.map(varName => ((i & (1 << uniqueVars.indexOf(varName)))?1:0)));
+					const loss = func(...uniqueVars.map(varName => ((i & (1 << uniqueVars.indexOf(varName)))?1:0)));
+					if (loss <= bestLoss) { //<= to prefer vars be true if theres a tie. < to prefer false if tie.
+						bestLoss = loss;
+						bestInput = i;
+					}
+				}
+			}
+			errorsDiv.innerHTML = "OK, time="+(Date.now()*.001);
+		}catch(err){
+			isError = true;
+			resultsDiv.innerHTML = '';
+			errorsDiv.innerHTML = "Error in function: "+err.message;
+			console.error(err);
+		}*/
+	}
+
+	function assignColors(vars) {
+		let hueDelta = 360 / vars.length;
+		let hue = 0;
+		vars.forEach(varName => {
+			if (!colorMap[varName]) {
+				let baseColor = `hsl(${hue}, 87%, 50%)`;
+				hue = (hue + hueDelta) % 360;
+				colorMap[varName] = baseColor;
+			}
+		});
+	}
+
+	function adjustColorBrightness(color, isBright) {
+		if (!color) return 'lightgray'; // Default to lightgray if color is undefined
+		//let s = isBright ? '52%' : '14%';
+		let s = isBright ? '68%' : '20%';
+		return color.replace('87%', s);
+	}
+
+	window.onload = ()=>{
+		let loadedFromCookie = localStorage.getItem('nsatDesignTool_textAreaContent');
+		if(loadedFromCookie !== null){
+			codeInput.value = loadedFromCookie; //no event, so it doesnt save to cookie until modified
+			//updateDisplay();
+			mainEvent();
+		}
+		document.getElementById('divIsTinyGlslLoaded').textContent = tinyGlslIsLoaded?'true':'false';
+	};
+</script>
+</body>
+</html>
+
+
+
