@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hopfield Network Simulation with Peers Negotiating Constraints</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: 0 auto;
+        }
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+        #controls {
+            margin: 10px;
+        }
+        #controls input, #controls select {
+            margin-right: 10px;
+            width: 60px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hopfield Network Simulation with Peers Negotiating Constraints</h1>
+    <div id="controls">
+        Number of Peers: <input type="number" id="numPeers" value="3" min="1" max="10">
+        Grid Size: <input type="number" id="gridSize" value="100" min="10" max="200">
+        <button id="resetButton">Reset Simulation</button>
+    </div>
+    <canvas id="simulationCanvas" width="600" height="600"></canvas>
+
+    <script>
+        // Get DOM elements
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+        const numPeersInput = document.getElementById('numPeers');
+        const gridSizeInput = document.getElementById('gridSize');
+        const resetButton = document.getElementById('resetButton');
+
+        // Simulation parameters
+        let numPeers = parseInt(numPeersInput.value);
+        let gridSize = parseInt(gridSizeInput.value);
+        let cellSize;
+        let peers = [];
+        let cells = [];
+        let velocities = [];
+        let isRunning = true;
+
+        // Initialize the simulation
+        function init() {
+            numPeers = parseInt(numPeersInput.value);
+            gridSize = parseInt(gridSizeInput.value);
+            cellSize = Math.floor(Math.min(canvas.width, canvas.height) / gridSize);
+            cells = create2DArray(gridSize, gridSize, () => Math.random() < 0.5 ? -1 : 1);
+            velocities = create2DArray(gridSize, gridSize, () => 0);
+            peers = createPeers(numPeers);
+            isRunning = true;
+            drawGrid();
+        }
+
+        // Create a 2D array with a default value
+        function create2DArray(rows, cols, defaultValue) {
+            const array = [];
+            for (let y = 0; y < rows; y++) {
+                array[y] = [];
+                for (let x = 0; x < cols; x++) {
+                    array[y][x] = defaultValue();
+                }
+            }
+            return array;
+        }
+
+        // Create simulated peers
+        function createPeers(n) {
+            const peerList = [];
+            const constraints = ['rule110', 'rule30', 'checkerboard'];
+            for (let i = 0; i < n; i++) {
+                const constraint = constraints[i % constraints.length];
+                const region = getPeerRegion(i, n);
+                peerList.push({
+                    id: i,
+                    constraint: constraint,
+                    region: region,
+                    getDesiredState: function(x, y) {
+                        // Return the desired state (-1 or 1) for the cell at (x, y) based on the constraint
+                        if (this.constraint === 'rule110') {
+                            return rule110DesiredState(x, y);
+                        } else if (this.constraint === 'rule30') {
+                            return rule30DesiredState(x, y);
+                        } else if (this.constraint === 'checkerboard') {
+                            return (x + y) % 2 === 0 ? 1 : -1;
+                        } else {
+                            return 1;
+                        }
+                    }
+                });
+            }
+            return peerList;
+        }
+
+        // Divide the grid among peers into regions
+        function getPeerRegion(peerIndex, totalPeers) {
+            // For simplicity, divide the grid horizontally among peers
+            const rowsPerPeer = Math.floor(gridSize / totalPeers);
+            const startRow = peerIndex * rowsPerPeer;
+            const endRow = (peerIndex === totalPeers - 1) ? gridSize : startRow + rowsPerPeer;
+            return { startRow: startRow, endRow: endRow };
+        }
+
+        // Desired state functions for constraints
+        function rule110DesiredState(x, y) {
+            // Implement a function that returns the desired state based on Rule 110 constraints
+            const left = cells[y][(x - 1 + gridSize) % gridSize];
+            const center = cells[y][x];
+            const right = cells[y][(x + 1) % gridSize];
+            const pattern = `${left === 1 ? 1 : 0}${center === 1 ? 1 : 0}${right === 1 ? 1 : 0}`;
+            switch (pattern) {
+                case '111': return -1;
+                case '110': return 1;
+                case '101': return 1;
+                case '100': return -1;
+                case '011': return 1;
+                case '010': return 1;
+                case '001': return 1;
+                case '000': return -1;
+                default: return -1;
+            }
+        }
+
+        function rule30DesiredState(x, y) {
+            // Implement a function that returns the desired state based on Rule 30 constraints
+            const left = cells[y][(x - 1 + gridSize) % gridSize];
+            const center = cells[y][x];
+            const right = cells[y][(x + 1) % gridSize];
+            const pattern = `${left === 1 ? 1 : 0}${center === 1 ? 1 : 0}${right === 1 ? 1 : 0}`;
+            switch (pattern) {
+                case '111': return -1;
+                case '110': return -1;
+                case '101': return -1;
+                case '100': return 1;
+                case '011': return 1;
+                case '010': return 1;
+                case '001': return 1;
+                case '000': return -1;
+                default: return -1;
+            }
+        }
+
+        // Update simulation state
+        function update() {
+            if (!isRunning) return;
+
+            // Parameters for the dynamics
+            const damping = 0.9; // Velocity decay
+            const accelerationFactor = 0.1; // How strongly the cell accelerates towards desired states
+
+            // Create a copy of cells for consistent updates
+            const newCells = create2DArray(gridSize, gridSize, () => 0);
+
+            // For each cell, compute the acceleration based on the negative gradient of the energy function
+            for (let y = 0; y < gridSize; y++) {
+                for (let x = 0; x < gridSize; x++) {
+                    let totalDesiredState = 0;
+                    let numPeersContributing = 0;
+
+                    // Each peer contributes to the desired state if the cell is in their region
+                    peers.forEach(peer => {
+                        if (y >= peer.region.startRow && y < peer.region.endRow) {
+                            const desiredState = peer.getDesiredState(x, y);
+                            totalDesiredState += desiredState;
+                            numPeersContributing++;
+                        }
+                    });
+
+                    // Compute average desired state
+                    const averageDesiredState = totalDesiredState / numPeersContributing;
+
+                    // Compute acceleration
+                    const acceleration = - (cells[y][x] - averageDesiredState);
+
+                    // Update velocity
+                    velocities[y][x] = velocities[y][x] * damping + acceleration * accelerationFactor;
+
+                    // Update position (cell state)
+                    let newState = cells[y][x] + velocities[y][x];
+
+                    // Threshold the state to -1 or 1
+                    newState = newState >= 0 ? 1 : -1;
+
+                    newCells[y][x] = newState;
+                }
+            }
+
+            // Update cells with new states
+            cells = newCells;
+
+            drawGrid();
+        }
+
+        // Draw the grid
+        function drawGrid() {
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw cells
+            for (let y = 0; y < gridSize; y++) {
+                for (let x = 0; x < gridSize; x++) {
+                    if (cells[y][x] === 1) {
+                        // Black cell
+                        ctx.fillStyle = 'black';
+                    } else {
+                        // White cell
+                        ctx.fillStyle = 'white';
+                    }
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                }
+            }
+        }
+
+        // Handle mouse interaction
+        canvas.addEventListener('mousedown', function(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((event.clientX - rect.left) / cellSize);
+            const y = Math.floor((event.clientY - rect.top) / cellSize);
+            if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
+                cells[y][x] = cells[y][x] === 1 ? -1 : 1;
+                drawGrid();
+            }
+        });
+
+        // Control buttons
+        resetButton.addEventListener('click', function() {
+            init();
+        });
+
+        // Update parameters on input change
+        numPeersInput.addEventListener('change', function() {
+            init();
+        });
+        gridSizeInput.addEventListener('change', function() {
+            init();
+        });
+
+        // Main animation loop
+        function animate() {
+            update();
+            requestAnimationFrame(animate);
+        }
+
+        // Start the simulation
+        init();
+        animate();
+    </script>
+</body>
+</html>
