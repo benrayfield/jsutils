@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" /> 
+<title>2D Resizable Rectangle Simulation</title>
+<style>
+  body { margin: 0; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<script>
+//This software is offered by Ben F Rayfield under opensource MIT license.
+console.log('Opensource MIT. This software (for now called Blob Monster Game) is offered by Ben F Rayfield under opensource MIT license.');
+//
+//I'm making a #web3 compatible system that runs in thousands of browsers at once, sharing a 8192x8192 (64 colors)
+//interactive video at 60 FPS gaming-low-lag, which 2d voxels are painted by a high dimensional scalar-field simulation.
+//Shapeshifting blobs move by constraint solving
+//How many colors do you really need for a video game to be fun? If I use 6 bits for color I can expand the game area
+//to 8192x8192 pixels, and voxel still fits in an int. If you can see a 512x512 area at a time, thats 16 screens wide
+//and tall, so could fit a scrollable game level
+//This 8192x8192 pixel object will be a #web3 data structure, sparse and gaming-low-lag and stored very compressed.
+//It might have thousands of players per 8kX8k square. Physics happens in each pixel individually by accelerating
+//away from gradient, might add differential equations.
+//The voxels are general problem solvers though come in many tiny pieces. They are N-SAT solvers, fourier solvers,
+//fractal solvers, and generally anything thats not TOO hard a puzzle, cuz they will get stuck in local minimums.
+//But it works as a video game. We expand from there.
+//My area of web3 is things that spread cuz they are fun or useful, instead of to buy and sell them. Any system,
+//nomatter what it is, must produce at least as much as it consumes, to survive. I count progress in units of
+//KFactor, will this spread more than it fades away?
+//I have turing-complete autodiff, but just a little of it, not very deep, and I'm gonna have it paint 64 megapixels
+//per shared virtual screen, per pixel. Each pixel has 6 bit color, 64 possible colors, and a 26 bit (8192x8192) address.
+//What I'm about to build, a scaleable prototype of turing-complete-autodiff that paints 64 megapixels live, is the
+//result of over and over asking myself, how could I raise KFactor of this tech while still being turing complete?
+//So Cut off parts didnt need, adjusted bit sizes etc.
+//Its CPU only for now. The older versions used GPU, but I optimized it so well I can do it  without,
+//leaving GPU for more advanced stuff to add on later, maybe some neuralnets or something.
+//The difference between AI and physics is not clear cut. Theres gradual levels between. I've been training small
+//neuralnets with a physics algorithm in many dimensions. And when I make 2d shapeshifting game objects, thats a
+//little like AI. They learn live, which is the gameplay.
+//In turing-complete-autodiff, u make 1 mechanical part, which may be in multiple parts
+//(return whatever set of voxels u want, no judgement on if theyre connected), and return an extra
+//amount of loss (like neuralnet loss, more general) and physics is by automatic constraint solver
+//Theres 67,108,864 pixels in 1 game state. Each keeps a count of number of objects currently
+//touching/painting it, a count which can go up to 67,108,863 objects. Each pixel can store 1 NSAT bit
+//and 6 color bits. 2**26 pixels can be 8k x 8k, 512 x 512 x 256, or 26 dimensions size 2
+//Game state also TODO... includes a string of javascript code of a lambda of n float params, named
+//whatever that function likes. Func object is scanned for its parameter list, and 1 dimension in the
+//game world created for each, with a position and velocity. It returns an int array
+//potential energy ranges 0 to 2**53-1 so fits in a float64. Add max(0,count-1) for each pixel,
+//of counting number of objects which touch/paint that pixel. Each game object can also add an
+//arbitrary integer to potential energy for things like springs, least squares. Multiverse...
+//Turing-complete-autodiff will use this API:
+//game.addFunc((centerY, centerX, varA, varB, nameVarsWhateverYouWant)=>{...return a list of int voxels...}).
+//Doesnt matter what javascript function you put in there, as long as all its parameters
+//are a Var instance, like centerY.p varA.p
+
+const Size = 1<<13; //8192
+const Area = Size**2; //8192*8192
+const Colors = 1<<6;
+const ColorMask = Colors-1;
+const MaxVoxPerGob = 1<<20;
+
+const Y = voxel=>(voxel>>>19);
+const X = voxel=>((voxel>>>6)&0x1fff);
+const R = voxel=>((voxel>>>4)&3); //get red as uint2
+const G = voxel=>((voxel>>>2)&3); //get green as uint2
+const B = voxel=>(voxel&3); //get blue as uint2
+const C = voxel=>(voxel&0x3f); //get color as uint6
+const RR = voxel=>(R(voxel)*85); //get red as uint8, which is 1 of: 0, 85, 170, 255.
+const GG = voxel=>(G(voxel)*85); //get green as uint8, which is 1 of: 0, 85, 170, 255.
+const BB = voxel=>(B(voxel)*85); //get blue as uint8, which is 1 of: 0, 85, 170, 255.
+const YXC = (y,x,color)=>(((y&0x1fff)<<19)|((x&0x1fff)<<6)|(color&0x3f));
+const PC = (yx,color)=>(((yx&0x3ffffff)<<6)|(color&0x3f));
+const P = voxel=>(voxel>>>6); //get yx position without color, 0 to 2**26-1
+const YXRGB = (y,x,r,g,b)=>(((y&0x1fff)<<19)|((x&0x1fff)<<6)|((r&3)<<4)|((g&3)<<2)|(b&3));
+
+var Game = function(){
+	//(y,x) is a top left corner, that canvas would display. maybe its a 512x512 canvas, or whatever size.
+	//board is 8192x8192 and has color and count at each pixel, so can display any of those.
+	this.y = 0;
+	this.x = 0;
+	this.board = new Uint32Array(Area); //26 bit count as high bits, 6 bit color as low bits.
+	//potentialEnergy, which is sum of max(0,countAtPixel-1) forall pixels.
+	//maybe add a squaring of that later? or is linear good enuf cuz usually its just 0, 1, or 2 count?
+	//This changes when you add or remove a voxel.
+	this.poten = 0;
+	this.gobs = [];
+};
+
+Game.prototype.redByteAtYX = function(y,x){
+	return RR(this.board[(y<<13)|x]); //TODO range check?
+};
+
+Game.prototype.greenByteAtYX = function(y,x){
+	return GG(this.board[(y<<13)|x]); //TODO range check?
+};
+
+Game.prototype.blueByteAtYX = function(y,x){
+	return BB(this.board[(y<<13)|x]); //TODO range check?
+};
+
+//func is the kind that goes in a gob.brain and takes params of ...gob.vars which is a list of Var instances.
+Game.prototype.addFunc = function(func){
+	//this.gobs.push(new Gob(this,func));
+	new Gob(this,func); //pushes itself into this.gobs
+};
+
+//voxel stream, where they are added 1 at a time but not added if that YX (primaryKey) is already there.
+//Uses 2**26 bits in 2**21 ints, 1 bit per pixel, to mark if thats already been written.
+//So if you want to paint over a YX, make sure you do that part first and the "covered up" layers later which get ignored.
+//
+//you do a bunch of this.addVox(voxel) and it returns true if added, false if that repeats a yx (primaryKey) aka tries to paint the same pixel more than once.
+//You then call this.end() to get a Uint32Array of the voxels added in the order added, keeping only the first per yx.
+//
+//You normally reuse 1 VoxStream for all Gobs, cuz it uses a few mB of RAM, and most gobs will be far smaller than that. Its sparse optimized.
+//
+//This works in a 8192x8192 2d area sparsely. So this might be a good place to put basic paint functions like circles, lines, etc.
+//
+var VoxStream = function(){
+	this.set = new Uint32Array(Area>>>5); //1 bit per pixel in Area.
+	this.vox = new Uint32Array(MaxVoxPerGob);
+	this.size = 0; //what indexs in this.vox are used?
+};
+
+VoxStream.prototype.addVox = function(voxel){
+	let yx = P(voxel);
+	let high = yx>>>5;
+	let low = yx&31;
+	let lowMask = 1<<low;
+	if(this.set[high] & lowMask){ //FIXME is that reversed? should it be 31 minus that?
+		return false; //not add voxel cuz that primaryKey/yx was already added (may be a different color)
+	}else{
+		this.set[high] |= lowMask; //add the yx of the voxel to the set, but not its color.
+		if(this.size == this.vox.length) throw new Error('Full. MaxVoxPerGob.');
+		this.vox[this.size++] = voxel;
+		return true; //added voxel
+	}
+};
+
+//ends the stream, undoes whatevers in it, and returns the voxels that were in it, copied to a new Uint32Array(this.size)
+VoxStream.prototype.end = function(){
+	let ret = new Uint32Array(this.size);
+	for(let i=0; i<ret.length; i++){
+		let voxel = this.vox[i];
+		ret[i] = voxel;
+		//TODO? this.vox[i] = 0;
+		//let yx = P(voxel);
+		//let high = yx>>>5;
+		this.vox[voxel>>>11] = 0; //this.vox[high] = 0; //erase all bits in this.vox that could be nonzero
+	}
+	this.size = 0;
+	return ret;
+};
+
+//add voxel. adjusts this.poten and this.board.
+Game.prototype.addVox = function(voxel){
+	let yx = P(voxel);
+	//console.log('addVox yx='+yx+' color='+C(voxel)+' count was: '+P(this.board[yx]));
+	let prevCount = this.board[yx]>>>6;
+	if(prevCount){ //potentialEnergy is not changed by just 1 Gob touching a pixel. It starts adding at the second Gob there.
+		this.poten++;
+	}
+	this.board[yx] += Colors; //add to the uint26 in the high 26 bits, which counts up to 64million objects intersecting there at once.
+	this.board[yx] ^= (voxel&ColorMask); //xor graphics
+};
+
+//remove voxel. adjusts this.poten and this.board.
+Game.prototype.remVox = function(voxel){
+	let yx = P(voxel);
+	//console.log('remVox yx='+yx+' color='+C(voxel)+' count was: '+P(this.board[yx]));
+	let prevCount = this.board[yx]>>>6;
+	if(prevCount == 0){
+		throw new Error('Remove voxel at yx='+yx+' but count is 0 there.');
+	}
+
+	this.board[yx] -= Colors; //remove the uint26 in the high 26 bits, which counts up to 64million objects intersecting there at once.
+	this.board[yx] ^= (voxel&ColorMask); //xor graphics
+	let countAfter = this.board[yx]>>>6;
+	if(countAfter){ //potentialEnergy is not changed by just 1 Gob touching a pixel. It starts adding at the second Gob there.
+		this.poten--;
+	}
+};
+
+//param can be a [] or Uint32Array of 32 bit voxels.
+Game.prototype.addVoxs = function(voxels){
+	for(let i=0; i<voxels.length; i++){
+		this.addVox(voxels[i]);
+	}
+	return this.poten;
+};
+
+//param can be a [] or Uint32Array of 32 bit voxels.
+Game.prototype.remVoxs = function(voxels){
+	for(let i=0; i<voxels.length; i++){
+		this.remVox(voxels[i]);
+	}
+	return this.poten;
+};
+
+var generatedNameCounter = 0;
+
+var DefaultEpsilon = .01;
+
+//this is a named var in gob.brain(...vars). It may modify .kv .dp .dv .mn and .mx but NOT .p and NOT .v cuz that happens after a block of calculations.
+var Var = function(optionalName){
+	this.name = optionalName || 'v'+(++generatedNameCounter);
+	this.p = 0; //position
+	this.v = 0; //velocity
+	this.kv = 0; //velocity continuous decay per second, using this.v *= Math.exp(dt*this.kv)
+	this.dp = 0; //diffeq, extra change of p per second See pinballBumper in dagball.
+	this.dv = 0; //diffeq, extra change of v per second. See pinballBumper in dagball.
+	this.gr = 0; //same as .dv but duplicates it cuz this stores gradient separately, and .dv can be set by gob.brain(...vars).
+	this.mn = -Infinity; //for truncating this.p to Math.max(this.mn, Math.min(this.p, this.mx)). mn is min. mx is max.
+	this.mx = Infinity; //for truncating this.p
+	//you only need to add to poten in 1 Var but could do it in all of them. will just get summed.
+	//This is extra poten, not including game.poten. Normally you just add to the first var's poten, if you do it at all.
+	//You can put things here like spring forces or up to NP-complete and fourier math etc, anything by least-squares etc.
+	this.poten = 0;
+	this.prevP = 0; //stores the prev value of this.p while an epsilon is added to this.p during a gradient calculation, then restore it
+	this.epsilon = DefaultEpsilon; //FIXME, replacement for indexToEpsilon
+	this.accelMul = 1; //FIXME, replacement for indexToAccelMul
+};
+
+//Var.prototype.pushEpsilon = function(epsilon){
+Var.prototype.pushEpsilon = function(){
+	this.prevP = this.p;
+	this.p += this.epsilon;
+};
+
+Var.prototype.popEpsilon = function(){
+	this.p = this.prevP;
+	this.prevP = 0;
+};
+
+Var.prototype.valueOf = function(){ //the position, this.p, though calling this.p might be more efficient.
+	return this.p;
+};
+
+Var.prototype.toString = function(){
+	return '{type:"vox_var",p:'+this.p+',v:'+this.v+',kv:'+this.kv+',dp:'+this.dp+',dv:'+this.dv+',mn:'+this.mn+',mx:'+this.mx+'}';
+};
+
+Var.prototype.nextState = function(dt){
+	let nextP = this.p + dt*this.v;
+	if(this.mn <= this.mx){
+		nextP = Math.max(this.mn, Math.min(nextP, this.mx)); //truncate into range
+	}
+	//let nextV = (this.v+dt*this.accelMul*(this.dv-this.gr))*Math.exp(dt*this.kv);
+	let nextV = (this.v+dt*this.accelMul*(this.dv-this.gr))*Math.exp(-dt*this.kv);
+	this.p = nextP;
+	this.v = nextV;
+	this.kv = this.dp = this.dv = this.gr = this.poten = 0;
+	this.mn = -Infinity;
+	this.mx = Infinity;
+};
+
+var getParamNames = func=>{
+	const fnStr = func.toString().replace(/[\r\n]/g, '');
+	const params = fnStr.slice(fnStr.indexOf('(') + 1, fnStr.indexOf(')')).match(/([^\s,]+)/g);
+	return params === null ? [] : params;
+};
+
+//gob.brain(...gob.vars) may check this to decide to do diffeq and poten fields in Vars or not.
+//You dont need this during the gob.size+1 number of calls to just get 32 bit voxels
+//for collision detection, that part of the potential energy math.
+//You only need this once per gob per physics cycle to choose to add extra change to var.p andOr var.v
+//like how the "pinball bumpers" work in dagball by diffeq.
+//should I use this.diffeq instead? do i want the func to have access to a this? var Diffeq = true;
+//var Diffeq = true;
+
+//Game OBject. brain(...floatVars) returns Uint32Array of voxels. It can be a different number of voxels depending on those float vars.
+//brain returns an Out.
+var Gob = function(game, brain){
+	this.game = game;
+	game.gobs.push(this);
+	this.brain = brain;
+	//this.diffeq = false;
+	if(typeof(this.brain)!='function') throw new Error('Not a function: '+brain);
+	this.size = this.brain.length; //number of params in this.brain. You use this.brain(...this.pos) for example.
+	//this.pos = new Float32Array(this.size); //position
+	//this.vel = new Float32Array(this.size); //velocity
+	this.vars = [];
+	let names = getParamNames(brain);
+	if(names.length != this.size) throw new Error('names='+JSON.stringify(names));
+	for(let i=0; i<this.size; i++){
+		let v = new Var(names[i]);
+		if(i<2){ //FIXME, this is for centerY and centerX vars, but not every Gob/func will have those or in same order. for testing.
+			v.p = Math.random()*400; //FIXME
+			v.v = Math.random()*200-100; //FIXME
+			//v.accelMul = .001;
+			//v.accelMul = .0001;
+			//v.accelMul = .0000001;
+			v.accelMul = .1;
+			v.epsilon = 1;
+		}else if(i == 2){ //ratio
+			v.p = .5+Math.random();
+			v.accelMul = 12;
+			v.epsilon = .01;
+		}
+		v.accelMul = 1;
+		this.vars.push(v);
+	}
+	this.voxInGame = null; //If this is in game.board (2**26 ints), remember them here so can remove them during gradient calculation or just to remove the object. null if not in game.board.
+	this.voxLast = null; //last output from this.brain(...this.vars). the other output is it modifies fields in Vars in this.vars.
+};
+
+Gob.prototype.varPotens = function(erase){
+	let poten = 0;
+	for(let v of this.vars){
+		poten += v.poten;
+		if(erase) v.poten = 0;
+	}
+	return poten;
+};
+
+//update this.voxLast and some of the fields in Var's in this.vars, but do not update this.voxInGame and not the Game itself.
+Gob.prototype.think = function(){
+	return this.voxLast = this.brain(...this.vars);
+};
+
+//each Gob can have at most 1 list of voxels in the Game at once. If there is such a list in game already, remove it,
+//then either way add this one, unless voxels is null or undefined then dont add any, so thats how to remove it.
+//this.voxInGame will be this param voxels either way at the end (null if not exist).
+Gob.prototype.setGameVoxs = function(voxels){
+	if(this.voxInGame){
+		this.game.remVoxs(this.voxInGame);
+		this.voxLast = null;
+	}
+	if(voxels){
+		this.game.addVoxs(voxels);
+	}
+	this.voxInGame = voxels || null;
+	return this.game.poten;
+};
+
+//After calling this, gob.vars[eachIndex].gr is set to the gradient,
+//by difference of total potentialEnergy, combining game.poten and this.vars[anyIndex].poten.
+//TODO update gradient in this.vars and compute this.vars.length+1 separate lists of voxels (which may be different sizes).
+//Does not change var.p (position) or var.v (velocity) but does set var.gr (gradient), and TODO maybe also xpoten (todo should that go in here),
+Gob.prototype.doPhysicsA = function(){
+	//create this.size+1 lists of voxels to compute the part of gradient of collision detection in game.board
+	let gamePotenWithoutThisGob = this.setGameVoxs(null);
+	let potenOfFork = new Float64Array(this.size+1); //each should always be an integer 0 to 2**53-1.
+	for(let fork=0; fork<=this.size; fork++){
+		/*for(let v=0; v<this.size; v++){ //mod var positions by epsilon
+			//let epsilon = .01; //FIXME see indexToEpsilon and indexToAccelMul
+			if(v == fork){
+				this.vars[v].pushEpsilon(); //uses this.vars[v].epsilon. mods var.p by adding that
+			}
+		}*/
+		if(fork < this.size){
+			this.vars[fork].pushEpsilon(); //uses this.vars[v].epsilon. mods var.p by adding that
+		}
+		//let voxels = fork<this.size ? this.think() : null; This is wrong cuzthe last fork should have voxels, just the voxels as it is now unmodified.
+		let voxels = this.think();
+		let gamePoten = this.setGameVoxs(voxels); //if voxels is null, removes it from game.
+		//this.varPotens() gets the sum of var.poten for all this.vars. The true param makes it erase those potens to 0 after that.
+		potenOfFork[fork] = gamePoten + this.varPotens(true);
+		//potenOfFork[fork] = gamePoten; //FIXME also include this.varPotens(true). just testing why its accelerating for no apparent reason.
+		if(fork < this.size){
+			this.vars[fork].popEpsilon(); //undo "mod var positions by epsilon"
+		}
+	}
+	//if(gamePotenWithoutThisGob != potenOfFork[this.size]){
+	//	throw new Error('gamePotenWithoutThisGob != potenOfFork[this.size], but those should be duplicate. TODO redesign to not duplicate that calculation, so its faster. But still, they should be exactly equal cuz potentialEnergy is always an integer from 0 to 2**53-1.');
+	//}
+	for(let i=0; i<this.size; i++){
+		let v = this.vars[i];
+		//let epsilon = v.epsilon;
+		//let accelMul = v.accelMul;
+		v.gr = (potenOfFork[i]-potenOfFork[this.size])/v.epsilon; //gradient
+	}
+
+	//document.title = 'gob_poten='+potenOfFork[this.size];
+	console.log('potenOfFork='+JSON.stringify([...potenOfFork]));
+
+	this.setGameVoxs(this.think()); //not gradient. just whatever it is now. paint that onto game, and leave it there for other gobs to collision against.
+};
+
+//updates var.p (position) and var.v (velocity)
+Gob.prototype.doPhysicsB = function(dt){
+	for(let v of this.vars){
+		v.nextState(dt);
+	}
+};
+
+/*use Var instead. gob.brain(...gob.vars) modifies those Var instances and just returns Uint32Array or maybe an Out containing Uint32Array and xpoten? or should xpoten go in Var?
+Make it return something like Out, in case it needs to return other things later.
+//xpoten is extra potentialEnergy, and should be an integer, and leave some room for a bunch of these to be summed without overflowing uint53 which fits in float64,
+//so maybe keep it within 0..2**30 or something like that. vox is a Uint32Array of voxels.
+//optionalDiffeq.length==gob.size if optionalDiffeq exists.
+console.error('FIXME dagball has dfriction (decay speed). axgob has truncation to min and max. so should this also have those? diffeq should have dpos dvel dfriction etc. which of them? HOW DO I REFER TO A VAR BY NAME IF I HAVE TO GIVE ITS INDEX?');
+var Out = function(vox, optionalXpoten, optionalDiffeq){
+	this.vox = vox;
+	this.xpoten = xpoten || 0;
+	this.diffeq = optionalDiffeq || null;
+	//throw new Error('FIXME what about diffeq like in dagball? i wanna make it so these can make them move around in ways other than scalarField, like the pinballBumpers in dagball for example.');
+};*/
+
+Game.prototype.nextState = function(dt){
+	for(let gob of this.gobs){
+		gob.doPhysicsA();
+	}
+	for(let gob of this.gobs){
+		gob.doPhysicsB(dt);
+	}
+};
+
+var game = new Game();
+
+/*game.addVox(YXC(0,0,0xfff));
+game.addVox(YXC(0,0,0xfff));
+game.addVox(YXC(0,0,0xfff));
+game.remVox(YXC(0,0,0xfff));
+game.remVox(YXC(0,0,0xfff));
+game.remVox(YXC(0,0,0xfff));
+*
+game.addVox(YXC(0,0,0x000));
+game.addVox(YXC(0,0,0x000));
+game.addVox(YXC(0,0,0x000));
+game.remVox(YXC(0,0,0x000));
+game.remVox(YXC(0,0,0x000));
+game.remVox(YXC(0,0,0x000));
+*/
+
+var V = new VoxStream();
+
+
+//console.error('Do I want params to have .p .v .dfriction .dpos .dvel .truncateMin .truncateMax etc? How else would I add to out.diffeq without knowing the index of var names? Or do I just not do that?');
+//console.error('Yes replace Float32Array with Var having this .p .v etc. Make it a class.');
+
+/*game.addFunc((centerY, centerX)=>{
+	let fromY = (centerY.p|0) - 20;
+	let fromX = (centerX.p|0) - 20;
+	let toY = fromY+40;
+	let toX = fromX+40;
+	let ret = []; //TODO optimize using VoxStream to generate a Uint32Array.
+	for(let y=fromY; y<toY; y++){
+		for(let x=fromX; x<toX; x++){
+			ret.push(YXC(y,x,0x08f)); //create voxel. y and x are uint13's. C param is 6 bit color.
+		}
+	}
+	return ret;
+});
+*/
+
+const sigmoid = x=>(1/(1+Math.exp(-x)));
+
+for(let i=0; i<10; i++){
+	game.addFunc((centerY, centerX, heightToWidthRatio)=>{
+		//let area = 400;
+		let area = 2400;
+		let ratio = .2+2*sigmoid(heightToWidthRatio.p*.04-.02);
+		//let ratio = Math.tanh(heightToWidthRatio.p*.3);
+		//let ratio = Math.exp(heightToWidthRatio.p*.5);
+		//let ratio = Math.max(.2, Math.min(heightToWidthRatio.p, 5));
+		//let ratio = 1;
+		let h = Math.ceil(ratio*Math.sqrt(area));
+		let w = Math.ceil(area/h);
+		/*let fromY = (centerY.p|0) - 20;
+		let fromX = (centerX.p|0) - 20;
+		let toY = fromY+40;
+		let toX = fromX+40;
+		*/
+		let fromY = (centerY.p|0) - 10;
+		let fromX = (centerX.p|0) - 10;
+		let toY = fromY+h;
+		let toX = fromX+w;
+		let ret = []; //TODO optimize using VoxStream to generate a Uint32Array.
+		for(let y=fromY; y<toY; y++){
+			for(let x=fromX; x<toX; x++){
+				ret.push(YXC(y,x,0x08f)); //create voxel. y and x are uint13's. C param is 6 bit color.
+			}
+		}
+		centerY.poten += .1*Math.hypot(centerY.p-300,centerX.p-300)**2; //attract to that
+		heightToWidthRatio.poten += .1*(heightToWidthRatio.p-1)**2;
+		//centerY.kv += 3;
+		//centerX.kv += 3;
+		centerY.kv += .1;
+		centerX.kv += .1;
+		heightToWidthRatio.kv += .003;
+		return ret;
+	});
+}
+
+
+
+
+
+
+
+
+
+
+
+//Canvas and ByteRect code are opensource MIT licensed
+//(parts from benrayfield's various other projects including https://jsfiddle.net/q687fcrk/1/ and
+//https://github.com/benrayfield/smartblob/blob/master/data/smartblob/WebcamSeesBendableLoopAsGameControllerAjaxToServer.html )
+
+//byte offsets for ByteRect, canvas, etc, in js.
+const RED = 0, GREEN = 1, BLUE = 2, ALPHA = 3;
+var colorDimRed = RED;
+var colorDimGreen = GREEN;
+var colorDimBlue = BLUE;
+var colorDimAlpha = ALPHA;
+
+var FullScreenCanvas = function(parentDom){
+	if(parentDom === undefined) parentDom = document.body;
+	this.dom = document.createElement('canvas');
+	//TODO z order, in front of everything else.
+	//this.dom = document.getElementById('canv'); //FIXME remove this line, use createElement instead.
+	this.context = null;
+	this.imageData = null;
+	this.pixels = null;
+	this.byteRect = null;
+	parentDom.appendChild(this.dom);
+	this.dom.style.position = 'absolute';
+	this.dom.style.left = '0px';
+	this.dom.style.top = '0px';
+	
+	this.resizeCanvas = function(){
+		if(this.dom.width != window.innerWidth) this.dom.width = window.innerWidth;
+		if(this.dom.height != window.innerHeight) this.dom.height = window.innerHeight;
+	}
+	
+	//TODO optimize, if you're not reading from the canvas, maybe can skip parts of this or only call this once?
+	this.beforePaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		this.context = this.dom.getContext('2d');
+		//console.log('this.dom.width = '+this.dom.width);
+		this.imageData = this.context.getImageData(0, 0, this.dom.width, this.dom.height);
+		this.pixels = this.imageData.data;
+		this.byteRect = new ByteRect(this.pixels, this.dom.height, this.dom.width);
+	};
+	
+	//call this after modify byteRect.bytes which contains pixel colors to write to Canvas.
+	this.afterPaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		//this.context.drawImage(this.dom, 0, 0, this.dom.width, this.dom.height);
+		this.context.putImageData(this.imageData, 0, 0);
+	};
+	
+	this.removeFromScreen = function(){
+		this.dom.remove();
+		this.dom = null;
+		this.context = null;
+		this.imageData = null;
+		this.pixels = null;
+		this.byteRect = null;
+	};
+	
+	this.resizeCanvas();
+	this.beforePaint();
+};
+
+//readable and writable pixels as Uint8Array. A canvas is a kind of Uint8Array.
+//Single pixel read and write funcs are slow unless you just do a few places.
+//TODO Write horizontal lines of same color or 2 colors on end interpolating between,
+//and these lines can be derived from triangle which has different color at each corner.
+var ByteRect = function(bytes, height, width){
+	this.bytes = bytes;
+	this.height = height;
+	this.width = width;
+};
+
+//TODO choose [y x] vs [x y z scale] order. Swap y and x in ByteRect params order? aftrans is [x y z scale].
+
+ByteRect.prototype.index = function(y, x, colorDim){
+	return (y*this.width+x)*4+colorDim;
+};
+
+ByteRect.prototype.read = function(y, x, colorDim){
+	return this.bytes[(y*this.width+x)*4+colorDim];
+};
+
+ByteRect.prototype.readSafe = function(y, x, colorDim){
+	return this.bytes[between(0,(y*this.width+x)*4+colorDim,this.bytes.length-1)];
+};
+
+
+ByteRect.prototype.write = function(y, x, colorDim, bright){
+	this.bytes[(y*this.width+x)*4+colorDim] = bright;
+};
+
+ByteRect.prototype.writeSafe = function(y, x, colorDim, bright){
+	this.bytes[between(0,(y*this.width+x)*4+colorDim,this.bytes.length-1)] = bright;
+};
+
+ByteRect.prototype.writeSafeRGBA = function(y, x, redByte, greenByte, blueByte, optionalAlphaByte){
+	if(optionalAlphaByte === undefined) optionalAlphaByte = 255; //visible
+	let index = between(0,(y*this.width+x)*4,this.bytes.length-4);
+	this.bytes[index+RED] = redByte;
+	this.bytes[index+GREEN] = greenByte;
+	this.bytes[index+BLUE] = blueByte;
+	this.bytes[index+ALPHA] = optionalAlphaByte;
+};
+
+ByteRect.prototype.atYXWriteRGB = function(y, x, redByte, greenByte, blueByte){
+	if(x < 0 || this.width <= x || y < 0 || this.height <= y) return;
+	let ind = (y*this.width+x)*4;
+	this.bytes[ind+RED] = redByte;
+	this.bytes[ind+GREEN] = greenByte;
+	this.bytes[ind+BLUE] = blueByte;
+};
+
+ByteRect.prototype.writeHoriz = function(y, fromX, toXExclusive, colorDim, fromBright, toBright){
+	var indexStart = this.index(y, fromX, colorDim);
+	var pixelSiz = toXExclusive-fromX;
+	var siz = pixelSiz*4;
+	var bright = fromBright;
+	var brightAdd = (toBright-fromBright)/pixelSiz;
+	for(var i=0; i<siz; i+=4){
+		bright += brightAdd;
+		this.bytes[indexStart+i] = Math.floor(bright) & 0xff;
+	}
+};
+
+ByteRect.prototype.flipHorizontal = function(){
+	let bytes = this.bytes;
+	for(let y=0; y<this.height; y++){
+		let xMid = Math.floor(this.width/2);
+		let offsetA = y*this.width*4; //first byte index of first pixel in row
+		let offsetB = ((y+1)*this.width-1)*4; //first byte of last pixel in row
+		for(let x=0; x<xMid; x++){
+			for(let colorDim=0; colorDim<4; colorDim++){ //swap 2 pixels as 4 bytes each
+				let temp = bytes[offsetA+colorDim];
+				bytes[offsetA+colorDim] = bytes[offsetB+colorDim];
+				bytes[offsetB+colorDim] = temp;
+			}
+			offsetA += 4;
+			offsetB -= 4;
+		}
+	}
+};
+
+ByteRect.prototype.verifySameSizeAs = function(byteRect){
+	if(!byteRect) throw 'Param ByteRect = '+byteRect;
+	if(this.height != byteRect.height) throw this.height+' == this.height != byteRect.height == '+byteRect.height;
+	if(this.width != byteRect.width) throw this.width+' == this.width != byteRect.width == '+byteRect.width;
+};
+
+ByteRect.prototype.paintLineYXYXRGB = function(fromY, fromX, toY, toX, redByte, greenByte, blueByte){
+	let diffY = toY-fromY;
+	let diffX = toX-fromX;
+	let len = Math.hypot(diffY, diffX);
+	let numPoints = Math.ceil(len*1.5);
+	for(let i=0; i<numPoints; i++){
+		//TODO optimize
+		let y = Math.round(fromY+diffY*i/numPoints);
+		let x = Math.round(fromX+diffX*i/numPoints);
+		this.atYXWriteRGB(y, x, redByte, greenByte, blueByte);
+	}
+};
+
+var canv = null;
+
+var endingCanv = false;
+
+/** utc time in seconds */
+var time = function(){
+	return Date.now()*.001;
+};
+
+var timeStarted = 0;
+
+/** get bellcurve height on a chosen bellcurve thats stretched and moved */
+var bell = function(ave, dev, maxHeight, observe){
+	let diff = (observe-ave)/dev;
+	return Math.exp(-diff*diff);
+};
+
+/*var sigmoid = function(x){
+	return .5+.5*Math.tanh(x);
+};*/
+
+//0 to 255
+var backgroundRed = 0;
+var backgroundGreen = 0;
+var backgroundBlue = 0;
+
+
+//age in seconds since transition started. Just paints onto ByteRect
+var doGraphicsDtAgeByterect = function(dt, age, byteRect){
+
+	game.nextState(dt);
+
+	let bytes = byteRect.bytes;
+	let offset = Math.floor(Math.sin(time()*5*2*Math.PI)*100+100);
+	let w = byteRect.width;
+	let h = byteRect.height;
+	let cx = Math.floor(w/2); //center x
+	let cy = Math.floor(h/2); //center y
+	for(let i=0; i<bytes.length; i+=4){
+		bytes[i+RED] = backgroundRed;
+		bytes[i+GREEN] = backgroundGreen;
+		bytes[i+BLUE] = backgroundBlue;
+		bytes[i+ALPHA] = 255;
+	}
+	let i = 0;
+	for(let y=0; y<h; y++){
+		for(let x=0; x<w; x++){
+			/*
+			bytes[i+RED] = (x+age*35)&255;
+			bytes[i+GREEN] = (x+y*age)&255;
+			bytes[i+BLUE] = (333*x/y)&255;
+			*/
+			bytes[i+RED] = game.redByteAtYX(y,x);
+			bytes[i+GREEN] = game.greenByteAtYX(y,x);
+			bytes[i+BLUE] = game.blueByteAtYX(y,x);
+
+			bytes[i+RED] += (x+age*35)&255;
+			i += 4;
+		}
+		i += w*4; //row of pixels
+	}
+
+};
+
+var lastTimeOf_doGraphicsDtAgeByterectAndMore = 0;
+
+var doGraphicsDtAgeByterectAndMore = function(){
+	if(canv == null){
+		canv = new FullScreenCanvas();
+	}
+	let now = time();
+	let age = now-timeStarted; //how many seconds ago did this page transition start?
+	let dt = Math.max(0, Math.min(now-lastTimeOf_doGraphicsDtAgeByterectAndMore, .2));
+	lastTimeOf_doGraphicsDtAgeByterectAndMore = now;
+	canv.beforePaint();
+	doGraphicsDtAgeByterect(dt, age, canv.byteRect);
+	canv.afterPaint();
+	setTimeout(doGraphicsDtAgeByterectAndMore, 1); //FIXME do requestAnimationFrame instead, for lower lag? or does waiting 1 more millisecond give it time to do other UI things?
+};
+
+
+window.onload = ()=>{
+	timeStarted = time();
+	doGraphicsDtAgeByterectAndMore();
+};
+
+
+
+</script>
+</head>
+<body>
+</body>
+</html>
