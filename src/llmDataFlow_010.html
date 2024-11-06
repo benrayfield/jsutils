@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Simple LLM with Random Weights</title>
+</head>
+<body>
+<script>
+// Define model parameters
+const embedDim = 362; // Dimensionality of token embeddings and internal vectors
+const ffnDim = 724; // Dimensionality of feed-forward network
+const xSize = 256; // Number of tokens in the sequence
+const ySize = 16; // Number of layers in the neural network model
+const promptLength = 5; // Length of the input prompt for initial token embeddings
+const dk = embedDim; // Dimensionality of the key vectors for scaling dot products
+
+// Compute the total number of model parameters
+// Attention weights: 4 matrices of size [embedDim, embedDim] per layer
+const attentionParams = 4 * (embedDim * embedDim) * ySize;
+
+// Feed-forward weights: Two matrices per layer
+const feedForwardParams = 2 * (embedDim * ffnDim) * ySize;
+
+// Feed-forward bias parameters: One bias vector for [ffnDim] and one for [embedDim]
+const feedForwardBiasParams = (ffnDim + embedDim) * ySize;
+
+// Total number of model parameters
+const totalModelParams = attentionParams + feedForwardParams + feedForwardBiasParams;
+
+console.log("Attention Params:", attentionParams);
+console.log("Feed-Forward Params:", feedForwardParams);
+console.log("Feed-Forward Bias Params:", feedForwardBiasParams);
+console.log("Total Model Params:", totalModelParams);
+
+// Initialize random weights for the model
+const DATA = {
+    Wq: [], // Query weight matrices per layer
+    Wk: [], // Key weight matrices per layer
+    Wv: [], // Value weight matrices per layer
+    Wo: [], // Output weight matrices per layer
+    W1: [], // First feed-forward weight matrices per layer
+    W2: [], // Second feed-forward weight matrices per layer
+    b1: [], // Bias vectors for feed-forward layers per layer
+    b2: []  // Bias vectors for feed-forward layers per layer
+};
+
+for (let layer = 0; layer < ySize; layer++) {
+    // Random weight matrices for attention
+    DATA.Wq[layer] = randomMatrix(embedDim, embedDim);
+    DATA.Wk[layer] = randomMatrix(embedDim, embedDim);
+    DATA.Wv[layer] = randomMatrix(embedDim, embedDim);
+    DATA.Wo[layer] = randomMatrix(embedDim, embedDim);
+    // Random weight matrices for feed-forward network
+    DATA.W1[layer] = randomMatrix(ffnDim, embedDim);
+    DATA.W2[layer] = randomMatrix(embedDim, ffnDim);
+    // Random bias vectors for feed-forward network
+    DATA.b1[layer] = randomVector(ffnDim);
+    DATA.b2[layer] = randomVector(embedDim);
+}
+
+// Function to generate a random matrix of size [rows x cols]
+function randomMatrix(rows, cols) {
+    const matrix = [];
+    for (let i = 0; i < rows; i++) {
+        const row = [];
+        for (let j = 0; j < cols; j++) {
+            row.push(Math.random() * 2 - 1); // Random values between -1 and 1
+        }
+        matrix.push(row);
+    }
+    return matrix;
+}
+
+// Function to generate a random vector of length n
+function randomVector(n) {
+    const vector = [];
+    for (let i = 0; i < n; i++) {
+        vector.push(Math.random() * 2 - 1); // Random values between -1 and 1
+    }
+    return vector;
+}
+
+// Define getPromptToken function
+function getPromptToken(x) {
+    // For simplicity, generate a random embedding for each prompt token
+    return randomVector(embedDim);
+}
+
+// Implement computeCellXY function
+function computeCellXY(xTime, yLayer, grid, promptLength, getPromptToken, ySize, DATA) {
+    const dk = embedDim; // For scaling dot products
+
+    // Get the weights and biases for this layer
+    const Wq = DATA.Wq[yLayer];
+    const Wk = DATA.Wk[yLayer];
+    const Wv = DATA.Wv[yLayer];
+    const Wo = DATA.Wo[yLayer];
+    const W1 = DATA.W1[yLayer];
+    const W2 = DATA.W2[yLayer];
+    const b1 = DATA.b1[yLayer];
+    const b2 = DATA.b2[yLayer];
+
+    // Step 1: Get the input embedding for this position and layer
+    let input_embedDim;
+
+    if (yLayer === 0) {
+        // First layer
+        if (xTime < promptLength) {
+            // Use prompt token embedding
+            input_embedDim = getPromptToken(xTime); // [embedDim]
+        } else {
+            // For positions beyond the prompt length, use the output from previous time step
+            input_embedDim = grid[xTime - 1][ySize - 1];
+        }
+    } else {
+        // For subsequent layers, use output from the previous layer at the same position
+        input_embedDim = grid[xTime][yLayer - 1];
+    }
+
+    // Step 2: Compute Query (Q), Key (K), and Value (V) vectors
+    const Q = matVecMul(Wq, input_embedDim); // [embedDim]
+    const K = matVecMul(Wk, input_embedDim); // [embedDim]
+    const V = matVecMul(Wv, input_embedDim); // [embedDim]
+
+    // Step 3: Collect K and V from positions 0 to xTime (causal attention)
+    const Ks = [];
+    const Vs = [];
+
+    for (let j = 0; j <= xTime; j++) {
+        let input_j;
+
+        if (yLayer === 0) {
+            // For the first layer, inputs come from the embeddings or previous outputs
+            if (j < promptLength) {
+                input_j = getPromptToken(j);
+            } else {
+                input_j = grid[j - 1][ySize - 1];
+            }
+        } else {
+            // For other layers, inputs come from the previous layer
+            input_j = grid[j][yLayer - 1];
+        }
+
+        // Compute K_j and V_j for position j
+        const K_j = matVecMul(Wk, input_j);
+        const V_j = matVecMul(Wv, input_j);
+
+        Ks.push(K_j);
+        Vs.push(V_j);
+    }
+
+    // Step 4: Compute attention scores
+    const attentionScores = [];
+    for (let j = 0; j <= xTime; j++) {
+        const score = dotProduct(Q, Ks[j]) / Math.sqrt(dk);
+        attentionScores.push(score);
+    }
+
+    // Step 5: Apply softmax to get attention weights
+    const maxScore = Math.max(...attentionScores); // For numerical stability
+    const expScores = attentionScores.map(score => Math.exp(score - maxScore));
+    const sumExpScores = expScores.reduce((sum, val) => sum + val, 0);
+    const attentionWeights = expScores.map(val => val / sumExpScores);
+
+    // Step 6: Compute the weighted sum of Value vectors
+    const attentionOutput = zeros(embedDim); // [embedDim]
+    for (let i = 0; i < embedDim; i++) {
+        for (let j = 0; j <= xTime; j++) {
+            attentionOutput[i] += attentionWeights[j] * Vs[j][i];
+        }
+    }
+
+    // Step 7: Apply output linear transformation Wo
+    const attentionTransformed = matVecMul(Wo, attentionOutput); // [embedDim]
+
+    // Step 8: Feedforward network
+    // 8.1: First linear layer with ReLU activation
+    const ff1 = relu(vecAdd(matVecMul(W1, attentionTransformed), b1)); // [ffnDim]
+    // 8.2: Second linear layer
+    const ff2 = vecAdd(matVecMul(W2, ff1), b2); // [embedDim]
+
+    // Step 9: Add residual connection and return the output
+    const output = vecAdd(attentionTransformed, ff2); // [embedDim]
+
+    return output;
+}
+
+// Helper functions
+function matVecMul(matrix, vector) {
+    // Matrix-vector multiplication
+    const result = [];
+    for (let i = 0; i < matrix.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < vector.length; j++) {
+            sum += matrix[i][j] * vector[j];
+        }
+        result.push(sum);
+    }
+    return result;
+}
+
+function dotProduct(vecA, vecB) {
+    // Dot product of two vectors
+    let sum = 0;
+    for (let i = 0; i < vecA.length; i++) {
+        sum += vecA[i] * vecB[i];
+    }
+    return sum;
+}
+
+function vecAdd(vecA, vecB) {
+    // Element-wise addition of two vectors
+    const result = [];
+    for (let i = 0; i < vecA.length; i++) {
+        result.push(vecA[i] + vecB[i]);
+    }
+    return result;
+}
+
+function relu(vec) {
+    // ReLU activation function
+    return vec.map(val => Math.max(0, val));
+}
+
+function zeros(length) {
+    // Create a zero vector of given length
+    return Array(length).fill(0);
+}
+
+// Implement processTokens function
+function processTokens(getPromptToken, computeCellXY, ySize, embedDim, promptLength, xSize) {
+    // Initialize grid
+    const grid = new Array(xSize);
+    for (let x = 0; x < xSize; x++) {
+        grid[x] = new Array(ySize);
+    }
+
+    // Compute the grid values
+    for (let x = 0; x < xSize; x++) {
+        for (let y = 0; y < ySize; y++) {
+            grid[x][y] = computeCellXY(x, y, grid, promptLength, getPromptToken, ySize, DATA);
+        }
+        // Log progress
+        if ((x + 1) % 10 === 0) {
+            console.log(`Computed ${x + 1}/${xSize} tokens`);
+        }
+    }
+
+    // Extract outputTokens from grid where y == 0
+    const outputTokens = new Array(xSize);
+    for (let x = 0; x < xSize; x++) {
+        outputTokens[x] = grid[x][0];
+    }
+
+    return outputTokens;
+}
+
+// Run the model
+console.log("Running the model...");
+const outputTokens = processTokens(getPromptToken, computeCellXY, ySize, embedDim, promptLength, xSize);
+
+// Output the tokens to the console
+console.log("Output Tokens:");
+for (let i = 0; i < outputTokens.length; i++) {
+    console.log(`Token ${i}:`, outputTokens[i]);
+}
+
+</script>
+</body>
+</html>
