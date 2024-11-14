@@ -1,0 +1,3370 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" /> 
+<title>2D Resizable Rectangle Simulation</title>
+<style>
+  body { margin: 0; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<script>
+//This software is offered by Ben F Rayfield under opensource MIT license.
+console.log('Opensource MIT. This software (for now called Blob Monsters Game) is offered by Ben F Rayfield under opensource MIT license. Blob Monsters Game has 3 teams (red green blue), displays distance to nearest voxel of each. 9 bytes per pixel. 26 bits counts num of monsters touching this pixel. 6 bit color of voxels (24 bit color for the distance fields). 10 bits for distance up to 255. 3 bits for team masks. See game.rps.team, game.rps.tridist, game.board, and game.gob[int].m.team. The 3 teams are REDTEAM, GREENTEAM, BLUETEAM, and BLACKTEAM==0 means no gob is at that pixel.');
+//
+/*
+checkForUnexpectedEvalsInJsParsingBeforeCrossSiteScriptingReactor
+
+
+[[[2024-11-11 https://x.com/benrayfield/status/1855944895057268971
+Post
+Conversation
+Lambda Rick /acc
+@benrayfield
+·
+5h
+See that slightly jagged line between the 2 green blobs. Thats cuz its doing dijkstra shortest path finding, between each pixel and the 8 adjacent pixels. Thats where the colors come from. They estimate distance: 3 to up down left right. 4 to upleft upright downleft downright.
+Image
+Lambda Rick /acc
+@benrayfield
+·
+1h
+4/3 is a poor substitute for sqrt(2). Id have liked to use 7/5 but i only had 2 extra bits in 10 bit distance if i want about max distance of 256. I can compute ddistance squared exactly for every pixel to every voxel but its alot slower
+Lambda Rick /acc
+@benrayfield
+·
+1h
+As long as the distance-like algorithm is the same within a peer to peer net sharing a 8k X 8k canvas, it will sync exactly. Theres a correct 10 bits for every pixel (times 3 teams) for each possible world state.
+Lambda Rick /acc
+@benrayfield
+·
+55m
+It does 3 dijkstras at once in the same int array. State of dijkstra is entirely in that array and 2 loops, one forward then one backward, each reading 5 of the 9 ints as 3x3 (like in conways game of life) and writes the center int. All 9 ints are in CPU L1 cache, hella fast
+Lambda Rick /acc
+@benrayfield
+·
+49m
+A world state is a set of javascript lambdas and a position and velocity for each param. The pambda returns an int array of any size, even varying the size based on params, 1 int per 2d voxel in 8k X 8k shared canvas and 64 possible colors. It changes by high dimensional gradient
+Lambda Rick /acc
+@benrayfield
+·
+38m
+To approx high dimensional gradient, it removes a lambda (of n params) from world state, computes total potential energy, then calls lambda n+1 times to get n+1 arrays of voxels, counts collisions where pixels (of 64 megapixels) are written twice. Also can add to energy directly
+Lambda Rick /acc
+@benrayfield
+·
+25m
+Each pixel can store, in just 9 bytes, up to 2^26-1 voxels which have the same (x,y) coordinate and may differ in color and team. There are 3 teams. Usually stores 0-2 voxels. It can do this cuz its entirely reversible by xor and counting of color and team mask.
+Lambda Rick /acc
+@benrayfield
+I had to support 64 million voxels overlapping in the same pixel, without any slowdown in computing gradient, cuz some users will likely DoSAttack a shared canvas. They will fail.
+7:05 AM · Nov 11, 2024
+·
+39
+ Views
+]]]
+ I dont know what to call it, but its doing something like raytracing. But instead of the usual rays its a triple dijkstra per pixel, emitted from every voxel in all directions. Nothing in there is just for graphics. These rays will for teams to chase and run from eachother.
+ I have 2 bits unused in the triple dijkstra. 10 bits per distance. 3 distances to nearest team (of 3 teams). So I could put a wall bit in there, which would make the raytracing curve around walls, take a longer path, and display darker the longer the path goes.
+If I did this, and once i hook the blob monsters into it to chase and run from the other 2 teams, then they would automatically do basic pathfinding, would automatically take the correct path thru a maze, for example.
+If I had 3 bits left I would have used 11 bits per distance instead of 10. but there is no int33. its int32.
+but I'd have to go back to the priority-queue of what order to update the pixels, instead of the constant order it is now, which would make it take 3 times longer cuz i couldnt do 3 dijkstras at once, and would take log(numPixels) times longer cuz of the priority queue. nevermind.
+
+also need to check for combos of [] 0 null undefined true false {} '' etc, which + a[b] etc in combos with eachother, might be able to do eval of arbitrary string, and if so then this preprocessing step should replace them with such a literal code the redo the constraints
+
+[[[[2024-10-26 https://x.com/benrayfield/status/1850224874586837004
+Lambda Rick /acc
+@benrayfield
+I'm building a cross-site-scripting reactor. Anything could come up in the form of small strings of javascript code. Basic thing, dont let them call functions except Math.exp Math.sin Math.pow etc. Check for number of flops, no infinite loops, so sub-turing but turing up as MMG
+1:16 PM · Oct 26, 2024
+·
+29
+ Views
+View post engagements
+Lambda Rick /acc
+
+Lambda Rick /acc
+@benrayfield
+·
+Now
+also need to check for combos of [] 0 null undefined true false {} '' etc, which + a[b] etc in combos with eachother, might be able to do eval of arbitrary string, and if so then this preprocessing step should replace them with such a literal code the redo the constraints.
+Lambda Rick /acc
+@benrayfield
+·
+10m
+The power of a cross-site-scripting reactor is not supposed to be by security flaw, tho its designed to safely contain any bit strings even if theyre computer viruses (if given execute permission, so do ur own proofs 1st if u do that). The power is in the shared worlds it builds.
+
+If such code is valid under the rules of the simulation (and which sim you want to do is up to you, its your billions of transistors), then in theory (if it ended up being coded this way, which im still in early research about) it just another way to write the same thing.
+]]]]
+<<<<<https://x.com/benrayfield/status/1850234847731527956
+Lambda Rick /acc
+@benrayfield
+·
+11m
+Got a GPU doing nothing in your house? What if u could store GPU power in opensource peer to peer network in a tit-for-tat way, so that you could instead of just locally having a burst-rate of 1 teraflop, have a burst rate of 1 petaflop, but can only do so 1/1000'th of the time?
+Lambda Rick /acc
+@benrayfield
+If 10^12 calculations per second isnt doing it for u then what good is 10^15? I went back to CPU only. I made turing complete autodiff using JS funcs as blackboxes and have 12 of em bouncing around using 2d voxels. And if ppl wanna burst-rate petaflops in certain forks, go for it
+2:00 PM · Oct 26, 2024
+·
+7
+ Views
+View post engagements
+>>>>>
+{{{
+t
+Conversation
+Lambda Rick /acc
+@benrayfield
+NP-complete game object in blue at the top
+Image
+12:59 PM · Nov 11, 2024
+·
+31
+ Views
+View post engagements
+Lambda Rick /acc
+
+Lambda Rick /acc
+@benrayfield
+·
+4s
+#TripleDijkstra graphics
+Lambda Rick /acc
+@benrayfield
+·
+13m
+this is the most basic level of my new game system. CPU only. about a 100kB html file. only 1 file. and its currently running about 25FPS and doesnt have enuf objects on screen. but i do have teraflops available thru shaders
+Lambda Rick /acc
+@benrayfield
+·
+9m
+every javascript function added can write sparsely to any address 0 to (2**26)-1, write to it by making a voxel there which repels any other voxels written there such as by 2 javascript functions trying to kick eachothers asses in a game or such as NSAT solving.
+Lambda Rick /acc
+@benrayfield
+·
+8m
+even if distance calculations are only calculated in some parts (cuz expensive), the exact potential energy of the collisions part of the 64 megapixel canvas, is ALREADY how it works.
+}}}
+In #TripleDijkstra graphics, I compute the dijkstra shortest path between all pairs of about 50,000 voxels and 1,048,576 nodes (pixels), 25 (todo 60) times per second. Ok thats just normal optimizing. The advanced part is I do it 3 times in parallel, same order of nodes for all 3 --2024-11-11 https://x.com/benrayfield/status/1856040659221713292
+*/
+//
+//The code anonymously shared and spread thru my tiny game engine should be thought of as an antivirus-quarantine but
+//not a quarantine cuz its opensource and anyone can make copies and swarm and stream it. Just be warned,
+//it might want to hack u so dont give it execute permission. Html can generate any file type and offer it for download
+//or give you a string of hex to paste into a hex tool or something which can turn it into bytes in a file.
+//If those are just other html or json files, fine, but dont trust executable types.
+//js run in browser is not executing. js run in nodejs/npm is executing. Depends where you run it.
+//Also it could run an infinite loop or redirect the page to a spammers website, but u can just close the browser tab if so.
+//Files by themself are not dangerous, even if they contain viruses, as long as you dont give them execute permission.
+//
+//My tiny game engine does something the others dont: If you bend it certain ways, it will bend back in other ways,
+//not just like a spring but like a computer thinking about how it wants to bend.
+//I'm making a #web3 compatible system that runs in thousands of browsers at once, sharing a 8192x8192 (64 colors)
+//interactive video at 60 FPS gaming-low-lag, which 2d voxels are painted by a high dimensional scalar-field simulation.
+//Shapeshifting blobs move by constraint solving
+//How many colors do you really need for a video game to be fun? If I use 6 bits for color I can expand the game area
+//to 8192x8192 pixels, and voxel still fits in an int. If you can see a 512x512 area at a time, thats 16 screens wide
+//and tall, so could fit a scrollable game level
+//This 8192x8192 pixel object will be a #web3 data structure, sparse and gaming-low-lag and stored very compressed.
+//It might have thousands of players per 8kX8k square. Physics happens in each pixel individually by accelerating
+//away from gradient, might add differential equations.
+//The voxels are general problem solvers though come in many tiny pieces. They are N-SAT solvers, fourier solvers,
+//fractal solvers, and generally anything thats not TOO hard a puzzle, cuz they will get stuck in local minimums.
+//But it works as a video game. We expand from there.
+//My area of web3 is things that spread cuz they are fun or useful, instead of to buy and sell them. Any system,
+//nomatter what it is, must produce at least as much as it consumes, to survive. I count progress in units of
+//KFactor, will this spread more than it fades away?
+//I have turing-complete autodiff, but just a little of it, not very deep, and I'm gonna have it paint 64 megapixels
+//per shared virtual screen, per pixel. Each pixel has 6 bit color, 64 possible colors, and a 26 bit (8192x8192) address.
+//What I'm about to build, a scaleable prototype of turing-complete-autodiff that paints 64 megapixels live, is the
+//result of over and over asking myself, how could I raise KFactor of this tech while still being turing complete?
+//So Cut off parts didnt need, adjusted bit sizes etc.
+//Its CPU only for now. The older versions used GPU, but I optimized it so well I can do it  without,
+//leaving GPU for more advanced stuff to add on later, maybe some neuralnets or something.
+//The difference between AI and physics is not clear cut. Theres gradual levels between. I've been training small
+//neuralnets with a physics algorithm in many dimensions. And when I make 2d shapeshifting game objects, thats a
+//little like AI. They learn live, which is the gameplay.
+//In turing-complete-autodiff, u make 1 mechanical part, which may be in multiple parts
+//(return whatever set of voxels u want, no judgement on if theyre connected), and return an extra
+//amount of loss (like neuralnet loss, more general) and physics is by automatic constraint solver
+//Theres 67,108,864 pixels in 1 game state. Each keeps a count of number of objects currently
+//touching/painting it, a count which can go up to 67,108,863 objects. Each pixel can store 1 NSAT bit
+//and 6 color bits. 2**26 pixels can be 8k x 8k, 512 x 512 x 256, or 26 dimensions size 2
+//Game state also TODO... includes a string of javascript code of a lambda of n float params, named
+//whatever that function likes. Func object is scanned for its parameter list, and 1 dimension in the
+//game world created for each, with a position and velocity. It returns an int array
+//potential energy ranges 0 to 2**53-1 so fits in a float64. Add max(0,count-1) for each pixel,
+//of counting number of objects which touch/paint that pixel. Each game object can also add an
+//arbitrary integer to potential energy for things like springs, least squares. Multiverse...
+//Turing-complete-autodiff will use this API:
+//game.addFunc((centerY, centerX, varA, varB, nameVarsWhateverYouWant)=>{...return a list of int voxels...}).
+//Doesnt matter what javascript function you put in there, as long as all its parameters
+//are a Var instance, like centerY.p varA.p .
+//I computed potential-energy across multiple black-boxes and the game survived and physics kept working. They are
+//basically simulated graygoo if u didnt have to worry about how to physically make tiny computers,
+//just a fun software API for it.
+//
+/*
+My 36kB game engine will be a serious game-theory research platform with lots of AIs and people building and playing
+and experimenting together. Each "blob monster" can include a loss function, used like:
+centerY.poten += .1*Math.hypot(centerY.p-300,centerX.p-300)**2; //attract
+All the .poten are summed. You only need 1 of them, and it doesnt matter which you add into. There was just nowhere
+else to put it than in the Var objects that are auto generated as the params of any JS func you write.
+--- https://x.com/benrayfield/status/1850497760463647137
+*
+
+In peer to peer network, the whole 8192x8192 shared canvas would be updated, each computer computing physics locally in the parts they're near. but its just on 1 computer for now. game state is very compressed, just the code strings of JS that make voxels and 2 numbers per param. -- https://x.com/benrayfield/status/1856413738741457180
+*
+
+
+I should probably make neural-shapeshifter plugin for Blob Monsters Game. I could fork out of dagball, built on my Ap.js GPU programming language, which is built on my TinyGLSL stateless synchronous (no async/await) way to call GPU from browser.
+youtube.com
+Dagball 2024-5-7 recurrent sigmoid neuralnet with 22 nodes trained...
+My dagball/lib/Ap.js GPU programming language is used in the textarea on the left to define the neuralet. It does 
+https://www.youtube.com/watch?v=4boQ9OvRz5U
+this blob species "neural shapeshifter" would be just another JS func that happens to call the GPU thru my opensource local API,
+but I'd have to upgrade Blob Monsters Game to have a parallel API where you can call monster.brain(...(monster.vars))
+monster.length+1 times at once.
+If i copy a 80x80 pic of 1 bit per pixel, into GPU, I can copy it into EVERY GPU core at once, or at least usefully 1000 of them,
+and compute collisions inside the GPU cores, so return the loss function. 1001 GPU threads to compute the gradient of float[1000]
+loss function.loss function.
+*/
+
+
+
+const SizeBits = 13;
+const Size = 1<<SizeBits; //8192
+const SizeMask = Size-1;
+const Area = Size**2; //8192*8192
+const Colors = 1<<6;
+if(Area*Colors > 2**32) throw new Error('Voxel layout does not fit in int. If you want more space, try uint53 or int54'+
+	' (21 or 22 more bits) which fits in float64 but that redesign would cost alot of speed. Example, and would have to'+
+	' be sparse cuz cant store that much in dense array: 16k x, 16k y, 16k z, 4k colors, 54 bits per voxel.');
+const ColorMask = Colors-1;
+const MaxVoxPerGob = 1<<20;
+
+const MagnifyShift = 2; //Size is 4 times smaller than SmallSize. Area is 4x4 times smaller than SmallArea.
+const SmallSizeBits = SizeBits-MagnifyShift; //4x4 smaller
+const SmallSize = 1<<SmallSizeBits;
+const SmallSizeMask = SmallSize-1;
+const SmallArea = SmallSize**2;
+if(((1<<MagnifyShift) != (Size/SmallSize)) || ((1<<(MagnifyShift<<1)) != (Area/SmallArea))) throw new Error(
+	'MagnifyShift is broken. This line is here as a way to explain it to humans and AIs and possibly to help the JIT compiler optimize ints.');
+if(Area != SmallArea<<4) throw new Error('This will never happen. Just helping the compiler optimize maybe.');
+if(SmallSizeBits!=11) throw new Error('toSmall and other funcs are being hardcoded for this size, 2048x2048 small, 8192x8192 normal');
+
+//With this upgrade I'll only store an extra int (triple dijkstra, 3 of uint10) and an extra byte (team masks),
+//per 16 pixels (4x4). So thats 64 megapixels for main voxels, 4 megapixels for this other stuff, magnified.
+
+//13 high bits and 13 low bits -> 11 high bits and 11 low bits, dropping the low 2 bits from each uint13.
+//TODO Small indexs are used in game.rps.tridistSmall (not game.rps.team cuz xoring 0-16 team masks together might cancel itself out).
+//Big indexs are used in game.board.
+const toSmall = yx=>(((yx&0b11111111111000000000000000)>>>4)|((yx&0b1111111111100)>>>2));
+
+//11 high bits and 11 low bits -> 13 high bits and 13 low bits ->, adding 2 low 0 bits to each uint13.
+//toSmall(toBig(smallIndex))==smallIndex, but toBig(toSmall(bigIndex)) only equals bigIndex if its y and x are both divisible by 4.
+const toBig = yxSmall=>(((yxSmall&0b1111111111100000000000)<<4)|((yxSmall&0b11111111111)<<2));
+
+//throw new Error('TODO make game.rps.tridist be 4x4 smaller, so 2048x2048, and update redByteAtYX etc to use that size.')
+
+const Controls = {
+	mouseY: 0,
+	mouseX: 0,
+	mouseButton0: 0,
+	pause: 0, //toggled by pause button on keyboard
+};
+
+const Y = voxel=>(voxel>>>19);
+const X = voxel=>((voxel>>>6)&0x1fff);
+const R = voxel=>((voxel>>>4)&3); //get red as uint2
+const G = voxel=>((voxel>>>2)&3); //get green as uint2
+const B = voxel=>(voxel&3); //get blue as uint2
+const C = voxel=>(voxel&0x3f); //get color as uint6
+//0b1010101*0b11==0b11111111. Im using this to turn 2 bits of red, green, or blue into 8 bits.
+//if u multiply 0..3 by 85, it becomes 0, 85, 170, or 255. It hits the min and max brightness.
+const RR = voxel=>(R(voxel)*85); //get red as uint8, which is 1 of: 0, 85, 170, 255.
+const GG = voxel=>(G(voxel)*85); //get green as uint8, which is 1 of: 0, 85, 170, 255.
+const BB = voxel=>(B(voxel)*85); //get blue as uint8, which is 1 of: 0, 85, 170, 255.
+//Shape/color code adds voxels like this:
+//game.addFunc((m,b)=>{ let voxs = []; for(let x=0; x<500; x++) voxs.push(YXC(.0001*(m.p*x*x+b.p), x, 0b000011)); return voxs; });
+//Makes the bending parabola. Search for game.addFunc in the html.
+const YXC = (y,x,color)=>(((y&0x1fff)<<19)|((x&0x1fff)<<6)|(color&0x3f));
+const PC = (yx,color)=>(((yx&0x3ffffff)<<6)|(color&0x3f));
+const P = voxel=>(voxel>>>6); //get yx position without color, 0 to 2**26-1
+const YXRGB = (y,x,r,g,b)=>(((y&0x1fff)<<19)|((x&0x1fff)<<6)|((r&3)<<4)|((g&3)<<2)|(b&3));
+
+const SetC = (voxel,color)=>((voxel&0xffffffc0)|(color&0x3f)); //replace color get new voxel
+
+const randInt = max=>Math.floor(Math.random()*max);
+
+const randTeam = ()=>(1<<randInt(3)); //random one of REDTEAM, GREENTEAM, or BLUETEAM. Never returns BLACKTEAM cuz that means no gob is there.
+
+const INF = 1<<29;
+//orthogonal adds 3. diagonal adds 4. so 4 is shorter than 3+3. See computeUint10Distances.
+//The best ratio of these is orthogonal*Math.sqrt(2)=diagonal, but we dont have enuf bits of precision for that.
+const TINF = (1<<10)-1; //1 uint10 max aka 1023. used with game.rps.tridist, either the first second or third 10 bits, so it uses its low 30 bits.
+const TRINF = (1<<30)-1; //3 uint10s each 1023. used with game.rps.tridist.
+//const INF = 0x7FFFFFFF; //max int, infinity-like. used in game.rps.boardR, .boardG, and .boardB to say distanceSquared has not been computed
+//const newRpsArray = ()=>(new Int32Array(Area).fill(INF));
+const newRpsArray = ()=>(new Int32Array(Area).fill(TRINF));
+
+const BLACKTEAM = 0; //so it costs less memory in unoccupied areas, in some browsers.
+const REDTEAM = 1;
+const GREENTEAM = 2;
+const BLUETEAM = 4; //const BLUETEAM = 3;
+const teamName = [];
+teamName[BLACKTEAM] = 'BLACKTEAM';
+teamName[REDTEAM] = 'REDTEAM';
+teamName[GREENTEAM] = 'GREENTEAM';
+teamName[BLUETEAM] = 'BLUETEAM';
+while(teamName.length < 256) teamName.push('NOTEXIST'+teamName.length+'TEAM'); //all byte values have a team name.
+teamName[REDTEAM|GREENTEAM] = 'REDTEAM|GREENTEAM';
+teamName[GREENTEAM|BLUETEAM] = 'GREENTEAM|BLUETEAM';
+teamName[REDTEAM|BLUETEAM] = 'REDTEAM|BLUETEAM';
+teamName[REDTEAM|GREENTEAM|BLUETEAM] = 'REDTEAM|GREENTEAM|BLUETEAM';
+teamHtmlColorName = [];
+teamHtmlColorName[REDTEAM] = 'red';
+teamHtmlColorName[GREENTEAM] = 'green';
+teamHtmlColorName[BLUETEAM] = 'blue';
+
+//Returns the amount of free memory (bytes) in a browser tab. countFreeMem() 8588886016 8gB for example.
+//This is a slow func. You have to fill it with a nonzero value so it actually gets allocated.
+//"const BLACKTEAM = 0; //so it costs less memory in unoccupied areas, in some browsers." makes use of that if available.
+const countFreeMem = ()=>{
+    let arrays = [];
+	let siz = 1<<20;
+	while(true) try{
+		arrays.push(new Uint8Array(siz).fill(arrays.length+1));
+	}catch(e){
+		return arrays.length*siz;
+	}
+};
+
+var Game = function(){
+	//(y,x) is a top left corner, that canvas would display. maybe its a 512x512 canvas, or whatever size.
+	//board is 8192x8192 and has color and count at each pixel, so can display any of those.
+	//its not using .y and .x as of 2024-11-9, always in top left corner of the 8k x 8k space.
+	this.y = Size>>1;
+	this.x = Size>>1;
+	//this.zoom = 1; //changed by mouse wheel, how far you zoom in/out the view whose top left corner in game coords (0 to 8191) is this.y and this.x.
+	this.zoom = 5;
+	this.board = new Uint32Array(Area); //26 bit count as high bits, 6 bit color as low bits.
+	//potentialEnergy, which is sum of max(0,countAtPixel-1) forall pixels.
+	//maybe add a squaring of that later? or is linear good enuf cuz usually its just 0, 1, or 2 count?
+	//This changes when you add or remove a voxel.
+	this.poten = 0;
+	this.gobs = [];
+	this.rps = {
+		//rock paper scissors. these are big arrays, 256mB each, same size as game.board,
+		//that each contain distanceSquared at each pixel, to the nearest voxel of the R/red G/green or B/blue team.
+		//They should be updated sparsely using computeSquaredDistances, such as a 512x512 area near where things are changing,
+		//but dont use the whole 512x512, leave some area around the edges so its more accurate.
+		//Maybe later we will expand this to be always accurate everywhere, but thats for research into the sparse updates.
+		//game.board is always accurate in the whole 8k x 8k area, but rps is a more expensive calculation.
+		//The 512x512 or 1024x1024 or 128x128 etc that computeSquaredDistances makes is exact
+		//(TODO fix bugs, it shouldnt have a Float32Array, which may make it inexact) but if the actual game world is partly outside
+		//it, then it wouldnt be exact, but would be closer to accurate maybe in the 700x700 in the middle of a 1024x1024 for example.
+		//boardR: newRpsArray(), //distanceSquared from each pixel to nearest voxel on red team
+		//boardG: newRpsArray(), //to green team
+		//boardB: newRpsArray(), //to blue team
+		//tridist: newRpsArray(), //use computeUint10Distances
+		tridistSmall: new Int32Array(SmallArea).fill(TRINF), //use computeUint10Distances in 4x4 smaller 2d array than this.board
+		
+		//team (BLACKTEAM, REDTEAM, GREENTEAM, or BLUETEAM, maybe other teams later). no need to .fill(BLACKTEAM) cuz BLACKTEAM==0.
+		//store the number of voxels of each team which touches each pixel, as 1 bit. It only measures if the number of your team's voxels
+		//there is even or odd. But hopefully this will be good enuf cuz it only takes 1 such collision, between all pairs of voxels.
+		/*In Blob Monsters Game, I store number of voxels of each team which touches each pixel, as 1 bit. Only measures even odd.
+		It has to be reversible. If I was to expand it to full count, that would be 3 ints instead of 3 bits that fit in 1 byte.
+		U can make monsters that dont collide (in team changing by rock paper scissors, but they still collide in game.poten so repel).
+		This could be defended against by sorting then deduping voxels returned by a "blob monster" (Gob). I cud do it in constant
+		time using the VoxStream class which is 1 bit per pixel for 64 megapixels and is a reversible stack and set of voxels for
+		deduping. Dont wanna pay for that.
+		*/
+		team: new Uint8Array(Area),
+		//teamSmall: new Uint8Array(SmallArea),
+	};
+	this.stats = {
+		fpsVal: 60,
+	};
+	this.logMap = {
+		FPS: ()=>this.stats.fpsVal,
+	};
+};
+
+Game.prototype.onTextareaInput = function(text){
+	let selectedGobs = this.selectedGobs();
+	if(selectedGobs.length == 1){
+		let sel = selectedGobs[0];
+		let textarea = document.getElementById('mainTextarea');
+		try{
+			let evaled = eval('('+text+')');
+			//FIXME check for number of names of params changing. might be a completely new func.
+			//else its editing the selected gob.brain func.
+			sel.brain = evaled;
+			textarea.style.backgroundColor = 'black'; //ok
+		}catch(e){
+			textarea.style.backgroundColor = '#220000'; //error
+			console.error(e);
+		}
+	}
+};
+
+Game.prototype.onMouseWheelChange = function(amount){
+	this.zoom = Math.max(.01, Math.min(this.zoom*Math.exp(.001*amount), 50));
+};
+
+/*The whole 8192x8192 canvas displays a color computed in game.redByteAtYX(y,x), game.greenByteAtYX(y,x), and game.blueByteAtYX(y,x).
+Thats how I display the voxels, of 64 possible colors, over the distance fields of 16 million possible colors. AIs could get access to pixel colors
+*/
+Game.prototype.redByteAtYX = function(y,x){
+	//return ++this.board[(y<<13)|x]); //TODO range check?
+	const i = (y<<13)|x;
+	let color6 = this.board[i]&ColorMask;
+	//return RR(this.board[i]) || (255-((this.rps.tridist[i]>>>2)&255)); //|| a display of distance of RED team as in rock paper scissors
+	return color6 ? RR(color6) :
+		255-Math.max(0,Math.min(((this.rps.tridistSmall[toSmall(i)]>>2)&255)*10,255));
+		//255-Math.max(0,Math.min(((this.rps.tridist[i]>>2)&255)*5.1,255));
+		//255-Math.max(0,Math.min(((this.rps.tridist[i]>>2)&255)>>2,255));
+		//255-Math.max(0,Math.min(((this.rps.tridist[i]>>2)&255)*5.1,255));
+		//Math.max(0,Math.min(((this.rps.tridist[i]>>255)&255)*1.0534,255))|0;
+		//Math.max(0,Math.min((this.rps.tridist[i]&1023)*.0534,255))|0;
+		//(255-Math.max(0,(((this.rps.tridist[i]>>>2)&255)*3)));
+	//|| a display of distance of RED team as in rock paper scissors
+	//return RR(this.board[i]) || (255-((this.rps.tridist[i]>>>2)&255)); //|| a display of distance of RED team as in rock paper scissors
+	//return (this.rps.tridist[i]>>>2)&255;
+	//return (this.rps.tridist[i]&1023)*.2;
+	//return 200;
+};
+
+Game.prototype.greenByteAtYX = function(y,x){
+	//return GG(this.board[(y<<13)|x]); //TODO range check?
+	const i = (y<<13)|x;
+	let color6 = this.board[i]&ColorMask;
+	//return color6 ? GG(color6) : (255-((this.rps.tridist[i]>>>12)&255)); //|| a display of distance of GREEN team as in rock paper scissors
+	return color6 ? GG(color6) :
+		255-Math.max(0,Math.min(((this.rps.tridistSmall[toSmall(i)]>>12)&255)*10,255));
+		//255-111.01*Math.max(0,Math.min(((this.rps.tridistSmall[toSmall(i)]>>12)&255)**.5,255));
+		//255-Math.max(0,Math.min(((this.rps.tridist[i]>>12)&255)*5.1,255));
+	//return GG(this.board[i]) || (255-((this.rps.tridist[i]>>>12)&255)); //|| a display of distance of GREEN team as in rock paper scissors
+};
+
+Game.prototype.blueByteAtYX = function(y,x){
+	const i = (y<<13)|x;
+	let color6 = this.board[i]&ColorMask;
+	//return color6 ? BB(color6) : (255-(this.rps.tridist[i]>>>22)); //boardB uint10 is >>>20. boardG uint10 is >>>10 &0b1111111111. boardR is &0b1111111111.
+	return color6 ? BB(color6) :
+		255-Math.max(0,Math.min(((this.rps.tridistSmall[toSmall(i)]>>22)&255)*10,255));
+		//255-Math.max(0,Math.min(((this.rps.tridist[i]>>22)&255)*5.1,255));
+	//return BB(this.board[i]) || (255-(this.rps.tridist[i]>>>22)); //boardB uint10 is >>>20. boardG uint10 is >>>10 &0b1111111111. boardR is &0b1111111111.
+	//const voxel = this.board[i]; //TODO range check?
+	//const blueByteOfVoxel = BB(voxel);
+	
+	//This is how gptVoxelDijkstra_011.html colors it: const blueValue = (distSq === 0xFFFFFFFF) ? 0 : Math.max(0, 255-Math.min(distSq,255));
+	//return blueByteOfVoxel || Math.max(0, 255-Math.min(this.rps.boardR[i],255)); //if theres a nonblack voxel, display it, else display distSq	
+	//return blueByteOfVoxel || Math.max(0, 255-Math.min(this.rps.boardR[i]>>2,255)); //if theres a nonblack voxel, display it, else display distSq	
+	//return blueByteOfVoxel || Math.max(0, 255-Math.min(this.rps.boardR[i],255)); //if theres a nonblack voxel, display it, else display distSq	
+	
+	//if theres a nonblack voxel, display it, else display a uint10 from game.rps.tridist which is written by computeUint10Distances.
+	//RED=0 GREEN=1 BLUE=2 ALPHA=3, used in ByteRect. Use that same order but as uint10s. Just get the high 8 bits of that uint10, dropping its low 2 bits.
+	//It would be a little better to add 1 or 2 to it in case distance is only 3 (cuz of orthogonal=3 diagonal=4) so 0 and 3 dont look the same.
+	//|| a display of distance of BLUE team as in rock paper scissors
+	//return 0; //return blueByteOfVoxel || (255-(this.rps.tridist[i]>>>22)); //boardB uint10 is >>>20. boardG uint10 is >>>10 &0b1111111111. boardR is &0b1111111111.
+};
+
+//func is the kind that goes in a gob.brain and takes params of ...gob.vars which is a list of Var instances.
+Game.prototype.addFunc = function(func){
+	if(typeof(func)=='string'){
+		console.log('game.addFunc evaling: '+func);
+		func = eval(func);
+	}
+	//this.gobs.push(new Gob(this,func));
+	return new Gob(this,func); //pushes itself into this.gobs
+};
+
+//voxel stream, where they are added 1 at a time but not added if that YX (primaryKey) is already there.
+//Uses 2**26 bits in 2**21 ints, 1 bit per pixel, to mark if thats already been written.
+//So if you want to paint over a YX, make sure you do that part first and the "covered up" layers later which get ignored.
+//
+//you do a bunch of this.addVox(voxel) and it returns true if added, false if that repeats a yx (primaryKey) aka tries to paint the same pixel more than once.
+//You then call this.end() to get a Uint32Array of the voxels added in the order added, keeping only the first per yx.
+//
+//You normally reuse 1 VoxStream for all Gobs, cuz it uses a few mB of RAM, and most gobs will be far smaller than that. Its sparse optimized.
+//
+//This works in a 8192x8192 2d area sparsely. So this might be a good place to put basic paint functions like circles, lines, etc.
+//
+var VoxStream = function(){
+	this.set = new Uint32Array(Area>>>5); //1 bit per pixel in Area.
+	this.vox = new Uint32Array(MaxVoxPerGob);
+	this.size = 0; //what indexs in this.vox are used?
+};
+
+VoxStream.prototype.addVox = function(voxel){
+	let yx = P(voxel);
+	//As of 2024-11-12 i am not using VoxStream but might use it later. Its use is to dedup voxels created in different ways in the same Gob.
+	let high = yx>>>5; //bits packed into an int. int has (1<<5)==32 bits. This saves alot of memory to only store 1 bit.
+	let low = yx&31;
+	let lowMask = 1<<low;
+	if(this.set[high] & lowMask){ //FIXME is that reversed? should it be 31 minus that?
+		return false; //not add voxel cuz that primaryKey/yx was already added (may be a different color)
+	}else{
+		this.set[high] |= lowMask; //add the yx of the voxel to the set, but not its color.
+		if(this.size == this.vox.length) throw new Error('Full. MaxVoxPerGob.');
+		this.vox[this.size++] = voxel;
+		return true; //added voxel
+	}
+};
+
+//ends the stream, undoes whatevers in it, and returns the voxels that were in it, copied to a new Uint32Array(this.size)
+VoxStream.prototype.end = function(){
+	let ret = new Uint32Array(this.size);
+	for(let i=0; i<ret.length; i++){
+		let voxel = this.vox[i];
+		ret[i] = voxel;
+		//TODO? this.vox[i] = 0;
+		//let yx = P(voxel);
+		//let high = yx>>>5;
+		this.vox[voxel>>>11] = 0; //this.vox[high] = 0; //erase all bits in this.vox that could be nonzero
+	}
+	this.size = 0;
+	return ret;
+};
+
+//add voxel. adjusts this.poten and this.board.
+Game.prototype.addVox = function(voxel){
+	let yx = P(voxel);
+	//console.log('addVox yx='+yx+' color='+C(voxel)+' count was: '+P(this.board[yx]));
+	let prevCount = this.board[yx]>>>6;
+	if(prevCount){ //potentialEnergy is not changed by just 1 Gob touching a pixel. It starts adding at the second Gob there.
+		this.poten++;
+	}
+	this.board[yx] += Colors; //add to the uint26 in the high 26 bits, which counts up to 64million objects intersecting there at once.
+	this.board[yx] ^= (voxel&ColorMask); //xor graphics
+};
+
+//voxel is an int. team is a byte.
+Game.prototype.addVoxWithTeam = function(voxel, team){
+	let yx = P(voxel);
+	//console.log('addVox yx='+yx+' color='+C(voxel)+' count was: '+P(this.board[yx]));
+	let prevCount = this.board[yx]>>>6;
+	if(prevCount){ //potentialEnergy is not changed by just 1 Gob touching a pixel. It starts adding at the second Gob there.
+		this.poten++;
+	}
+	this.board[yx] += Colors; //add to the uint26 in the high 26 bits, which counts up to 64million objects intersecting there at once.
+	this.board[yx] ^= (voxel&ColorMask); //xor graphics
+	//this.rps.team[yx] = team; //FIXME this is not reversible. but if we use bit mask where each team number is a power of 2, could xor that and it be reversible
+	this.rps.team[yx] ^= team; //reversible. BLACKTEAM is 0. Anything else is some powerset of teams, by default only REDTEAM, GREENTEAM, and BLUETEAM which are masks.
+};
+
+//remove voxel. adjusts this.poten and this.board.
+Game.prototype.remVox = function(voxel){
+	let yx = P(voxel);
+	//console.log('remVox yx='+yx+' color='+C(voxel)+' count was: '+P(this.board[yx]));
+	let prevCount = this.board[yx]>>>6;
+	if(prevCount == 0){
+		throw new Error('Remove voxel at yx='+yx+' but count is 0 there.');
+	}
+
+	this.board[yx] -= Colors; //remove the uint26 in the high 26 bits, which counts up to 64million objects intersecting there at once.
+	this.board[yx] ^= (voxel&ColorMask); //xor graphics
+	let countAfter = this.board[yx]>>>6;
+	if(countAfter){ //potentialEnergy is not changed by just 1 Gob touching a pixel. It starts adding at the second Gob there.
+		this.poten--;
+	}
+};
+
+Game.prototype.remVoxWithTeam = function(voxel, team){
+	let yx = P(voxel);
+	//console.log('remVox yx='+yx+' color='+C(voxel)+' count was: '+P(this.board[yx]));
+	let prevCount = this.board[yx]>>>6;
+	if(prevCount == 0){
+		throw new Error('Remove voxel at yx='+yx+' but count is 0 there.');
+	}
+
+	this.board[yx] -= Colors; //remove the uint26 in the high 26 bits, which counts up to 64million objects intersecting there at once.
+	this.board[yx] ^= (voxel&ColorMask); //xor graphics
+	let countAfter = this.board[yx]>>>6;
+	if(countAfter){ //potentialEnergy is not changed by just 1 Gob touching a pixel. It starts adding at the second Gob there.
+		this.poten--;
+	}
+	//this.rps.team[yx] = BLACKTEAM; //FIXME this is not reversible. but if we use bit mask where each team number is a power of 2, could xor that and it be reversible
+	this.rps.team[yx] ^= team; //reversible but probably buggy unless each team number is a power of 2, and should BLACKTEAM (empty, no gob there) have such a pow of 2?
+};
+
+//param can be a [] or Uint32Array of 32 bit voxels. optionalTeam is REDTEAM, GREENTEAM, or BLUETEAM, if you give that param.
+Game.prototype.addVoxs = function(voxels, optionalTeam){
+	if(optionalTeam !== undefined){
+		for(let i=0; i<voxels.length; i++){
+			this.addVoxWithTeam(voxels[i], optionalTeam);
+		}
+	}else{
+		for(let i=0; i<voxels.length; i++){
+			this.addVox(voxels[i]);
+		}
+	}
+	return this.poten;
+};
+
+//return change that would happen in this.poten if called this.addVoxs(voxels), but without actually doing it
+//cuz its faster, BUT warning if the voxels write the same empty pixel 2 or more times it
+//wont count that cuz is not looking for collisions between the voxels and themself.
+//This is number of colliding voxels. TODO Used during gradient calculations.
+Game.prototype.potenDiffIfNoCollisionsBetweenParamVoxels = function(voxels){
+	let collisions = 0;
+	for(let i=0; i<voxels.length; i++){
+		let voxel = voxels[i];
+		if(this.board[voxel>>>6]&0xffffffc0){
+			collisions++;
+		}
+	}
+	return collisions;
+};
+
+
+//param can be a [] or Uint32Array of 32 bit voxels. optionalTeam is REDTEAM, GREENTEAM, or BLUETEAM, if you give that param.
+Game.prototype.remVoxs = function(voxels, optionalTeam){
+	if(optionalTeam !== undefined){
+		for(let i=0; i<voxels.length; i++){
+			this.remVoxWithTeam(voxels[i], optionalTeam);
+		}
+	}else{
+		for(let i=0; i<voxels.length; i++){
+			this.addVox(voxels[i]);
+		}
+	}
+	return this.poten;
+};
+
+var generatedNameCounter = 0;
+
+var DefaultEpsilon = .01;
+
+//this is a named var in gob.brain(...vars). It may modify .kv .dp .dv .mn .mx and .poten
+//but NOT .p and NOT .v cuz that happens after a block of calculations in var.nextState(dt).
+//Also dont modify prevP, epsilon, accelMul, or gp. Those are set externally.
+var Var = function(optionalName){
+	this.name = optionalName || 'v'+(++generatedNameCounter);
+	this.p = 0; //position
+	this.v = 0; //velocity
+	this.kv = 0; //velocity continuous decay per second, using this.v *= Math.exp(-dt*this.kv)
+	this.dp = 0; //diffeq, extra change of p per second See pinballBumper in dagball.
+	this.dv = 0; //diffeq, extra change of v per second. See pinballBumper in dagball.
+	this.gr = 0; //same as .dv but duplicates it cuz this stores gradient separately, and .dv can be set by gob.brain(...vars).
+	this.mn = -Infinity; //for truncating this.p to Math.max(this.mn, Math.min(this.p, this.mx)). mn is min. mx is max.
+	this.mx = Infinity; //for truncating this.p
+	//you only need to add to poten in 1 Var but could do it in all of them. will just get summed.
+	//This is extra poten, not including game.poten. Normally you just add to the first var's poten, if you do it at all.
+	//You can put things here like spring forces or up to NP-complete and fourier math etc, anything by least-squares etc.
+	this.poten = 0;
+	this.prevP = 0; //stores the prev value of this.p while an epsilon is added to this.p during a gradient calculation, then restore it
+	this.epsilon = DefaultEpsilon; //FIXME, replacement for indexToEpsilon
+	this.accelMul = 1; //FIXME, replacement for indexToAccelMul
+	//gp: Like -dt*gr (gradient) usually goes into velocity, this part goes into position. p += -dt*gp.
+	//This is an experimental field of Var added 2024-11-13 to try to solve that gobs overlap too much, take too long to accel away from eachother,
+	//so this should slightly make them instantly jump away from eachother too.
+	//I just doubled constraint solving efficiency of Blob Monster Game in 2 lines of code, in Var class:
+	//"http://this.gp = 1.5; //TODO http://this.gp = 0;" and "let nextP = this.p + dt*(this.v+http://this.dp-this.gp*http://this.gr);".
+	//Now they overlap less. https://pic.x.com/7OjEWfA9hC
+	//This might be useful as a neuralnet param, built on the loss function it solves toward lower. Ive already live trained a 22 node sigmoid RNN
+	//whose output is to recurse 15 cycles then take one node's output as potentialEnergy. Bent it like neural playdough. Havent tried this on it 2024-11-13.
+	//--https://x.com/benrayfield/status/1856780041985687963
+	//this.gp = 2.3; //TODO this.gp = 0;
+	this.gp = 1.5; //TODO this.gp = 0;
+	//this.gp = .3; //TODO this.gp = 0;
+	//this.gp = 5; //TODO this.gp = 0;
+};
+
+var VarP = p=>{
+	let ret = new Var();
+	ret.p = p;
+	return ret;
+};
+
+var VarPV = (p,v)=>{
+	let ret = new Var();
+	ret.p = p;
+	ret.v = v;
+	return ret;
+};
+
+var VarPVEA = (position, velocity, epsilon, accelMul)=>{
+	let ret = new Var();
+	ret.p = position;
+	ret.v = velocity;
+	ret.epsilon = epsilon;
+	ret.accelMul = accelMul;
+	return ret;
+};
+
+//Var.prototype.pushEpsilon = function(epsilon){
+Var.prototype.pushEpsilon = function(){
+	this.prevP = this.p;
+	this.p += this.epsilon;
+};
+
+Var.prototype.popEpsilon = function(){
+	this.p = this.prevP;
+	this.prevP = 0;
+};
+
+//TODO test this.
+Var.prototype.valueOf = function(){ //the position, this.p, though calling this.p might be more efficient.
+	return this.p;
+};
+
+Var.prototype.toString = function(){
+	return '{type:"vox_var",p:'+this.p+',v:'+this.v+',kv:'+this.kv+',dp:'+this.dp+',dv:'+this.dv+',mn:'+this.mn+',mx:'+this.mx+'}';
+};
+
+Var.prototype.nextState = function(dt){
+	if(dt){
+		//use someVar.nextState(0) to clear someVar.kv someVar.dp etc, without modifying someVar.p or .v etc.
+		//For use during gradient of things that might happen but have not decided to make them happen.
+		
+		//let nextP = this.p + dt*(this.v+this.dp);
+		let nextP = this.p + dt*(this.v+this.dp-this.gp*this.gr);
+		if(this.mn <= this.mx){
+			nextP = Math.max(this.mn, Math.min(nextP, this.mx)); //truncate into range
+		}
+		//let nextV = (this.v+dt*this.accelMul*(this.dv-this.gr))*Math.exp(dt*this.kv);
+		let nextV = (this.v+dt*this.accelMul*(this.dv-this.gr))*Math.exp(-dt*this.kv);
+		this.p = nextP;
+		this.v = nextV;
+	}
+	this.kv = this.dp = this.dv = this.gr = this.poten = 0;
+	this.mn = -Infinity;
+	this.mx = Infinity;
+};
+
+/*var getParamNames = func=>{
+	const fnStr = func.toString().replace(/[\r\n]/g, '');
+	const params = fnStr.slice(fnStr.indexOf('(') + 1, fnStr.indexOf(')')).match(/([^\s,]+)/g);
+	return params === null ? [] : params;
+};*/
+
+//getParamNames((a/*2 3 4*/, b/*5 6*/, c)=>(a+b)) returns [['a',2,3,4],['b',5,6],['c']].
+var getParamNames = func => {
+    const fnStr = func.toString().replace(/[\r\n]/g, '').trim();
+	if(fnStr.startsWith('()=>')){
+		return [];
+	}
+    const params = fnStr.slice(fnStr.indexOf('(') + 1, fnStr.indexOf(')')).split(',')
+        .map(param => param.trim().match(/(\w+)(?:\/\*([^*]+)\*\/)?/));
+    return params.map(match => {
+        const [_, name, comment] = match;
+        const numbers = comment ? comment.match(/\d+/g) : [];
+        return [name, ...(numbers || []).map(Number)];
+    });
+};
+
+//gob.brain(...gob.vars) may check this to decide to do diffeq and poten fields in Vars or not.
+//You dont need this during the gob.size+1 number of calls to just get 32 bit voxels
+//for collision detection, that part of the potential energy math.
+//You only need this once per gob per physics cycle to choose to add extra change to var.p andOr var.v
+//like how the "pinball bumpers" work in dagball by diffeq.
+//should I use this.diffeq instead? do i want the func to have access to a this? var Diffeq = true;
+//var Diffeq = true;
+
+//Game OBject. brain(...floatVars) returns Uint32Array of voxels. It can be a different number of voxels depending on those float vars.
+//brain returns an Out.
+var Gob = function(game, brain){
+	this.game = game;
+	game.gobs.push(this);
+	this.brain = brain;
+	//this.diffeq = false;
+	if(typeof(this.brain)!='function') throw new Error('Not a function: '+brain);
+	this.size = this.brain.length; //number of params in this.brain. You use this.brain(...this.pos) for example.
+	//this.pos = new Float32Array(this.size); //position
+	//this.vel = new Float32Array(this.size); //velocity
+	this.vars = [];
+	let names = getParamNames(brain); //names[index][0] is the name. [1] is first number right after that, if any. 0-4 numbers for position, velocity, epsilon, accelMul.
+	if(names.length != this.size) throw new Error('names='+JSON.stringify(names));
+	//let accelMulMul = 10; //cuz i removed the dt*10, back to dt*1.
+	let accelMulMul = 5; //cuz i removed the dt*10, back to dt*1.
+	for(let i=0; i<this.size; i++){
+		let v = new Var(names[i][0]);
+		if(i<2){ //FIXME, this is for centerY and centerX vars, but not every Gob/func will have those or in same order. for testing.
+			//v.p = Math.random()*400; //FIXME
+			v.p = Math.random()*400; //FIXME
+			v.v = Math.random()*200-100; //FIXME
+			//v.accelMul = .001;
+			//v.accelMul = .0001;
+			//v.accelMul = .0000001;
+			//v.accelMul = .1*accelMulMul;
+			v.accelMul = .3*accelMulMul;
+			v.epsilon = 1;
+		}else if(i == 2){ //ratio
+			v.p = .5+Math.random();
+			v.accelMul = 12*accelMulMul;
+			v.epsilon = .01;
+		}
+		//v.accelMul = 1;
+		v.accelMul = 1*accelMulMul;
+		if(names[i].length > 1){
+			v.p = names[i][1]; //it gave a default position
+		}
+		if(names[i].length > 2){
+			v.v = names[i][2]; //it gave a default velocity
+		}
+		if(names[i].length > 3){
+			v.epsilon = names[i][3]; //it gave a default epsilon
+		}
+		if(names[i].length > 4){
+			v.epsilon = names[i][4]; //it gave a default accelMul
+		}
+		this.vars.push(v);
+	}
+	//js {} map of extra data, whatever else might get added to the Gob later.
+	//Gob must be deriveable from the string of js code in gob.brain and from
+	//the .p and .v and .epsilon and .accelMul in each Var in gob.vars and gob.m.
+	//Keep it organized this way so its easy to store and load state.
+	this.m = {
+		//TODO move gob.brain and gob.vars in here?
+		//Not all parts of a Var are primary data. Some parts are derived/cache other than roundoff.
+		isSelected: false,
+		isSelectable: true, //you might want to make the mouse gob, if its used, not selectable.
+		team: randTeam(), //see game.rps aka rock paper scissors. Each gob is 1 of REDTEAM, GREENTEAM, or BLUETEAM. Theres also BLACKTEAM
+		//team: REDTEAM, //FIXME
+	};
+	this.voxInGame = null; //If this is in game.board (2**26 ints), remember them here so can remove them during gradient calculation or just to remove the object. null if not in game.board.
+	this.voxLast = null; //last output from this.brain(...this.vars). the other output is it modifies fields in Vars in this.vars.
+	this.stats = {};
+};
+
+//uses this.voxInGame. minimum distance from any voxel to the given y x.
+Gob.prototype.dist = function(y,x){
+	let minDistSq = Infinity;
+	if(this.voxInGame) for(let voxel of this.voxInGame){
+		let dy = Y(voxel)-y;
+		let dx = X(voxel)-x;
+		let distSq = dy*dy+dx*dx;
+		minDistSq = Math.min(minDistSq,distSq);
+	}
+	return Math.sqrt(minDistSq);
+};
+
+Gob.prototype.varPotens = function(erase){
+	let poten = 0;
+	for(let v of this.vars){
+		poten += v.poten;
+		if(erase) v.poten = 0;
+	}
+	return poten;
+};
+
+//update this.voxLast and some of the fields in Var's in this.vars, but do not update this.voxInGame and not the Game itself.
+Gob.prototype.think = function(){
+	return this.voxLast = this.modVoxels(this.brain(...this.vars));
+};
+
+//This is how you create overlay graphics, show a gob flashing cuz its selected, etc.
+//Normally this returns its param (voxels) with no changes.
+//voxels is a Uint32Array of int voxels or a [] list of those. May modify voxels content, such as to change
+//their colors to show this gob is selected, or  replace them with a different list/array. Either way, returns it.
+Gob.prototype.modVoxels = function(voxels){
+	if(this.m.isSelected){
+		let newColor = randInt(Colors);
+		for(let i=0; i<voxels.length; i++){
+			voxels[i] = SetC(voxels[i],newColor);
+		}
+	}
+	return voxels;
+};
+
+//each Gob can have at most 1 list of voxels in the Game at once. If there is such a list in game already, remove it,
+//then either way add this one, unless voxels is null or undefined then dont add any, so thats how to remove it.
+//this.voxInGame will be this param voxels either way at the end (null if not exist).
+Gob.prototype.setGameVoxs = function(voxels){
+	if(this.voxInGame){
+		this.game.remVoxs(this.voxInGame, this.m.team);
+		this.voxLast = null;
+	}
+	if(voxels){
+		//this.game.addVoxs(voxels);
+		this.game.addVoxs(voxels, this.m.team);
+	}
+	this.voxInGame = voxels || null;
+	return this.game.poten;
+};
+
+//get the OR aka | of the team byte of all voxels this.voxInGame touches.
+//This should always include (as mask) this.m.team if this.voxInGame exists.
+Gob.prototype.getTeamsImTouching = function(){
+	const voxels = this.voxInGame;
+	let teams = 0;
+	if(voxels){
+		const teamsArray = this.game.rps.team;
+		for(let i=0; i<voxels.length; i++){
+			teams |= teamsArray[voxels[i]>>>6];
+		}
+	}
+	return teams;
+};
+
+//updates this.m.team and this.game.rps.team, if newTeam differs from this.m.team.
+//Does not update this.game.rps.tridist, which should happen in next physics cycle.
+Gob.prototype.setTeam = function(newTeam){
+	//throw new Error('FIXME how to mark a team in a 4x4 grid if 0-16 voxels might be in here? Should team still be big size (Area) not SmallSize (SmallArea)?');
+	const xor = newTeam^this.m.team;
+	const voxels = this.voxInGame;
+	if(xor && voxels){
+		//TODO rename to this.game.rps.teams cuz its xor of all teams touching it such as REDTEAM|BLUETEAM.
+		//Also, it only shows up if odd number of a team is touching there.
+		//if even, it cancels out. so its parity. cuz i only wanted to spend a byte on it.
+		const teamsArray = this.game.rps.team;
+		for(let i=0; i<voxels.length; i++){
+			teamsArray[voxels[i]>>>6] ^= xor;
+		}
+	}
+	this.m.team ^= xor; //remove this.m.team, add newTeam.
+	if(this.m.team != newTeam) throw new Error('The team xor algorithm didnt work'); //TODO remove this test after know this basic thing is working?
+};
+
+//A capture happens when 2 teams touch at the same pixel. Its per pixel,
+//so if they slightly squeeze by in any strange shape without touching, even while reshaping, theres no capture.
+//This works whether the distance cache (game.rps.tridist) has been updated or not. Its a big cache of 64 megapixels,
+//normally only updated on the screen you're viewing at the time, and stays that way until you look near there again.
+//The distance cache game.rps.tridist is where the ambient-light-like colors come from, showing the distance from
+//each pixel to nearest voxel of REDTEAM, GREENTEAM, and BLUETEAM. Thats for chasing and running from eachother.
+//Detecting collisions is easier. If you are on BLUETEAM your goal is to turn the whole game world blue
+//before REDTEAM or GREENTEAM turn it those colors instead. Each team captures 1 color and is captured by the
+//other color, around and around. Or maybe the amount of time the game world is mostly blue. I dont know.
+//The game is supposed to produce a continuous stream of fun, that you can jump in for a minute, join a team,
+//and leave, or 10 minutes. Its not longterm accumulation of items like in a RPG. Nobody gets kicked out for being
+//captured or losing. They just change teams when captured.
+//but the game should accumulate new species over long times, pieces of javascript code that bend into different
+//shapes and move differently. This is the cambrian-explosion, that the game gets more and more fun over time cuz
+//of player created content, including content by LLMs.
+var predatorOf = team=>{
+	if(team == REDTEAM) return GREENTEAM;
+	if(team == GREENTEAM) return BLUETEAM;
+	if(team == BLUETEAM) return REDTEAM;
+	throw new Error('team='+team+' but expected it to be 1 of 3 teams. is it multiple teams, or what?');
+};
+
+var preyOf = team=>{
+	if(team == GREENTEAM) return REDTEAM;
+	if(team == BLUETEAM) return GREENTEAM;
+	if(team == REDTEAM) return BLUETEAM;
+	throw new Error('team='+team+' but expected it to be 1 of 3 teams. is it multiple teams, or what?');
+};
+
+//teams is a mask such as REDTEAM or REDTEAM|BLUETEAM
+Game.prototype.countTeam = function(teams){
+	let count = 0;
+	for(let gob of this.gobs){
+		if(gob.m.team&teams) count++;
+	}
+	return count;
+};
+
+Gob.prototype.doTeamLogic = function(){
+	let touchingTeams = this.getTeamsImTouching();
+	let myTeam = this.m.team;
+	let predatorTeam = predatorOf(myTeam);
+	if(touchingTeams&predatorTeam){
+		//console.log(teamName[predatorTeam]+' ('+game.countTeam(predatorTeam)+'+1) captured a '+teamName[myTeam]+' ('+game.countTeam(myTeam)+'-1)');
+		//console.log('%cGreen %cBlue', 'color: green;', 'color: blue;');
+		console.log('%c'+teamName[predatorTeam]+' ('+game.countTeam(predatorTeam)+'+1) %ccaptured a %c'+teamName[myTeam]+' ('+game.countTeam(myTeam)+'-1)%c.\nFIXME colors dont match in log vs canvas.',
+			'color: '+teamHtmlColorName[predatorTeam], '', 'color: '+teamHtmlColorName[myTeam], '');
+		this.setTeam(predatorTeam);
+	}
+};
+
+//After calling this, gob.vars[eachIndex].gr is set to the gradient,
+//by difference of total potentialEnergy, combining game.poten and this.vars[anyIndex].poten.
+//TODO update gradient in this.vars and compute this.vars.length+1 separate lists of voxels (which may be different sizes).
+//Does not change var.p (position) or var.v (velocity) but does set var.gr (gradient), and TODO maybe also xpoten (todo should that go in here),
+Gob.prototype.doPhysicsA = function(){
+	let relTimeFrom = performance.now();
+	try{
+		//create this.size+1 lists of voxels to compute the part of gradient of collision detection in game.board
+		let gamePotenWithoutThisGob = this.setGameVoxs(null);
+		let potenOfFork = new Float64Array(this.size+1); //each should always be an integer 0 to 2**53-1.
+		for(let fork=0; fork<=this.size; fork++){
+			/*for(let v=0; v<this.size; v++){ //mod var positions by epsilon
+				//let epsilon = .01; //FIXME see indexToEpsilon and indexToAccelMul
+				if(v == fork){
+					this.vars[v].pushEpsilon(); //uses this.vars[v].epsilon. mods var.p by adding that
+				}
+			}*/
+			if(fork < this.size){
+				this.vars[fork].pushEpsilon(); //uses this.vars[v].epsilon. mods var.p by adding that
+			}
+			//let voxels = fork<this.size ? this.think() : null; This is wrong cuzthe last fork should have voxels, just the voxels as it is now unmodified.
+			let voxels = this.think();
+			
+			
+			//the accurate way that considers collisions even within voxels list: let gamePoten = this.setGameVoxs(voxels); //if voxels is null, removes it from game.
+			let gamePoten = this.game.poten + this.game.potenDiffIfNoCollisionsBetweenParamVoxels(voxels); //the fast way. does not modify game. just reads it.
+			
+			
+			
+			//this.varPotens() gets the sum of var.poten for all this.vars. The true param makes it erase those potens to 0 after that.
+			potenOfFork[fork] = gamePoten + this.varPotens(true);
+			//potenOfFork[fork] = gamePoten; //FIXME also include this.varPotens(true). just testing why its accelerating for no apparent reason.
+			if(fork < this.size){
+				this.vars[fork].popEpsilon(); //undo "mod var positions by epsilon"
+			}
+		}
+		//if(gamePotenWithoutThisGob != potenOfFork[this.size]){
+		//	throw new Error('gamePotenWithoutThisGob != potenOfFork[this.size], but those should be duplicate. TODO redesign to not duplicate that calculation, so its faster. But still, they should be exactly equal cuz potentialEnergy is always an integer from 0 to 2**53-1.');
+		//}
+		for(let i=0; i<this.size; i++){
+			let v = this.vars[i];
+			v.nextState(0); //clear parts that were modified during what-if calculations during gradient, that we are not actually going to do, just measure.
+			//let epsilon = v.epsilon;
+			//let accelMul = v.accelMul;
+			v.gr = (potenOfFork[i]-potenOfFork[this.size])/v.epsilon; //gradient
+		}
+
+		//document.title = 'gob_poten='+potenOfFork[this.size];
+		//console.log('potenOfFork='+JSON.stringify([...potenOfFork]));
+
+		//this last .think() puts back what was cleared by v.nextState(0).
+		this.setGameVoxs(this.think()); //not gradient. just whatever it is now. paint that onto game, and leave it there for other gobs to collision against.
+	}finally{
+		this.stats.lastPhysicsASecs = (performance.now()-relTimeFrom)*.001;
+	}
+};
+
+//updates var.p (position) and var.v (velocity)
+Gob.prototype.doPhysicsB = function(dt){
+	let relTimeFrom = performance.now();
+	try{
+		for(let v of this.vars){
+			v.nextState(dt);
+		}
+	}finally{
+		this.stats.lastPhysicsBSecs = (performance.now()-relTimeFrom)*.001;
+	}
+};
+
+/*use Var instead. gob.brain(...gob.vars) modifies those Var instances and just returns Uint32Array or maybe an Out containing Uint32Array and xpoten? or should xpoten go in Var?
+Make it return something like Out, in case it needs to return other things later.
+//xpoten is extra potentialEnergy, and should be an integer, and leave some room for a bunch of these to be summed without overflowing uint53 which fits in float64,
+//so maybe keep it within 0..2**30 or something like that. vox is a Uint32Array of voxels.
+//optionalDiffeq.length==gob.size if optionalDiffeq exists.
+console.error('FIXME dagball has dfriction (decay speed). axgob has truncation to min and max. so should this also have those? diffeq should have dpos dvel dfriction etc. which of them? HOW DO I REFER TO A VAR BY NAME IF I HAVE TO GIVE ITS INDEX?');
+var Out = function(vox, optionalXpoten, optionalDiffeq){
+	this.vox = vox;
+	this.xpoten = xpoten || 0;
+	this.diffeq = optionalDiffeq || null;
+	//throw new Error('FIXME what about diffeq like in dagball? i wanna make it so these can make them move around in ways other than scalarField, like the pinballBumpers in dagball for example.');
+};*/
+
+Game.prototype.nextState = function(dt){
+
+	if(game.rps){ //rock paper scissors per voxel
+		//2024-11-8 is ignoring color param and including any voxel thats not color 0b000000 aka black.
+		//Writes ints that approximate (or are exactly, todo theres 2 implementations, one approximate and fast, one exact and slow)
+		//the distance square from that pixel to nearest voxel, within the 1024x1024 at the top left of the 8192x8192 game.board.
+		//TODO use all 3 teams boardR boardG boardB, but just testing it for now.
+		//Also for testing im changing game.blueByteAtYX to display game.rps.boardR (which doesnt match, thats the R/Red one
+		//but ive been displaying in blue in other experiment so just stick with that for now).
+		//this.updateDistanceCacheOLD(this.rps.boardR, 0b111111);
+		//this.updateTridist(0, 1024, 0, 1024); //arbitrary rectangle. can be any rect in the 8192x8192 board.
+		//this.updateTridist(0, 512, 0, 512); //arbitrary rectangle. can be any rect in the 8192x8192 board.
+		//this.updateTridist(0, 256, 0, 256); //arbitrary rectangle. can be any rect in the 2048x2048 board. game.rps.tridistSmall, not .tridist.
+		
+		/*takes too long, like 1/3 second. let doBigUpdate = Math.random()<.1;
+		if(doBigUpdate){
+			this.updateTridist(0, SmallSize, 0, SmallSize, 0); //2k X 2k
+		}else{
+			//let {y, x, h, w} = this.getViewRectSmall();
+			//let smallCenterY = y+(h>>1);
+			//let smallCenterX = x+(w>>1);
+			let smallCenterY = Controls.mouseY>>MagnifyShift;
+			let smallCenterX = Controls.mouseX>>MagnifyShift;
+			let tridistComputeHAndW = 256;
+			let smallFromY = smallCenterY-(tridistComputeHAndW>>1);
+			let smallToY = smallFromY+tridistComputeHAndW;
+			let smallFromX = smallCenterX-(tridistComputeHAndW>>1);
+			let smallToX = smallFromX+tridistComputeHAndW;
+			let border = 32;
+			this.updateTridist(smallFromY, smallToY, smallFromX, smallToX, border); //arbitrary rectangle. can be any rect in the 2048x2048 board. game.rps.tridistSmall, not .tridist.
+		}*/
+		//let {y, x, h, w} = this.getViewRectSmall();
+		//let smallCenterY = y+(h>>1);
+		//let smallCenterX = x+(w>>1);
+		for(let repeat=0; repeat<2; repeat++){
+			let smallCenterY = Controls.mouseY>>MagnifyShift;
+			let smallCenterX = Controls.mouseX>>MagnifyShift;
+			//if(Math.random()<.5){
+			if(repeat==1){
+				smallCenterY = randInt(SmallSize); //FIXME what if it hangs off the edge?
+				smallCenterX = randInt(SmallSize);
+			}
+			let tridistComputeHAndW = 256;
+			let smallFromY = smallCenterY-(tridistComputeHAndW>>1);
+			let smallToY = smallFromY+tridistComputeHAndW;
+			let smallFromX = smallCenterX-(tridistComputeHAndW>>1);
+			let smallToX = smallFromX+tridistComputeHAndW;
+			let border = 32;
+			this.updateTridist(smallFromY, smallToY, smallFromX, smallToX, border); //arbitrary rectangle. can be any rect in the 2048x2048 board. game.rps.tridistSmall, not .tridist.
+		}
+	}
+
+	for(let gob of this.gobs){
+		gob.doPhysicsA();
+	}
+	for(let gob of this.gobs){
+		gob.doPhysicsB(dt);
+	}
+	
+	for(let gob of this.gobs){
+		gob.doTeamLogic();
+	}
+	
+	//select gob by distance to mouse
+	//FIXME use different coordinates for mouse relative to screen or canvas vs relative to game coords which are an 8192 side square.
+	let bestGob = null;
+	let bestDist = Infinity;
+	for(let gob of game.gobs){
+		if(gob.m.isSelectable){ //normally this only excludes the mouse gob
+			let dist = gob.dist(Controls.mouseY,Controls.mouseX);
+			if(dist < bestDist){
+				bestGob = gob;
+				bestDist = dist;
+			}
+		}
+	}
+	let maxDistToSelectGob = 50;
+	if(bestDist < maxDistToSelectGob){
+		console.log('Select gob '+bestGob);
+		game.setSelectedGob(bestGob);
+	}
+	
+	/*for(let smallY=0; smallY<SmallSize; smallY++){
+		let smallX = smallY;
+		let smallI = ((smallY<<SmallSizeBits) | smallX);
+		this.rps.tridistSmall[smallI] = randInt(1<<30); //3 random uint10s
+	}*/
+	
+	//let fpsMul = Math.exp(-dt*this.stats.fpsDecay);
+	//this.stats.fpsVal = this.stats.fpsVal*fpsMul+(1-fpsMul)/dt; //*1 cuz its 1 more frame
+	//this.stats.fpsVal = this.stats.fpsVal*Math.exp(-dt*this.stats.fpsDecay)+this.stats.fpsDecay;
+	this.stats.fpsVal = this.stats.fpsVal*(1-dt)+1;
+	
+	/*let s = 'Game.logMap eval:';
+	for(let k in game.logMap){
+		s += '\n'+k+': '+game.logMap[k](); //TODO shouldnt have to write game twice. see how i did it in dagball. was it a global instance (dagball.something...)?
+	}
+	console.log(s);
+	*/
+	//document.title = 'M'+game.rps.boardR[mouseI()]+' FPS='+(this.stats.fpsVal|0)+' BlobMonsterGame';
+	//document.title = 'Tridist'+game.rps.tridist[mouseI()]+' FPS='+(this.stats.fpsVal|0)+' BlobMonsterGame'; //TODO display R G B each as a uint10 from tridist.
+	//let tridist = game.rps.tridist[mouseI()];
+	let tridist = game.rps.tridistSmall[toSmall(mouseI())];
+	//let s = 'MouseY '+Controls.mouseY+'X'+Controls.mouseX+' '+'R'+getDistance1(tridist)+' G'+getDistance2(tridist)+' B'+getDistance3(tridist)+' FPS='+(this.stats.fpsVal|0)+' BlobMonsterGame'; //TODO display R G B each as a uint10 from tridist.
+	let s = 'FPS='+(this.stats.fpsVal|0)+' BlobMonsterGame'; //TODO display R G B each as a uint10 from tridist.
+	if(Controls.pause) s = 'Paused '+s;
+	document.title = s;
+};
+
+/*this was made before game.zoom, doesnt work anymore 2024-11-14
+//in game coords 0 to 8191
+Game.prototype.` = function(){
+	return {y: this.y, x: this.x, h: canv.dom.height, w: canv.dom.width};
+};
+
+//in Small game coords, see MagnifyShift, SmallSizeBits, etc, 4x4 smaller than the main coords, so in coords 0 to 2047
+Game.prototype.getViewRectSmall = function(){
+	let rect = this.getViewRect();
+	rect.y >>>= MagnifyShift;
+	rect.x >>>= MagnifyShift;
+	rect.h >>>= MagnifyShift;
+	rect.w >>>= MagnifyShift;
+	return rect;
+};*/
+
+var game = new Game();
+
+/*game.addVox(YXC(0,0,0xfff));
+game.addVox(YXC(0,0,0xfff));
+game.addVox(YXC(0,0,0xfff));
+game.remVox(YXC(0,0,0xfff));
+game.remVox(YXC(0,0,0xfff));
+game.remVox(YXC(0,0,0xfff));
+*
+game.addVox(YXC(0,0,0x000));
+game.addVox(YXC(0,0,0x000));
+game.addVox(YXC(0,0,0x000));
+game.remVox(YXC(0,0,0x000));
+game.remVox(YXC(0,0,0x000));
+game.remVox(YXC(0,0,0x000));
+*/
+
+var V = new VoxStream();
+
+
+//console.error('Do I want params to have .p .v .dfriction .dpos .dvel .truncateMin .truncateMax etc? How else would I add to out.diffeq without knowing the index of var names? Or do I just not do that?');
+//console.error('Yes replace Float32Array with Var having this .p .v etc. Make it a class.');
+
+/*game.addFunc((centerY, centerX)=>{
+	let fromY = (centerY.p|0) - 20;
+	let fromX = (centerX.p|0) - 20;
+	let toY = fromY+40;
+	let toX = fromX+40;
+	let ret = []; //TODO optimize using VoxStream to generate a Uint32Array.
+	for(let y=fromY; y<toY; y++){
+		for(let x=fromX; x<toX; x++){
+			ret.push(YXC(y,x,0x08f)); //create voxel. y and x are uint13's. C param is 6 bit color.
+		}
+	}
+	return ret;
+});
+*/
+
+const sigmoid = x=>(1/(1+Math.exp(-x)));
+
+for(let i=0; i<20; i++){
+let targetY = 4250;
+let targetX = 4400;
+if(i>10){
+	targetY += randInt(2000)-1000;
+	targetX += randInt(2000)-1000;
+}
+game.addFunc(`(centerY/*${targetY}*/, centerX/*${targetX}*/, heightToWidthRatio)=>{
+	let i = ${i};
+	//let area = 400;
+	let area = 2400;
+	let ratio = .2+2*sigmoid(heightToWidthRatio.p*.02-.01);
+	//let ratio = Math.tanh(heightToWidthRatio.p*.3);
+	//let ratio = Math.exp(heightToWidthRatio.p*.5);
+	//let ratio = Math.max(.2, Math.min(heightToWidthRatio.p, 5));
+	//let ratio = 1;
+	
+	//FIXME this doesnt look like the right calculation. should ratio go in the sqrt? do algebra.
+	//Use my NsatDesignToolGpu https://tinyurl.com/NsatDesignToolGpu if needed,
+	//can brute force up to 40 bit vars, which u can mount uintN's in totalling at most 40 bits.
+	
+	let h = Math.ceil(ratio*Math.sqrt(area));
+	
+	let w = Math.ceil(area/h);
+	/*let fromY = (centerY.p|0) - 20;
+	let fromX = (centerX.p|0) - 20;
+	let toY = fromY+40;
+	let toX = fromX+40;
+	*/
+	let fromY = (centerY.p|0) - 10;
+	let fromX = (centerX.p|0) - 10;
+	let toY = fromY+h;
+	let toX = fromX+w;
+	let ret = []; //TODO optimize using VoxStream to generate a Uint32Array.
+	for(let y=fromY; y<toY; y++){
+		for(let x=fromX; x<toX; x++){
+			let color = 63-i;
+			ret.push(YXC(y,x,color)); //create voxel. y and x are uint13's. C param is 6 bit color.
+		}
+	}
+	centerY.poten += .1*Math.hypot(centerY.p-${targetY},centerX.p-${targetX})**2; //attract to that
+	heightToWidthRatio.poten += .03*(heightToWidthRatio.p-1)**2;
+	//centerY.kv += 3;
+	//centerX.kv += 3;
+	//centerY.kv += .1;
+	//centerX.kv += .1;
+	centerY.kv += .3;
+	centerX.kv += .3;
+	//heightToWidthRatio.kv += .003;
+	heightToWidthRatio.kv += .01141;
+	return ret;
+}`);
+}
+
+//game.addFunc((centerY=VarP(700), centerX=VarPV(700,100), heightToWidthRatio=VarP(1))=>{
+game.addFunc((centerY/*4310*/, centerX/*4300 10*/)=>{
+	//P or P V or P V E or P V E A. position velocity epsilon accelMul. You specify the first 0, 1, 2, 3, or 4 of those.
+	let area = 4000; //before cut circle out of it
+	//let ratio = .2+2*sigmoid(heightToWidthRatio.p*.04-.02);		
+	//let h = Math.ceil(ratio*Math.sqrt(area));
+	let h = Math.ceil(Math.sqrt(area));
+	let w = Math.ceil(area/h);
+	let fromY = (centerY.p|0) - 10;
+	let fromX = (centerX.p|0) - 10;
+	let toY = fromY+h;
+	let toX = fromX+w;
+	let actualCenterY = (fromY+toY)/2;
+	let actualCenterX = (fromX+toX)/2;
+	let ret = []; //TODO optimize using VoxStream to generate a Uint32Array.
+	let radius = (toY-fromY)/2;
+	let rr = radius**2;
+	for(let y=fromY; y<toY; y++){
+		for(let x=fromX; x<toX; x++){
+			let dy = y-actualCenterY;
+			let dx = x-actualCenterX;
+			let squaredDist = dy*dy+dx*dx;
+			if(squaredDist < rr){ //paint circle
+				let color = 0b111111;
+				ret.push(YXC(y,x,color)); //create voxel. y and x are uint13's. C param is 6 bit color.
+			}
+		}
+	}
+	centerY.poten += .1*Math.hypot(centerY.p-4150,centerX.p-4175)**2; //attract to that
+	//heightToWidthRatio.poten += .1*(heightToWidthRatio.p-1)**2;
+	centerY.kv += .1;
+	centerX.kv += .1;
+	//heightToWidthRatio.kv += .003;
+	return ret;
+});
+
+game.addFunc((centerY/*4300*/, centerX/*4800 100*/)=>{
+	//P or P V or P V E or P V E A. position velocity epsilon accelMul. You specify the first 0, 1, 2, 3, or 4 of those.
+	let area = 90000; //before cut circle out of it
+	//let ratio = .2+2*sigmoid(heightToWidthRatio.p*.04-.02);		
+	//let h = Math.ceil(ratio*Math.sqrt(area));
+	let h = Math.ceil(Math.sqrt(area));
+	let w = Math.ceil(area/h);
+	let fromY = (centerY.p|0) - 10;
+	let fromX = (centerX.p|0) - 10;
+	let toY = fromY+h;
+	let toX = fromX+w;
+	let actualCenterY = (fromY+toY)/2;
+	let actualCenterX = (fromX+toX)/2;
+	let ret = []; //TODO optimize using VoxStream to generate a Uint32Array.
+	let radius = (toY-fromY)/2;
+	let rr = radius**2;
+let otherX = actualCenterX+40;
+let otherRR = rr*.8;
+	for(let y=fromY; y<toY; y++){
+		for(let x=fromX; x<toX; x++){
+			let dy = y-actualCenterY;
+			let dx = x-actualCenterX;
+			let squaredDist = dy*dy+dx*dx;
+let otherDx = otherX-x;
+let otherSquaredDist = dy*dy + otherDx*otherDx;
+			if(squaredDist < rr && !(otherSquaredDist < otherRR)){ //paint circle
+				let color = 0b111111;
+				ret.push(YXC(y,x,color)); //create voxel. y and x are uint13's. C param is 6 bit color.
+			}
+		}
+	}
+	centerY.poten += .1*Math.hypot(centerY.p-4200,centerX.p-4375)**2; //attract to that
+	//TODO something like this instead of hypot: startY.poten += .1*((centerY.p-400)**2 + (centerX.p-750)**2); //attract to that
+	//heightToWidthRatio.poten += 2.671*(heightToWidthRatio.p-1)**2;
+	centerY.kv += .1;
+	centerX.kv += .1;
+	//heightToWidthRatio.kv += .003;
+	return ret;
+});
+
+const Ave = floats=>{
+	if(!floats.length) return 0;
+	let sum = 0;
+	for(let i=0; i<floats.length; i++) sum += floats[i];
+	return sum/floats.length;
+};
+
+const Dev = (floats, optionalAve)=>{
+	let ave = optionalAve===undefined ? Ave(floats) : optionalAve;
+	let sumOfSquares = 0;
+	for(let i=0; i<floats.length; i++) sumOfSquares += floats[i]**2;
+	return Math.sqrt(sumOfSquares/floats.length);
+};
+
+const AveDev = floats=>{
+	let ave = Ave(floats);
+	return [ave,Dev(floats,ave)];
+};
+
+
+game.addFunc(function(startY/*4300*/, startX/*4500*/, ay/*10 0 1*/, ax/*20 0 1*/, by/*34 0 1*/, bx/*19 0 1*/, cy/*-10 0 1*/, cx/*-35 0 1*/, dy/*15 0 1*/, dx/*-27 0 1*/, ey/*40 0 1*/, ex/*-20 0 1*/, fy/*-58 0 1*/, fx/*30 0 1*/, gy/*-80 0 1*/, gx/*28 0 1*/){ //hypercubewave
+	const sideBits = 5;
+	//const sideBits = 8;
+	//const sideBits = 9;
+	const side = 1<<sideBits;
+	const mid = side/2;
+	const stdDev = mid/10;
+	//const stdDev = mid/5;
+	const stdDevSquared = stdDev**2;
+	const sideMask = side-1;
+	const square = side**2;
+	const squareMask = square-1;
+	let picA = new Float32Array(square);
+	//let xyMul = 52;
+	//let xyMul = .5;
+	let xyMul = 1.3;
+	let offsets = [
+		(((ay*xyMul)&sideMask)<<sideBits) | ((ax*xyMul)&sideMask),
+		(((by*xyMul)&sideMask)<<sideBits) | ((bx*xyMul)&sideMask),
+		(((cy*xyMul)&sideMask)<<sideBits) | ((cx*xyMul)&sideMask),
+		(((dy*xyMul)&sideMask)<<sideBits) | ((dx*xyMul)&sideMask),
+		(((ey*xyMul)&sideMask)<<sideBits) | ((ex*xyMul)&sideMask),
+		(((fy*xyMul)&sideMask)<<sideBits) | ((fx*xyMul)&sideMask),
+		(((gy*xyMul)&sideMask)<<sideBits) | ((gx*xyMul)&sideMask),
+	]
+	let sumDy = 0, sumDx = 0;
+	//for(let offset of offsets){
+	for(let i=0; i<offsets.length; i++){
+		let offset = offsets[i];
+		sumDy += offset>>>sideBits; //y from 0 to side-1
+		sumDx += offset&sideMask; //x from 0 to side-1
+	}
+	//let maxCenterAdjust = mid*.7; //dont move center outside the picA/picB square
+	let maxCenterAdjust = mid*.9; //dont move center outside the picA/picB square
+	//let maxCenterAdjust = mid*1.7; //dont move center outside the picA/picB square
+	sumDy = Math.max(-maxCenterAdjust, Math.min(sumDy, maxCenterAdjust));
+	sumDx = Math.max(-maxCenterAdjust, Math.min(sumDx, maxCenterAdjust));
+	for(let i=0; i<square; i++){ //fill in 1 bellcurve at center of picA
+		let y = i>>>sideBits;
+		let x = i&sideMask;
+		//let bellY = mid+sumDy*2;
+		//let bellX = mid-sumDx*0;
+		//let bellY = -sumDy/2;
+		//let bellX = -sumDx/2;
+		let bellY = mid-sumDy/2;
+		let bellX = mid-sumDx/2;
+		//let devSquared = ((y-mid)**2 + (x-mid)**2)/stdDevSquared;
+		let devSquared = ((y-bellY)**2 + (x-bellX)**2)/stdDevSquared;
+		let bellHeight = Math.exp(-devSquared);
+		picA[i] = bellHeight;
+	}
+	for(let offset of offsets){
+		if(offset==0) startY.poten += 10; //resist the params being exactly 0 after roundoff, cuz they dont copy picA when they are.
+	}
+	let picB = new Float32Array(square);
+	for(let dup=0; dup<offsets.length; dup++){
+		let offset = offsets[dup];
+		if(offset){ //cant copy 2 of them to the exact same place, one positive and one negative, cuz it cancels out.
+			for(let i=0; i<square; i++){
+				//copy picA 2 times onto picB,
+				//once as is and once 2d position offset and negated brightness
+				picB[i] = picA[i] - picA[(i+offset)&squareMask]; //wrap. TODO dont wrap
+			}
+			[picA, picB] = [picB, picA];
+		}
+	}
+	for(let i=0; i<square; i++) picA[i] = Math.abs(picA[i]);
+	let sum = 0;
+	for(let i=0; i<square; i++) sum += picA[i];
+	let ave = sum/square;
+	let vox = [];
+	let limit = ave*3.5;
+	let magnify = 4;
+	let addA = YXC(2,0,0); //make 4 voxels instead of 1, cuz magnify is 2.
+	let addB = YXC(0,2,0);
+	let addC = YXC(2,2,0);
+	for(let i=0; i<square; i++){
+		//if(limit < picA[i] || i==0 || i==square-1){ //i==0 || i==square-1, is 2 corners to show the square its painting in.
+		if(limit < picA[i]){
+			let localY = i>>>sideBits;
+			let localX = i&sideMask;
+			let y = startY + (localY - mid)*magnify;
+			let x = startX + (localX - mid)*magnify;
+			let color = 0b011111;
+			let voxel = YXC(y,x,color);
+			vox.push(voxel);
+			vox.push(voxel+addA);
+			vox.push(voxel+addB);
+			vox.push(voxel+addC); //FIXME might wrap around at edges
+		}
+	}
+	startY.poten += .1*((startY.p-4100)**2 + (startX.p-4425)**2); //attract to that
+	startY.kv += .315;
+	startX.kv += .315;
+	//let flatZone = mid/8.5; //each (y,x) param pair, except the first 2, is a vector. we dont push on it if its within the flatZone radius. We do if it gets too big.
+	let flatZone = 7;
+	for(let i=2; i<arguments.length; i+=2){
+		let kv = .2;
+		let varY = arguments[i], varX = arguments[i+1];
+		varY.kv += kv;
+		varX.kv += kv;
+		let len = Math.hypot(varY.p,varX.p);
+		if(len > flatZone){
+			varY.poten += .7*(len-flatZone)**2;
+		}
+		//varY.dp += 10; (Math.random()*2-1)*10;
+		//varY.dp += (Math.random()*2-1)*.31;
+	}
+	//for(let i=2; i<arguments.length; i+=2){
+	//	arguments[i].dp += (Math.random()*2-1)*.11;
+	//}
+	return vox;
+});
+
+/*
+//makes a new mutable {} map
+//OLD: const n = {kv:{},dp:{},dv:{},mn:{},mx:{},poten:0}; //return
+//TODO optimize vox using VoxStream to generate a Uint32Array
+var N = ()=>({kv:{},dp:{},dv:{},mn:{},mx:{},poten:0,vox:[]});
+
+//experimenting with 1 param as a js {} map and return a js {} map, to not modify the param. and param should include self func.
+//game.addFuncB((centerY/*400*, centerX/*600 -200*, sizeMul)=>{
+//TODO change all addFunc to this, and rename addFuncB to just addFunc, after get this working. this replaces the old kind.
+//i is input {} map. o is output {} map. TODO maybe should use {}'s that return 0 for keys not found instead of returning undefined,
+//which i can do with a custom prototype.
+//Or maybe i should do the whole thing with Proxy objects. i dont know.
+game.addFuncB(m=>{
+	const {centerY, centerX, sizeMul} = m.p; //positions in. could be other things in m too.
+	const n = N(); //return map
+	let area = 90000; //before cut circle out of it
+	//TODO area *= .5+.5*10*Math.tanh(sizeMul/10);
+	//let ratio = .2+2*sigmoid(heightToWidthRatio.p*.04-.02);		
+	//let h = Math.ceil(ratio*Math.sqrt(area));
+	let h = Math.ceil(Math.sqrt(area));
+	let w = Math.ceil(area/h);
+	let fromY = (centerY|0) - 10;
+	let fromX = (centerX|0) - 10;
+	let toY = fromY+h;
+	let toX = fromX+w;
+	let actualCenterY = (fromY+toY)/2;
+	let actualCenterX = (fromX+toX)/2;
+	let radius = (toY-fromY)/2;
+	let rr = radius**2;
+	let otherX = actualCenterX+40;
+	let otherRR = rr*.8;
+	for(let y=fromY; y<toY; y++){
+		for(let x=fromX; x<toX; x++){
+			let dy = y-actualCenterY;
+			let dx = x-actualCenterX;
+			let squaredDist = dy*dy+dx*dx;
+			let otherDx = otherX-x;
+			let otherSquaredDist = dy*dy + otherDx*otherDx;
+			if(squaredDist < rr && !(otherSquaredDist < otherRR)){ //paint circle
+				let color = 0b111111;
+				n.vox.push(YXC(y,x,color)); //create voxel. y and x are uint13's. C param is 6 bit color.
+			}
+		}
+	}
+	n.poten += .1*Math.hypot(centerY.p-400,centerX.p-750)**2; //attract to that
+	n.kv.centerY = .1; //centerY.kv += .1;
+	n.kv.centerX = .1; //centerX.kv += .1;
+	return n;
+});*/
+
+
+game.addFunc(()=>{
+	let centerY = {p:Controls.mouseY};
+	let centerX = {p:Controls.mouseX};
+	let area = 4000; //before cut circle out of it
+	let h = Math.ceil(Math.sqrt(area));
+	let w = Math.ceil(area/h);
+	let fromY = (centerY.p|0) - 10;
+	let fromX = (centerX.p|0) - 10;
+	let toY = fromY+h;
+	let toX = fromX+w;
+	let actualCenterY = (fromY+toY)/2;
+	let actualCenterX = (fromX+toX)/2;
+	let ret = []; //TODO optimize using VoxStream to generate a Uint32Array.
+	let radius = (toY-fromY)/2;
+	let rr = radius**2;
+	for(let y=fromY; y<toY; y++){
+		for(let x=fromX; x<toX; x++){
+			let dy = y-actualCenterY;
+			let dx = x-actualCenterX;
+			let squaredDist = dy*dy+dx*dx;
+			if(squaredDist < rr){ //paint circle
+				let color = 0b110011;
+				ret.push(YXC(y,x,color)); //create voxel. y and x are uint13's. C param is 6 bit color.
+			}
+		}
+	}
+	//centerY.poten += .1*Math.hypot(centerY.p-300,centerX.p-300)**2; //attract to that
+	//heightToWidthRatio.poten += .1*(heightToWidthRatio.p-1)**2;
+	centerY.kv += .1;
+	centerX.kv += .1;
+	//heightToWidthRatio.kv += .003;
+	return ret;
+}).m.isSelectable = false;
+
+
+
+
+
+
+
+
+
+
+
+//Canvas and ByteRect code are opensource MIT licensed
+//(parts from benrayfield's various other projects including https://jsfiddle.net/q687fcrk/1/ and
+//https://github.com/benrayfield/smartblob/blob/master/data/smartblob/WebcamSeesBendableLoopAsGameControllerAjaxToServer.html )
+
+//byte offsets for ByteRect, canvas, etc, in js.
+const RED = 0, GREEN = 1, BLUE = 2, ALPHA = 3;
+var colorDimRed = RED;
+var colorDimGreen = GREEN;
+var colorDimBlue = BLUE;
+var colorDimAlpha = ALPHA;
+
+//modified https://github.com/benrayfield/jsutils/blob/master/src/FullScreenCanvasPrototype.html
+var FullScreenCanvas = function(optionalHeight, optionalWidth, optionalParentDom){ //FullScreenCanvas opensource MIT licensed by Ben F Rayfield
+	let parentDom = optionalParentDom  || document.body;
+	this.dom = document.createElement('canvas');
+	//TODO z order, in front of everything else.
+	//this.dom = document.getElementById('canv'); //FIXME remove this line, use createElement instead.
+	this.context = null;
+	this.imageData = null;
+	this.pixels = null;
+	this.byteRect = null;
+	parentDom.appendChild(this.dom);
+	this.dom.style.position = 'absolute';
+	this.dom.style.left = '0px';
+	this.dom.style.top = '0px';
+	
+	//else uses window size. FIXME also 
+	this.resizeCanvas = function(optionalHeight, optionalWidth){
+		let targetHeight = optionalHeight || window.innerHeight;
+		let targetWidth = optionalWidth || window.innerWidth;
+		if(this.dom.height != targetHeight) this.dom.height = targetHeight;
+		if(this.dom.width != targetWidth) this.dom.width = targetWidth;
+	};
+	
+	/*//TODO optimize, if you're not reading from the canvas, maybe can skip parts of this or only call this once?
+	//FIXME reuse some of these vars. might be slowing it down doing getContext and imageData every time, for example,
+	//but careful with that cuz canvas doesnt update if you do this wrong.
+	this.beforePaint = function(){
+		if(this.dom == null) throw 'No canvas';
+		
+		//this.context = this.dom.getContext('2d');
+		//cuz got this warning 2023-9-2: ForestCurveFit004.html:1503 Canvas2D: Multiple readback operations using getImageData
+		//are faster with the willReadFrequently attribute set to true.
+		//See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
+		this.context = this.dom.getContext('2d', {willReadFrequently: true});
+
+		//console.log('this.dom.width = '+this.dom.width);
+		this.imageData = this.context.getImageData(0, 0, this.dom.width, this.dom.height);
+		this.pixels = this.imageData.data;
+		this.byteRect = new ByteRect(this.pixels, this.dom.height, this.dom.width);
+	};*/
+	this.beforePaint = function(){
+		if(this.dom == null) throw new Error('No canvas');
+
+		// Create the context if it doesn't exist
+		if(!this.context){
+			this.context = this.dom.getContext('2d', {willReadFrequently: true});
+		}
+
+		//Only create image data if it doesn't exist or if the canvas size has changed
+		if(!this.imageData || this.imageData.width !== this.dom.width || this.imageData.height !== this.dom.height){
+			this.imageData = this.context.getImageData(0, 0, this.dom.width, this.dom.height);
+			this.pixels = this.imageData.data;
+			this.byteRect = new ByteRect(this.pixels, this.dom.height, this.dom.width);
+		}
+	};
+	
+	//call this after modify byteRect.bytes which contains pixel colors to write to Canvas.
+	this.afterPaint = function(){
+		if(this.dom == null) throw new Error('No canvas');
+		//this.context.drawImage(this.dom, 0, 0, this.dom.width, this.dom.height);
+		this.context.putImageData(this.imageData, 0, 0);
+	};
+	
+	this.removeFromScreen = function(){
+		this.dom.remove();
+		this.dom = null;
+		this.context = null;
+		this.imageData = null;
+		this.pixels = null;
+		this.byteRect = null;
+	};
+	
+	this.resizeCanvas(optionalHeight, optionalWidth);
+	this.beforePaint();
+};
+
+//readable and writable pixels as Uint8Array. A canvas is a kind of Uint8Array.
+//Single pixel read and write funcs are slow unless you just do a few places.
+//TODO Write horizontal lines of same color or 2 colors on end interpolating between,
+//and these lines can be derived from triangle which has different color at each corner.
+var ByteRect = function(bytes, height, width){
+	this.bytes = bytes;
+	this.height = height;
+	this.width = width;
+};
+
+//TODO choose [y x] vs [x y z scale] order. Swap y and x in ByteRect params order? aftrans is [x y z scale].
+
+ByteRect.prototype.index = function(y, x, colorDim){
+	return (y*this.width+x)*4+colorDim;
+};
+
+ByteRect.prototype.read = function(y, x, colorDim){
+	return this.bytes[(y*this.width+x)*4+colorDim];
+};
+
+ByteRect.prototype.readSafe = function(y, x, colorDim){
+	return this.bytes[between(0,(y*this.width+x)*4+colorDim,this.bytes.length-1)];
+};
+
+
+ByteRect.prototype.write = function(y, x, colorDim, bright){
+	this.bytes[(y*this.width+x)*4+colorDim] = bright;
+};
+
+ByteRect.prototype.writeSafe = function(y, x, colorDim, bright){
+	this.bytes[between(0,(y*this.width+x)*4+colorDim,this.bytes.length-1)] = bright;
+};
+
+ByteRect.prototype.writeSafeRGBA = function(y, x, redByte, greenByte, blueByte, optionalAlphaByte){
+	if(optionalAlphaByte === undefined) optionalAlphaByte = 255; //visible
+	let index = between(0,(y*this.width+x)*4,this.bytes.length-4);
+	this.bytes[index+RED] = redByte;
+	this.bytes[index+GREEN] = greenByte;
+	this.bytes[index+BLUE] = blueByte;
+	this.bytes[index+ALPHA] = optionalAlphaByte;
+};
+
+ByteRect.prototype.atYXWriteRGB = function(y, x, redByte, greenByte, blueByte){
+	if(x < 0 || this.width <= x || y < 0 || this.height <= y) return;
+	let ind = (y*this.width+x)*4;
+	this.bytes[ind+RED] = redByte;
+	this.bytes[ind+GREEN] = greenByte;
+	this.bytes[ind+BLUE] = blueByte;
+};
+
+ByteRect.prototype.writeHoriz = function(y, fromX, toXExclusive, colorDim, fromBright, toBright){
+	var indexStart = this.index(y, fromX, colorDim);
+	var pixelSiz = toXExclusive-fromX;
+	var siz = pixelSiz*4;
+	var bright = fromBright;
+	var brightAdd = (toBright-fromBright)/pixelSiz;
+	for(var i=0; i<siz; i+=4){
+		bright += brightAdd;
+		this.bytes[indexStart+i] = Math.floor(bright) & 0xff;
+	}
+};
+
+ByteRect.prototype.flipHorizontal = function(){
+	let bytes = this.bytes;
+	for(let y=0; y<this.height; y++){
+		let xMid = Math.floor(this.width/2);
+		let offsetA = y*this.width*4; //first byte index of first pixel in row
+		let offsetB = ((y+1)*this.width-1)*4; //first byte of last pixel in row
+		for(let x=0; x<xMid; x++){
+			for(let colorDim=0; colorDim<4; colorDim++){ //swap 2 pixels as 4 bytes each
+				let temp = bytes[offsetA+colorDim];
+				bytes[offsetA+colorDim] = bytes[offsetB+colorDim];
+				bytes[offsetB+colorDim] = temp;
+			}
+			offsetA += 4;
+			offsetB -= 4;
+		}
+	}
+};
+
+ByteRect.prototype.verifySameSizeAs = function(byteRect){
+	if(!byteRect) throw 'Param ByteRect = '+byteRect;
+	if(this.height != byteRect.height) throw this.height+' == this.height != byteRect.height == '+byteRect.height;
+	if(this.width != byteRect.width) throw this.width+' == this.width != byteRect.width == '+byteRect.width;
+};
+
+ByteRect.prototype.paintLineYXYXRGB = function(fromY, fromX, toY, toX, redByte, greenByte, blueByte){
+	let diffY = toY-fromY;
+	let diffX = toX-fromX;
+	let len = Math.hypot(diffY, diffX);
+	let numPoints = Math.ceil(len*1.5);
+	for(let i=0; i<numPoints; i++){
+		//TODO optimize
+		let y = Math.round(fromY+diffY*i/numPoints);
+		let x = Math.round(fromX+diffX*i/numPoints);
+		this.atYXWriteRGB(y, x, redByte, greenByte, blueByte);
+	}
+};
+
+var canv = null;
+
+var endingCanv = false;
+
+/** utc time in seconds */
+var time = function(){
+	return Date.now()*.001;
+};
+
+var timeStarted = 0;
+
+/** get bellcurve height on a chosen bellcurve thats stretched and moved */
+var bell = function(ave, dev, maxHeight, observe){
+	let diff = (observe-ave)/dev;
+	return Math.exp(-diff*diff);
+};
+
+/*var sigmoid = function(x){
+	return .5+.5*Math.tanh(x);
+};*/
+
+//0 to 255
+var backgroundRed = 0;
+var backgroundGreen = 0;
+var backgroundBlue = 0;
+
+
+//age in seconds since transition started. Just paints onto ByteRect
+var doGraphicsDtAgeByterect = function(dt, age, byteRect){
+
+	//dt *= 20;
+	//dt *= 10;
+	game.nextState(dt);
+
+	let bytes = byteRect.bytes;
+	let offset = Math.floor(Math.sin(time()*5*2*Math.PI)*100+100);
+	let w = byteRect.width;
+	let h = byteRect.height;
+	let cx = Math.floor(w/2); //center x
+	let cy = Math.floor(h/2); //center y
+	/*for(let i=0; i<bytes.length; i+=4){
+		bytes[i+RED] = backgroundRed;
+		bytes[i+GREEN] = backgroundGreen;
+		bytes[i+BLUE] = backgroundBlue;
+		bytes[i+ALPHA] = 255;
+	}*/
+	let i = 0;
+	//let viewRect = game.getViewRect
+	//let fromY = game.y;
+	//let toY = fromY+h;
+	//let fromX = game.x;
+	//let toX = fromX+w;
+	
+	let screenH = canv.dom.height;
+	let screenW = canv.dom.width;
+	let centerYGameCoords = game.y; //FIXME until 2024-11-14-1206pET game.y and game.x were top left corner. i might want it to be center of view.
+	let centerXGameCoords = game.x; //FIXME until 2024-11-14-1206pET game.y and game.x were top left corner. i might want it to be center of view.
+	let gameDisplayH = screenH*game.zoom; //FIXME divide vs multiply by zoom?
+	let gameDisplayW = screenW*game.zoom; //FIXME divide vs multiply by zoom?
+	let gameFromY = game.y-gameDisplayH/2;
+	let gameFromX = game.x-gameDisplayW/2;
+	let gameDy = game.zoom;
+	let gameDx = game.zoom;
+	//for(let y=fromY; y<toY; y++){
+		//for(let x=fromX; x<toX; x++){
+	let zoomedY = gameFromY;
+	for(let screenY=0; screenY<screenH; screenY++){
+		let zoomedX = gameFromX;
+		for(let screenX=0; screenX<screenW; screenX++){
+			if(0 <= zoomedY && zoomedY < Size && 0 <= zoomedX && zoomedX < Size){ //in game area
+				bytes[i+RED] = game.redByteAtYX(zoomedY,zoomedX);
+				bytes[i+GREEN] = game.greenByteAtYX(zoomedY,zoomedX);
+				bytes[i+BLUE] = game.blueByteAtYX(zoomedY,zoomedX);
+			}else{
+				bytes[i+RED] = 40;
+				bytes[i+GREEN] = 40;
+				bytes[i+BLUE] = 40;
+			}
+			/*bytes[i+RED] = game.redByteAtYX(y,x);
+			bytes[i+GREEN] = game.greenByteAtYX(y,x);
+			bytes[i+BLUE] = game.blueByteAtYX(y,x);
+			*/
+			bytes[i+ALPHA] = 255; //visible, not transparent
+			i += 4;
+			zoomedX += gameDx;
+		}
+		zoomedY += gameDy;
+	}
+
+};
+
+Game.prototype.setSelectedGob = function(gob){
+	let i = this.gobs.indexOf(gob);
+	if(i == -1) this.gobs.push(gob); //selecting a gob that wasnt added yet
+	for(let g of this.gobs){
+		g.m.isSelected = (g===gob);
+	}
+	document.getElementById('mainTextarea').value = ''+gob.brain;
+};
+
+Game.prototype.searchGobs = function(query){
+	return this.gobs.filter(query);
+};
+
+Game.prototype.selectedGobs = function(){
+	return this.searchGobs(g=>(g.m.isSelected));
+};
+
+var lastTimeOf_doGraphicsDtAgeByterectAndMore = 0;
+
+//get array index mouse last touched, for game.board[mouseI()] and game.rps.boardR[mouseI()] and boardG and boardB.
+var mouseI = ()=>((Controls.mouseY<<SizeBits)|Controls.mouseX);
+
+var doGraphicsDtAgeByterectAndMore = function(){
+	if(canv == null){
+		//canv = new FullScreenCanvas();
+		let magnify = 2; //raising this decreases resolution, for speed. set this to 1 to use actual screen resolution or at least the window in the screen.
+		//let magnify = 3;
+		let h = window.innerHeight/magnify;
+		let w = window.innerWidth/magnify;
+		canv = new FullScreenCanvas(h, w);
+		let dom = canv.dom;
+		dom.style.display = 'block';
+		dom.style.transformOrigin = '0 0';
+		dom.style.position = 'absolute';
+		dom.style['z-index'] = -1;
+		dom.style.top = '0';
+		dom.style.left = '0';
+		dom.setAttribute('tabIndex', 0); //make canvas focusable
+		dom.style.transform = `scaleX(${magnify}) scaleY(${magnify})`;
+		dom.style.cursor = 'none'; //hide mouse pointer when over canvas cuz mouseball (in game.addFunc theres one that checks Controls.mouseY etc) is there.
+		document.body.addEventListener('keyup', event=>{
+			if(event.key == 'Pause'){
+				Controls.pause = Controls.pause ? 0 : 1; //toggle
+				if(!Controls.pause){
+					console.log('Unpause');
+					requestAnimationFrame(doGraphicsDtAgeByterectAndMore);
+				}
+			}
+		});
+		/*
+		//dagball.aftrans = new dagball.SimpleAftrans(dagball.screen.byteRect.height/2, dagball.screen.byteRect.width/2, 1, 1)
+		//dagball.aftrans = new dagball.SimpleAftrans(dagball.screen.byteRect.height/2, dagball.screen.byteRect.width/2, 100, 100);
+		dagball.resetAftrans();
+		let canvas = dagball.screen.dom;
+		canvas.style.display = 'block';
+		canvas.style.transformOrigin = '0 0';
+		canvas.style.position = 'absolute';
+		canvas.style['z-index'] = -1;
+		canvas.style.top = '0';
+		canvas.style.left = '0';
+		canvas.setAttribute('tabIndex', 0); //make canvas focusable
+		//canvas.setAttribute('tabIndex', 1); //make canvas focusable
+		dagball.canvasScaleY = window.innerHeight/canvas.height;
+		dagball.canvasScaleX = window.innerWidth/canvas.width;
+		canvas.style.transform = `scaleX(${dagball.canvasScaleX}) scaleY(${dagball.canvasScaleY})`;
+		window.addEventListener('resize', () => {
+			canvas.style.transform = `scaleX(${window.innerWidth / canvas.width}) scaleY(${window.innerHeight / canvas.height})`;
+		});
+		document.addEventListener('contextmenu', function(event){
+			if(!dagball.isAllowRightClickPopupMenuNow()){
+				event.preventDefault();
+			}
+		});*/
+		
+		canv.dom.addEventListener('mousemove', event=>{
+			let prevRawMouseY = Controls.rawMouseY;
+			let prevRawMouseX = Controls.rawMouseX;
+			Controls.rawMouseY = event.offsetY;
+			Controls.rawMouseX = event.offsetX;
+			let mouseDy = Controls.rawMouseY-prevRawMouseY;
+			let mouseDx = Controls.rawMouseX-prevRawMouseX;
+			if(Controls.mouseButton0){ //dragging the ground to move view
+				game.y -= mouseDy*game.zoom;
+				game.x -= mouseDx*game.zoom;
+				game.y = Math.max(0, Math.min(game.y, Size-canv.dom.height))&SizeMask;
+				game.x = Math.max(0, Math.min(game.x, Size-canv.dom.width))&SizeMask;
+				//console.log('game.y='+game.y+' x='+game.x);
+			}
+			Controls.mouseY = (game.y+(Controls.rawMouseY-canv.dom.height/2)*game.zoom)&SizeMask;
+			Controls.mouseX = (game.x+(Controls.rawMouseX-canv.dom.width/2)*game.zoom)&SizeMask;;
+		});
+		document.body.addEventListener('mousedown', event=>{
+			//console.log('mousedown button='+event.button);
+			if(event.button==0){ //dragging the ground to move view
+				Controls.mouseButton0 = 1;
+				Controls.rawMouseYWhenStartedDrag = Controls.rawMouseY;
+				Controls.rawMouseXWhenStartedDrag = Controls.rawMouseX;
+			}
+		});
+		document.body.addEventListener('mouseup', event=>{
+			if(event.button==0){
+				Controls.mouseButton0 = 0;
+			}
+		});
+		document.body.addEventListener('wheel', function(event) {
+			event.preventDefault(); // Prevents the default scrolling behavior
+			const scrollAmount = event.deltaY; // Gets the vertical scroll amount
+			game.onMouseWheelChange(scrollAmount); // Calls your function with the scroll amount
+		}, {passive: false}); // Setting passive to false allows you to call preventDefault
+		//canv.dom.style.cursor = "none"; //hide mouse cursor cuz its slightly out of sync with the player's blob and is annoying
+	}
+	let now = time();
+	let age = now-timeStarted; //how many seconds ago did this page transition start?
+	let dt = Math.max(0, Math.min(now-lastTimeOf_doGraphicsDtAgeByterectAndMore, .2));
+	lastTimeOf_doGraphicsDtAgeByterectAndMore = now;
+	canv.beforePaint();
+	doGraphicsDtAgeByterect(dt, age, canv.byteRect);
+	canv.afterPaint();
+	//setTimeout(doGraphicsDtAgeByterectAndMore, 1); //FIXME do requestAnimationFrame instead, for lower lag? or does waiting 1 more millisecond give it time to do other UI things?
+	if(Controls.pause){
+		console.log('Pause');
+	}else{
+		requestAnimationFrame(doGraphicsDtAgeByterectAndMore);
+	}
+};
+
+//moving this up, to replace other INF const: const INF = 1<<29;
+const distSqArrays = []; //sideBits -> Int32Array(1<<(sideBits<<1)). reuse.
+
+/*wrong, its supposed to be 0b1111111111 aka TINF where theres no voxel: const teamsToTridistInt = Int32Array.of(
+	0b00111111111111111111111111111111, //TRINF, cuz 
+	0b00000000000000000000001111111111, //REDTEAM
+	0b00000000000011111111110000000000, //GREENTEAM
+	0b00000000000011111111111111111111, //REDTEAM|GREENTEAM
+	0b00111111111100000000000000000000, //BLUETEAM
+	0b00000000000000000000000000000000,
+	0b00000000000000000000000000000000,
+	0b00000000000000000000000000000000,
+);*/
+/*[...teamsToTridistInt].map(x=>[getDistance1(x),getDistance2(x),getDistance3(x)])
+(8) [Array(3), Array(3), Array(3), Array(3), Array(3), Array(3), Array(3), Array(3)]
+0: (3) [1023, 1023, 1023]
+1: (3) [1023, 1023, 0]
+2: (3) [1023, 0, 1023]
+3: (3) [1023, 0, 0]
+4: (3) [0, 1023, 1023]
+5: (3) [0, 1023, 0]
+6: (3) [0, 0, 1023]
+7: (3) [0, 0, 0]
+
+game.rps.team.reduce((sum,x)=>((x?1:0)+sum));
+42351
+game.rps.team.reduce((sum,x)=>((x?1:0)+sum));
+40826
+game.rps.team.reduce((sum,x)=>((x?1:0)+sum));
+43329
+
+game.rps.team.reduce((sum,x)=>(((x==BLUETEAM)?1:0)+sum));
+27755
+game.rps.team.reduce((sum,x)=>(((x==BLUETEAM)?1:0)+sum));
+23285
+game.rps.team.reduce((sum,x)=>(((x==GREENTEAM)?1:0)+sum));
+6317
+game.rps.team.reduce((sum,x)=>(((x==REDTEAM)?1:0)+sum));
+10531
+game.rps.team.reduce((sum,x)=>(((x==REDTEAM)?1:0)+sum));
+10654
+*/
+const teamsToTridistInt = new Int32Array(8);
+for(let r=0; r<2; r++){ //include REDTEAM or not
+	for(let g=0; g<2; g++){ //include GREENTEAM or not
+		for(let b=0; b<2; b++){ //include BLUETEAM or not
+			//const setDistances = (d1, d2, d3) => ((d1 & mask) | ((d2 & mask) << 10) | ((d3 & mask) << 20));
+			teamsToTridistInt[(r<<2) | (g<<1) | b] = (r?0:1023) | ((g?0:1023)<<10) | ((b?0:1023)<<20);
+		}
+	}
+}
+
+//given 6 uint10s, 3 of them in each int i j, returns 3 uint10s in an int.
+const triMin = (i,j)=>{
+	let iLow = i&mask10;
+	let jLow = j&mask10;
+	let iMid = (i>>>10)&mask10;
+	let jMid = (j>>>10)&mask10;
+	let iHigh = (i>>>20)&mask10;
+	let jHigh = (j>>>20)&mask10;
+	let low = iLow<jLow ? iLow : jLow;
+	let mid = iMid<jMid ? iMid : jMid;
+	let high = iHigh<jHigh ? iHigh : jHigh;
+	return (high<<20)|(mid<<10)|low;
+};
+
+//updates this.rps.tridist based on the team at each voxel. FIXME should i make game.rps.team as a Uint8Array or maybe a packed 1 bit per pixel int array?
+//Game.prototype.updateTridist = function(yFrom, yTo, xFrom, xTo){
+Game.prototype.updateTridist = function(smallYFrom, smallYTo, smallXFrom, smallXTo, optionalBorder){
+	const rpsTeam = this.rps.team;
+	//const rpsTridist = this.rps.tridist;
+	const rpsTridistSmall = this.rps.tridistSmall;
+	const endSize = Size*4;
+	//let border = 50; //FIXME dont hardcode this
+	let border = optionalBorder || 32;
+	let innerSmallYFrom = smallYFrom+border;
+	let innerSmallYTo = smallYTo-border;
+	let innerSmallXFrom = smallXFrom+border;
+	let innerSmallXTo = smallXTo-border;
+	
+	for(let smallY=smallYFrom; smallY<smallYTo; smallY++){
+		let smallYIsInner = innerSmallYFrom <= smallY && smallY < innerSmallYTo;
+		for(let smallX=smallXFrom; smallX<smallXTo; smallX++){
+			let smallI = (smallY<<SmallSizeBits)|smallX;
+			let teams = 0;
+			let topLeftI = toBig(smallI); //top left of the 4x4, where 16 indexs in the big arrays aligns to 1 index in small array.
+			for(let dyAdd=0; dyAdd<endSize; dyAdd+=Size){ //MagnifyShift==2 meaning 4x4 aka (1<<2)**2
+				for(let dx=0; dx<4; dx++){
+					let i = (topLeftI+dyAdd)|dx;
+					teams |= rpsTeam[i]; //get all teams in the 4x4
+				}
+			}
+			
+			//TODO rename game.rps.team to game.rps.teams cuz it can have a powerset of all 3 teams?
+			//let teams = rpsTeam[i]; //can be REDTEAM, BLUETEAM, GREENTEAM, or any 2 or 3 of those. Each next team that is added there xors a mask bit.
+			//&7 soonly 3 teams in 8 possible combos (powerset), meaning is there an even vs odd number of that team at that voxel. its reversible. addVox remVox.
+			//3 uint10s that are max (1023) if it needs to be recomputed, or is 0 to mean that team is here so distance from it is 0.
+			//rpsTridist[i] = teamsToTridistInt[teams&7];
+			
+			let isInner = smallYIsInner && (innerSmallXFrom <= smallX && smallX < innerSmallXTo);
+			if(isInner){
+				//rpsTridistSmall[smallI] = teamsToTridistInt[teams&7];
+				rpsTridistSmall[smallI] = teamsToTridistInt[teams&7];
+			}else{
+				rpsTridistSmall[smallI] = triMin(rpsTridistSmall[smallI],teamsToTridistInt[teams&7]);
+				//throw new Error('TODO dont overwrite distances but take minimum 3 times');
+			}
+			
+			
+			//rpsTridistSmall[toSmall(i)] = teamsToTridistInt[teams&7];
+			//rpsTridist[i] = teams==REDTEAM ? 0 : 1023;
+			//rpsTridist[i] = randInt(1024);
+			//rpsTridist &= mask10; //FIXME remove this. its all red, the low 10 bits.
+		}
+	}
+	//computeUint10Distances(rpsTridist, SizeBits, yFrom, yTo, xFrom, xTo); //modifies rpsTridist
+	//computeUint10Distances(rpsTridistSmall, SizeBits, yFrom, yTo, xFrom, xTo); //modifies rpsTridist
+	computeUint10Distances(rpsTridistSmall, SmallSizeBits, smallYFrom, smallYTo, smallXFrom, smallXTo); //modifies rpsTridist
+	//broken and made it twice as slow so not pursuing this for now: computeUint10Distances2x2Magnify(rpsTridist, SizeBits, yFrom, yTo, xFrom, xTo); //modifies rpsTridist
+};
+
+//color is a uint6. distanceSquaredArray is 1 of game.rps.boardR or game.rps.boardG or game.rps.boardB.
+//OLD: colorChannel is RED or GREEN or BLUE as in "const RED = 0, GREEN = 1, BLUE = 2, ALPHA = 3;".
+//Only does the top left 1024x1024, not the whole 8192x8192 but that is planned to do sparsely later.
+//Gotta get it working in basic way first, to play rock paper scissors per voxel.
+Game.prototype.updateDistanceCacheOLD = function(distanceSquaredArray, color){
+	const sideBits = 10; //1024x1024
+	const side = 1<<sideBits;
+	const fromY = 0, fromX = 0; //make sure it doesnt hang off the end of the 8192x8192
+	const board = this.board;
+	let countVoxelsOfThatColor = 0;
+	for(let y=0; y<side; y++){
+		const movedY = fromY+y;
+		const offset = movedY<<SizeBits;
+		for(let x=0; x<side; x++){
+			let movedX = fromX+x;
+			let voxel = board[offset+movedX];
+			let colorUint6 = voxel&63;
+			//if(colorUint6 == color){
+			if(colorUint6 != 0){ //anything except black, for testing
+				countVoxelsOfThatColor++;
+			}
+		}
+	}
+	let voxelsY = new Int16Array(countVoxelsOfThatColor);
+	let voxelsX = new Int16Array(countVoxelsOfThatColor);
+	countVoxelsOfThatColor = 0;
+	for(let y=0; y<side; y++){
+		const movedY = fromY+y;
+		const offset = movedY<<SizeBits;
+		for(let x=0; x<side; x++){
+			let movedX = fromX+x;
+			let voxel = board[offset+movedX];
+			let colorUint6 = voxel&63;
+			//if(colorUint6 == color){
+			if(colorUint6 != 0){ //anything except black, for testing
+				voxelsY[countVoxelsOfThatColor] = y;
+				voxelsX[countVoxelsOfThatColor++] = x;
+			}
+		}
+	}
+	let distanceSquareds = computeSquaredDistances(sideBits, voxelsY, voxelsX); //1024x1024 if sideBits is 10
+	for(let y=0; y<side; y++){
+		const movedY = fromY+y;
+		const offset = movedY<<SizeBits;
+		for(let x=0; x<side; x++){
+			let movedX = fromX+x;
+			//let voxel = board[offset+movedX];
+			//distanceSquared may be approximate or exact, depending on computeSquaredDistances has at least 2 implementations.
+			let distanceSquared = distanceSquareds[(y<<sideBits)|x];
+			distanceSquaredArray[(movedY<<SizeBits)|movedX] = distanceSquared;
+		}
+	}
+};
+
+/*const computeSquaredDistances = (sideBits, voxelYs, voxelXs)=>{
+	//return computeSquaredDistances_exactButSlow(sideBits, voxelYs, voxelXs);
+	//return computeSquaredDistances_approximateAndHexagonsAndFast(sideBits, voxelYs, voxelXs);
+	return computeBalancedDistances(sideBits, voxelYs, voxelXs);
+	
+	//TODO make something like computeSquaredDistances_approximateAndHexagonsAndFast
+	//but find a way to make it exact like computeSquaredDistances_exactButSlow and still fast.
+	//The main difference is computeSquaredDistances_exactButSlow works by intersection of 2 parabolas in the 2 vertical steps.
+};*/
+
+// Lambda functions for extracting and setting distances
+const mask10 = 0x3FF; //10 bit mask
+const getDistance1 = (val) => (val & mask10); //approx distance (scaled by 3 or 4 depending on angle) to nearest REDTEAM voxel, given a tridist int.
+const getDistance2 = (val) => ((val >> 10) & mask10); //GREENTEAM
+const getDistance3 = (val) => ((val >> 20) & mask10); //BLUETEAM
+const setDistances = (d1, d2, d3) => ((d1 & mask10) | ((d2 & mask10) << 10) | ((d3 & mask10) << 20)); //makes an int for game.rps.tridist
+
+/** This is buggy, flawed design: "that broke something cuz a voxel used to emit an approximate octagon but now emits a hexagon with 2 of the corners  missing".
+*
+ * Computes Uint10 distances in a grid by processing cells in order of increasing
+ * Manhattan distance from (0, 0) in the first pass and decreasing in the second pass.
+ *
+ * @param {Int32Array} tridist - The grid represented as a one-dimensional Int32Array.
+ * @param {number} shift - The number of bits to shift to calculate the index (log2(width)).
+ * @param {number} yFrom - The starting y-coordinate (inclusive).
+ * @param {number} yTo - The ending y-coordinate (exclusive).
+ * @param {number} xFrom - The starting x-coordinate (inclusive).
+ * @param {number} xTo - The ending x-coordinate (exclusive).
+ *
+const computeUint10Distances = (tridist, shift, yFrom, yTo, xFrom, xTo) => {
+    const orthogonal = 3;
+    const diagonal = 4;
+    const maxDistance = 1019;
+    const mask10 = 0x3FF;
+    const offset = 1 << shift;
+
+    const width = 1 << shift; // Assuming width = 2^shift
+    const height = (tridist.length / width) | 0; // Calculate height based on array length
+
+    // First Pass: Top-left to Bottom-right by increasing Manhattan distance
+    for (let d = yFrom + xFrom; d < (yTo - 1 + xTo - 1); d++) {
+        for (let x = xFrom; x <= d; x++) {
+            let y = d - x;
+            if (y >= yFrom && y < yTo && x >= xFrom && x < xTo) {
+                let i = (y << shift) | x;
+
+                // Current distances
+                let val = tridist[i];
+                let dist1 = val & mask10;
+                let dist2 = (val >>> 10) & mask10;
+                let dist3 = (val >>> 20) & mask10;
+
+                // Neighbor indices
+                let i_nw = (y > yFrom && x > xFrom) ? ((y - 1) << shift) | (x - 1) : -1;
+                let i_n  = (y > yFrom) ? ((y - 1) << shift) | x : -1;
+                let i_w  = (x > xFrom) ? (y << shift) | (x - 1) : -1;
+                let i_ne = (y > yFrom && x < xTo - 1) ? ((y - 1) << shift) | (x + 1) : -1;
+
+                // Distances from neighbors
+                let d1_nw = (i_nw !== -1) ? (tridist[i_nw] & mask10) + diagonal : maxDistance;
+                let d1_n  = (i_n  !== -1) ? (tridist[i_n]  & mask10) + orthogonal : maxDistance;
+                let d1_w  = (i_w  !== -1) ? (tridist[i_w]  & mask10) + orthogonal : maxDistance;
+                let d1_ne = (i_ne !== -1) ? (tridist[i_ne] & mask10) + diagonal : maxDistance;
+
+                let newDist1 = Math.min(d1_nw, d1_n, d1_w, d1_ne, maxDistance);
+
+                // Repeat for dist2
+                let d2_nw = (i_nw !== -1) ? ((tridist[i_nw] >>> 10) & mask10) + diagonal : maxDistance;
+                let d2_n  = (i_n  !== -1) ? ((tridist[i_n]  >>> 10) & mask10) + orthogonal : maxDistance;
+                let d2_w  = (i_w  !== -1) ? ((tridist[i_w]  >>> 10) & mask10) + orthogonal : maxDistance;
+                let d2_ne = (i_ne !== -1) ? ((tridist[i_ne] >>> 10) & mask10) + diagonal : maxDistance;
+
+                let newDist2 = Math.min(d2_nw, d2_n, d2_w, d2_ne, maxDistance);
+
+                // Repeat for dist3
+                let d3_nw = (i_nw !== -1) ? ((tridist[i_nw] >>> 20) & mask10) + diagonal : maxDistance;
+                let d3_n  = (i_n  !== -1) ? ((tridist[i_n]  >>> 20) & mask10) + orthogonal : maxDistance;
+                let d3_w  = (i_w  !== -1) ? ((tridist[i_w]  >>> 20) & mask10) + orthogonal : maxDistance;
+                let d3_ne = (i_ne !== -1) ? ((tridist[i_ne] >>> 20) & mask10) + diagonal : maxDistance;
+
+                let newDist3 = Math.min(d3_nw, d3_n, d3_w, d3_ne, maxDistance);
+
+                // Combine distances back into a single integer
+                tridist[i] = (newDist3 << 20) | (newDist2 << 10) | newDist1;
+            }
+        }
+    }
+
+    // Second Pass: Bottom-right to Top-left by decreasing Manhattan distance
+    for (let d = (yTo - 1 + xTo - 1); d >= (yFrom + xFrom); d--) {
+        for (let x = xTo - 1; x >= 0; x--) {
+            let y = d - x;
+            if (y >= yFrom && y < yTo && x >= xFrom && x < xTo) {
+                let i = (y << shift) | x;
+
+                // Current distances
+                let val = tridist[i];
+                let dist1 = val & mask10;
+                let dist2 = (val >>> 10) & mask10;
+                let dist3 = (val >>> 20) & mask10;
+
+                // Neighbor indices
+                let i_se = (y < yTo - 1 && x < xTo - 1) ? ((y + 1) << shift) | (x + 1) : -1;
+                let i_s  = (y < yTo - 1) ? ((y + 1) << shift) | x : -1;
+                let i_e  = (x < xTo - 1) ? (y << shift) | (x + 1) : -1;
+                let i_sw = (y < yTo - 1 && x > xFrom) ? ((y + 1) << shift) | (x - 1) : -1;
+
+                // Distances from neighbors
+                let d1_se = (i_se !== -1) ? (tridist[i_se] & mask10) + diagonal : maxDistance;
+                let d1_s  = (i_s  !== -1) ? (tridist[i_s]  & mask10) + orthogonal : maxDistance;
+                let d1_e  = (i_e  !== -1) ? (tridist[i_e]  & mask10) + orthogonal : maxDistance;
+                let d1_sw = (i_sw !== -1) ? (tridist[i_sw] & mask10) + diagonal : maxDistance;
+
+                let newDist1 = Math.min(d1_se, d1_s, d1_e, d1_sw, maxDistance);
+
+                // Repeat for dist2
+                let d2_se = (i_se !== -1) ? ((tridist[i_se] >>> 10) & mask10) + diagonal : maxDistance;
+                let d2_s  = (i_s  !== -1) ? ((tridist[i_s]  >>> 10) & mask10) + orthogonal : maxDistance;
+                let d2_e  = (i_e  !== -1) ? ((tridist[i_e]  >>> 10) & mask10) + orthogonal : maxDistance;
+                let d2_sw = (i_sw !== -1) ? ((tridist[i_sw] >>> 10) & mask10) + diagonal : maxDistance;
+
+                let newDist2 = Math.min(d2_se, d2_s, d2_e, d2_sw, maxDistance);
+
+                // Repeat for dist3
+                let d3_se = (i_se !== -1) ? ((tridist[i_se] >>> 20) & mask10) + diagonal : maxDistance;
+                let d3_s  = (i_s  !== -1) ? ((tridist[i_s]  >>> 20) & mask10) + orthogonal : maxDistance;
+                let d3_e  = (i_e  !== -1) ? ((tridist[i_e]  >>> 20) & mask10) + orthogonal : maxDistance;
+                let d3_sw = (i_sw !== -1) ? ((tridist[i_sw] >>> 20) & mask10) + diagonal : maxDistance;
+
+                let newDist3 = Math.min(d3_se, d3_s, d3_e, d3_sw, maxDistance);
+
+                // Combine distances back into a single integer
+                tridist[i] = (newDist3 << 20) | (newDist2 << 10) | newDist1;
+            }
+        }
+    }
+};*/
+
+//size->Int32Array(size)
+const reusableIntArrays = {};
+const reusableIntArray = size=>(reusableIntArrays[size] || (reusableIntArrays[size] = new Int32Array(size)));
+
+//given 2 ints that each contain 3 uint10s, return 3 averages as an int, rounding down for each.
+//This works 2024-11-12 but computeUint10Distances2x2Magnify does not, and since computeUint10Distances2x2Magnify is slow im trying something different,
+//gonna make game.rps.tridist half size. or... maybe i should just reduce to 512x512 resolution and magnify the canvas. try that for now.
+const tridistAve = (trintA,trintB)=>{
+	let low10 = ((trintA&1023)+(trintB&1023))>>1;
+	//let mid10 = ((trintA&0b11111111110000000000)+(trintB&0b11111111110000000000))>>1;
+	let mid10 = ((trintA>>10)+(trintB>>10))<<9;
+	//wait, is this gonna be the same as just (trintA+trintB)>>1? Try it...
+	//return (trintA+trintB)>>1;
+	let high10 = ((trintA>>>20)+(trintB>>20))<<19;
+	return high10|mid10|low10;
+};
+
+//doesnt work as of 2024-11-12, explained in comments of tridistAve.
+//uses about 1/4 as much compute as computeUint10Distances but a little less accurate.
+//Uses interpolation or TODO better, repeat the calculation using orthogonal and diagonal numbers instead of interpolation,
+//between where its computed.
+const computeUint10Distances2x2Magnify = (tridist, shift, yFrom, yTo, xFrom, xTo)=>{
+	const height = yTo-yFrom;
+	const width = xTo-xFrom;
+	const smallShift = shift-1;
+	if(height&1) throw new Error('height must be even: '+height);
+	if(width&1) throw new Error('width must be even: '+height);
+	const smallHeight = height>>1;
+	const smallWidth = width>>1;
+	//FIXME should it be 1 less than that, so it only interpolates the B's in ABABABA like you see 4 A's and 3 B's?
+	//If so then must replace the shift param in computeUint10Distances with tridistWidth.
+	//ts already using offset in a compatible way. just have to set offset to that.
+	const smallTridist = reusableIntArray(smallHeight*smallWidth);
+	if(height&(height-1)) throw new Error('height must be a powOf2: '+height);
+	if(width&(width-1)) throw new Error('width must be a powOf2: '+width);
+	//TODO computeUint10Distances.
+	let orthogonalDist = 3;
+	let diagonalDist = 4;
+	//let smallOrthogonalDist = orthogonalDist*2; //2x2
+	//let smallDiagonalDist = diagonalDist*2; //2x2
+	//let smallOrthogonalDist = orthogonalDist*4; //game.rps.tridistSmall is 4x4 times smaller than game.board.
+	//let smallDiagonalDist = diagonalDist*4; //4x4 if MagnifyShift==2
+	//let smallOrthogonalDist = orthogonalDist*(Size/SmallSize); //game.rps.tridistSmall is 4x4 times smaller than game.board.
+	let smallOrthogonalDist = orthogonalDist<<MagnifyShift; //game.rps.tridistSmall is 4x4 times smaller than game.board.
+	let smallDiagonalDist = diagonalDist<<MagnifyShift; //4x4 if MagnifyShift==2.
+	computeUint10Distances(smallTridist, Math.log2(smallWidth)|0, 0, smallHeight, 0, smallWidth, smallOrthogonalDist, smallDiagonalDist);
+	//repeat the calculation using orthogonal and diagonal numbers instead of interpolation between where its computed
+	for(let y=yFrom; y<yTo; y+=4){
+		let smallY = (y-yFrom)>>MagnifyShift;
+		for(let x=xFrom; x<xTo; x+=4){
+			let i = (y<<shift)|x;
+			let smallX = (y-yFrom)>>MagnifyShift;
+			let smallI = (smallY<<SmallSizeBits)|smallX;
+			tridist[i] = smallTridist[smallI];
+			//tridist[i] = randInt(1<<30);
+		}
+	}
+	/*for(let y=yFrom; y<yTo; y+=2){ //in even rows (rel to yFrom even if its odd), fill in half of the row horizontally from left and right.
+		let smallY = (y-yFrom)>>1;
+		for(let x=xFrom+1; x<xTo; x+=2){
+			let i = (y<<shift)|x;
+			let smallX = (y-yFrom)>>1;
+			let smallI = (smallY<<smallShift)|smallX;
+			//tridist[i] = ((tridist[i-1]+tridist[i+1])/2)|0; //tridistAve(tridist[i-1],tridist[i+1]);
+			tridist[i] = tridistAve(tridist[i-1],tridist[i+1]);
+			//TODO use orthogonal and diagonal numbers to do this, instead of just an average
+		}
+	}
+	for(let y=yFrom+1; y<yTo; y+=2){ //in odd roiws rows fill in half of the row horizontally from up and down
+		let smallY = (y-yFrom)>>1;
+		for(let x=xFrom; x<xTo; x++){
+			let i = (y<<shift)|x;
+			let smallX = (y-yFrom)>>1;
+			let smallI = (smallY<<smallShift)|smallX;
+			//FIXME check if that goes out of game.board bounds if the rect touches the pixel at (8191,8191) aka the bottom right corner.
+			//TODO use orthogonal and diagonal numbers to do this, instead of just an average
+			//tridist[i] = ((tridist[i-width]+tridist[i+width])/2)|0; //tridistAve(tridist[i-width],tridist[i+width]);
+			tridist[i] = tridistAve(tridist[i-width],tridist[i+width]);
+		}
+	}*/
+};
+
+//const computeUint10Distances = (tridist, shift, yFrom, yTo, xFrom, xTo)=>{
+//If you use use a half (2x2) size 2d array, you'd use orthogonal 6 (default 3) and diagonal 8 (default 4),
+//then interpolate between after it returns, or 1/4 size (4x4) would use orthogonal 12 diagonal 16, then interpolate.
+//If you use bigger orthogonal andOr diagonal than those defaults, you might want to reduce maxDist (default 1019)
+//so 1 more hop past that does not overflow uint10,
+//and maybe a little less than that so 1023 (the max uint10) can mean havent processed this pixel.
+const computeUint10Distances = (tridist, shift, yFrom, yTo, xFrom, xTo, orthogonalDist, diagonalDist, optionalMaxDist)=>{
+    const orthogonal = orthogonalDist || 3;
+    const diagonal = diagonalDist || 4;
+    const maxDistance = optionalMaxDist || 1019;
+    const mask10 = 0x3FF;
+    const offset = 1 << shift;
+
+    // Precompute bit masks
+    const mask1 = mask10;
+    const mask2 = mask10 << 10;
+    const mask3 = mask10 << 20;
+
+    // First pass: Top-left to bottom-right
+    for (let y = yFrom; y < yTo; y++) {
+        for (let x = xFrom; x < xTo; x++) {
+            let i = (y << shift) | x;
+
+            // Current distances
+            let val = tridist[i];
+            let dist1 = val & mask1;
+            let dist2 = (val >>> 10) & mask10;
+            let dist3 = (val >>> 20) & mask10;
+
+            // Neighbor indices
+            let i_nw = i - offset - 1;
+            let i_n = i - offset;
+            let i_w = i - 1;
+            let i_ne = i - offset + 1;
+
+            // Ensure indices are within bounds
+            // (Assuming yFrom and xFrom are 0 and yTo and xTo are less than the grid size)
+            // Otherwise, add boundary checks here.
+
+            // Distances from neighbors
+            let d1_nw = (tridist[i_nw] & mask1) + diagonal;
+            let d1_n = (tridist[i_n] & mask1) + orthogonal;
+            let d1_w = (tridist[i_w] & mask1) + orthogonal;
+            let d1_ne = (tridist[i_ne] & mask1) + diagonal;
+
+            let newDist1 = dist1;
+            if (d1_nw < newDist1) newDist1 = d1_nw;
+            if (d1_n < newDist1) newDist1 = d1_n;
+            if (d1_w < newDist1) newDist1 = d1_w;
+            if (d1_ne < newDist1) newDist1 = d1_ne;
+            if (newDist1 > maxDistance) newDist1 = maxDistance;
+
+            // Repeat for dist2
+            let d2_nw = ((tridist[i_nw] >>> 10) & mask10) + diagonal;
+            let d2_n = ((tridist[i_n] >>> 10) & mask10) + orthogonal;
+            let d2_w = ((tridist[i_w] >>> 10) & mask10) + orthogonal;
+            let d2_ne = ((tridist[i_ne] >>> 10) & mask10) + diagonal;
+
+            let newDist2 = dist2;
+            if (d2_nw < newDist2) newDist2 = d2_nw;
+            if (d2_n < newDist2) newDist2 = d2_n;
+            if (d2_w < newDist2) newDist2 = d2_w;
+            if (d2_ne < newDist2) newDist2 = d2_ne;
+            if (newDist2 > maxDistance) newDist2 = maxDistance;
+
+            // Repeat for dist3
+            let d3_nw = ((tridist[i_nw] >>> 20) & mask10) + diagonal;
+            let d3_n = ((tridist[i_n] >>> 20) & mask10) + orthogonal;
+            let d3_w = ((tridist[i_w] >>> 20) & mask10) + orthogonal;
+            let d3_ne = ((tridist[i_ne] >>> 20) & mask10) + diagonal;
+
+            let newDist3 = dist3;
+            if (d3_nw < newDist3) newDist3 = d3_nw;
+            if (d3_n < newDist3) newDist3 = d3_n;
+            if (d3_w < newDist3) newDist3 = d3_w;
+            if (d3_ne < newDist3) newDist3 = d3_ne;
+            if (newDist3 > maxDistance) newDist3 = maxDistance;
+
+            // Combine distances back into a single integer
+            tridist[i] = (newDist3 << 20) | (newDist2 << 10) | newDist1;
+        }
+    }
+
+    // Second pass: Bottom-right to top-left
+    for (let y = yTo - 1; y >= yFrom; y--) {
+        for (let x = xTo - 1; x >= xFrom; x--) {
+            let i = (y << shift) | x;
+
+            // Current distances
+            let val = tridist[i];
+            let dist1 = val & mask1;
+            let dist2 = (val >>> 10) & mask10;
+            let dist3 = (val >>> 20) & mask10;
+
+            // Neighbor indices
+            let i_se = i + offset + 1;
+            let i_s = i + offset;
+            let i_e = i + 1;
+            let i_sw = i + offset - 1;
+
+            // Ensure indices are within bounds
+            // (Assuming yFrom and xFrom are 0 and yTo and xTo are less than the grid size)
+            // Otherwise, add boundary checks here.
+
+            // Distances from neighbors
+            let d1_se = (tridist[i_se] & mask1) + diagonal;
+            let d1_s = (tridist[i_s] & mask1) + orthogonal;
+            let d1_e = (tridist[i_e] & mask1) + orthogonal;
+            let d1_sw = (tridist[i_sw] & mask1) + diagonal;
+
+            let newDist1 = dist1;
+            if (d1_se < newDist1) newDist1 = d1_se;
+            if (d1_s < newDist1) newDist1 = d1_s;
+            if (d1_e < newDist1) newDist1 = d1_e;
+            if (d1_sw < newDist1) newDist1 = d1_sw;
+            if (newDist1 > maxDistance) newDist1 = maxDistance;
+
+            // Repeat for dist2
+            let d2_se = ((tridist[i_se] >>> 10) & mask10) + diagonal;
+            let d2_s = ((tridist[i_s] >>> 10) & mask10) + orthogonal;
+            let d2_e = ((tridist[i_e] >>> 10) & mask10) + orthogonal;
+            let d2_sw = ((tridist[i_sw] >>> 10) & mask10) + diagonal;
+
+            let newDist2 = dist2;
+            if (d2_se < newDist2) newDist2 = d2_se;
+            if (d2_s < newDist2) newDist2 = d2_s;
+            if (d2_e < newDist2) newDist2 = d2_e;
+            if (d2_sw < newDist2) newDist2 = d2_sw;
+            if (newDist2 > maxDistance) newDist2 = maxDistance;
+
+            // Repeat for dist3
+            let d3_se = ((tridist[i_se] >>> 20) & mask10) + diagonal;
+            let d3_s = ((tridist[i_s] >>> 20) & mask10) + orthogonal;
+            let d3_e = ((tridist[i_e] >>> 20) & mask10) + orthogonal;
+            let d3_sw = ((tridist[i_sw] >>> 20) & mask10) + diagonal;
+
+            let newDist3 = dist3;
+            if (d3_se < newDist3) newDist3 = d3_se;
+            if (d3_s < newDist3) newDist3 = d3_s;
+            if (d3_e < newDist3) newDist3 = d3_e;
+            if (d3_sw < newDist3) newDist3 = d3_sw;
+            if (newDist3 > maxDistance) newDist3 = maxDistance;
+
+            // Combine distances back into a single integer
+            tridist[i] = (newDist3 << 20) | (newDist2 << 10) | newDist1;
+        }
+    }
+};
+
+/*
+//shift is SizeBits aka 13. tridist is game.rps.tridist
+var computeUint10Distances = (tridist, shift, yFrom, yTo, xFrom, xTo)=>{
+	//reminds me of Van Gogh Starry Night, that things emit color in all directions. Its just dijkstra shortest path finding where
+	//up down left right costs 3, and the 4 diagonals cost 4 (instead of 3+3 so is shorter). Thats the closest I could do and it be fast enuf.
+    const orthogonal = 3;
+    const diagonal = 4;
+    const maxDistance = 1019; // Maximum distance before considered overflow
+
+    /* // Lambda functions for extracting and setting distances
+    const getDistance1 = (val) => (val & mask);
+    const getDistance2 = (val) => ((val >> 10) & mask);
+    const getDistance3 = (val) => ((val >> 20) & mask);
+    const setDistances = (d1, d2, d3) => ((d1 & mask) | ((d2 & mask) << 10) | ((d3 & mask) << 20));
+	*
+
+    // First pass: Top-left to bottom-right
+    for (let y = yFrom; y < yTo; y++) {
+        for (let x = xFrom; x < xTo; x++) {
+            let i = (y << shift) | x;
+
+            // Calculate new distances for each of the three sets
+            let newDist1 = Math.min(
+                getDistance1(tridist[i]),
+                getDistance1(tridist[i - (1 << shift) - 1]) + diagonal,
+                getDistance1(tridist[i - (1 << shift)]) + orthogonal,
+                getDistance1(tridist[i - 1]) + orthogonal,
+                getDistance1(tridist[i - (1 << shift) + 1]) + diagonal,
+                maxDistance
+            );
+
+            let newDist2 = Math.min(
+                getDistance2(tridist[i]),
+                getDistance2(tridist[i - (1 << shift) - 1]) + diagonal,
+                getDistance2(tridist[i - (1 << shift)]) + orthogonal,
+                getDistance2(tridist[i - 1]) + orthogonal,
+                getDistance2(tridist[i - (1 << shift) + 1]) + diagonal,
+                maxDistance
+            );
+
+            let newDist3 = Math.min(
+                getDistance3(tridist[i]),
+                getDistance3(tridist[i - (1 << shift) - 1]) + diagonal,
+                getDistance3(tridist[i - (1 << shift)]) + orthogonal,
+                getDistance3(tridist[i - 1]) + orthogonal,
+                getDistance3(tridist[i - (1 << shift) + 1]) + diagonal,
+                maxDistance
+            );
+
+            // Set the new distances back into the array
+            tridist[i] = setDistances(newDist1, newDist2, newDist3);
+        }
+    }
+
+    // Second pass: Bottom-right to top-left
+    for (let y = yTo - 1; y >= yFrom; y--) {
+        for (let x = xTo - 1; x >= xFrom; x--) {
+            let i = (y << shift) | x;
+
+            // Calculate new distances for each of the three sets
+            let newDist1 = Math.min(
+                getDistance1(tridist[i]),
+                getDistance1(tridist[i + (1 << shift) + 1]) + diagonal,
+                getDistance1(tridist[i + (1 << shift)]) + orthogonal,
+                getDistance1(tridist[i + 1]) + orthogonal,
+                getDistance1(tridist[i + (1 << shift) - 1]) + diagonal,
+                maxDistance
+            );
+
+            let newDist2 = Math.min(
+                getDistance2(tridist[i]),
+                getDistance2(tridist[i + (1 << shift) + 1]) + diagonal,
+                getDistance2(tridist[i + (1 << shift)]) + orthogonal,
+                getDistance2(tridist[i + 1]) + orthogonal,
+                getDistance2(tridist[i + (1 << shift) - 1]) + diagonal,
+                maxDistance
+            );
+
+            let newDist3 = Math.min(
+                getDistance3(tridist[i]),
+                getDistance3(tridist[i + (1 << shift) + 1]) + diagonal,
+                getDistance3(tridist[i + (1 << shift)]) + orthogonal,
+                getDistance3(tridist[i + 1]) + orthogonal,
+                getDistance3(tridist[i + (1 << shift) - 1]) + diagonal,
+                maxDistance
+            );
+
+            // Set the new distances back into the array
+            tridist[i] = setDistances(newDist1, newDist2, newDist3);
+        }
+    }
+};
+
+/*
+const computeBalancedDistances = (sideBits, voxelYs, voxelXs) => {
+	const side = 1 << sideBits;
+	const dist = distSqArrays[sideBits] || (distSqArrays[sideBits] = new Int32Array(1 << (sideBits << 1)));
+	dist.fill(INF);
+
+	// Initialize distance at each voxel position to 0
+	for (let v = 0; v < voxelYs.length; v++) {
+		const y = voxelYs[v];
+		const x = voxelXs[v];
+		if (y > 0 && y < side - 1 && x > 0 && x < side - 1) {
+			dist[(y << sideBits) | x] = 0;
+		}
+	}
+
+	//const orthogonal = 5;
+	//const diagonal = 7;
+	const orthogonal = 3;
+	const diagonal = 4;
+	const up = -side;
+	const down = side;
+	const left = -1;
+	const right = 1;
+	const upLeft = -side - 1;
+	const upRight = -side + 1;
+	const downLeft = side - 1;
+	const downRight = side + 1;
+
+	// First pass: Top-left to bottom-right
+	for (let y = 1; y < side - 1; y++) {
+		for (let x = 1; x < side - 1; x++) {
+			let i = (y << sideBits) | x;
+			let j = i + upLeft; // Base index for top-left
+			dist[i] = Math.min(
+				dist[i],
+				(dist[j]+diagonal)|0,
+				(dist[i+up]+orthogonal)|0,
+				(dist[i+left]+orthogonal)|0,
+				(dist[i+upRight]+diagonal)|0
+			);
+		}
+	}
+
+	// Second pass: Bottom-right to top-left
+	for (let y = side - 2; y > 0; y--) {
+		for (let x = side - 2; x > 0; x--) {
+			let i = (y << sideBits) | x;
+			let j = i + downRight; // Base index for bottom-right
+			dist[i] = Math.min(
+				dist[i],
+				(dist[j]+diagonal)|0,
+				(dist[i+down]+orthogonal)|0,
+				(dist[i+right]+orthogonal)|0,
+				(dist[i+downLeft]+diagonal)|0
+			);
+		}
+	}
+
+	return dist; // Return the updated array of distances
+};
+
+/*
+const computeBalancedDistances = (sideBits, voxelYs, voxelXs) => {
+	const side = 1 << sideBits;
+	const dist = distSqArrays[sideBits] || (distSqArrays[sideBits] = new Int32Array(1 << (sideBits << 1)));
+	dist.fill(INF);
+
+	// Initialize distance at each voxel position to 0
+	for (let v = 0; v < voxelYs.length; v++) {
+		const y = voxelYs[v];
+		const x = voxelXs[v];
+		if (y > 0 && y < side - 1 && x > 0 && x < side - 1) {
+			dist[(y << sideBits) | x] = 0;
+		}
+	}
+
+	const orthogonal = 5;
+	const diagonal = 7;
+	const up = -side;
+	const down = side;
+	const left = -1;
+	const right = 1;
+	const upLeft = -side - 1;
+	const upRight = -side + 1;
+	const downLeft = side - 1;
+	const downRight = side + 1;
+
+	// First pass: Top-left to bottom-right
+	for (let y = 1; y < side - 1; y++) {
+		for (let x = 1; x < side - 1; x++) {
+			let i = (y << sideBits) | x;
+			if (dist[i] === 0) continue; // Skip processing for voxels
+
+			let j = i + upLeft; // Top-left
+			let distance = dist[j] + diagonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+
+			j = i + up; // Top
+			distance = dist[j] + orthogonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+
+			j = i + left; // Left
+			distance = dist[j] + orthogonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+
+			j = i + upRight; // Top-right
+			distance = dist[j] + diagonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+		}
+	}
+
+	// Second pass: Bottom-right to top-left
+	for (let y = side - 2; y > 0; y--) {
+		for (let x = side - 2; x > 0; x--) {
+			let i = (y << sideBits) | x;
+			if (dist[i] === 0) continue; // Skip processing for voxels
+
+			let j = i + downRight; // Bottom-right
+			let distance = dist[j] + diagonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+
+			j = i + down; // Bottom
+			distance = dist[j] + orthogonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+
+			j = i + right; // Right
+			distance = dist[j] + orthogonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+
+			j = i + downLeft; // Bottom-left
+			distance = dist[j] + diagonal;
+			if (distance < dist[i]) {
+				dist[i] = distance;
+			}
+		}
+	}
+
+	return dist; // Return the updated array of distances
+};
+
+/*
+const computeBalancedDistances = (sideBits, voxelYs, voxelXs) => {
+	const side = 1 << sideBits;
+	const dist = distSqArrays[sideBits] || (distSqArrays[sideBits] = new Int32Array(1 << (sideBits << 1)));
+	dist.fill(INF);
+
+	// Initialize distance at each voxel position to 0
+	for (let v = 0; v < voxelYs.length; v++) {
+		const y = voxelYs[v];
+		const x = voxelXs[v];
+		if (y > 0 && y < side - 1 && x > 0 && x < side - 1) {
+			dist[(y << sideBits) | x] = 0;
+		}
+	}
+
+	const orthogonal = 5;
+	const diagonal = 7;
+
+	// First pass: Top-left to bottom-right
+	for (let y = 1; y < side - 1; y++) {
+		for (let x = 1; x < side - 1; x++) {
+			let i = (y << sideBits) | x;
+			if (dist[i] === 0) continue; // Skip processing for voxels
+
+			if (y > 0 && x > 0) { // Top-left
+				let j = i - side - 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y > 0) { // Top
+				let j = i - side;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (x > 0) { // Left
+				let j = i - 1;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y > 0 && x < side - 1) { // Top-right
+				let j = i - side + 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+		}
+	}
+
+	// Second pass: Bottom-right to top-left
+	for (let y = side - 2; y > 0; y--) {
+		for (let x = side - 2; x > 0; x--) {
+			let i = (y << sideBits) | x;
+			if (dist[i] === 0) continue; // Skip processing for voxels
+
+			if (y < side - 1 && x < side - 1) { // Bottom-right
+				let j = i + side + 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y < side - 1) { // Bottom
+				let j = i + side;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (x < side - 1) { // Right
+				let j = i + 1;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y < side - 1 && x > 0) { // Bottom-left
+				let j = i + side - 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+		}
+	}
+
+	return dist; // Return the updated array of distances
+};
+
+/*
+const computeBalancedDistances = (sideBits, voxelYs, voxelXs) => {
+	const side = 1 << sideBits;
+	//const dist = new Int32Array(side * side).fill(INF); // Initialize all distances to INF
+	const dist = distSqArrays[sideBits] || (distSqArrays[sideBits] = new Int32Array(1<<(sideBits<<1))); //reuse
+	dist.fill(INF);
+
+	// Initialize distance at each voxel position to 0
+	for (let v = 0; v < voxelYs.length; v++) {
+		const y = voxelYs[v];
+		const x = voxelXs[v];
+		if (y > 0 && y < side - 1 && x > 0 && x < side - 1) {
+			dist[(y << sideBits) | x] = 0;
+		}
+	}
+
+	const orthogonal = 5;
+	const diagonal = 7;
+	//const diagonal = 15;
+
+	// First pass: Top-left to bottom-right
+	for (let y = 1; y < side - 1; y++) {
+		for (let x = 1; x < side - 1; x++) {
+			let i = (y << sideBits) | x;
+			if (dist[i] === 0) continue; // Skip processing for voxels
+
+			// Check neighbors and update distances
+			if (y > 0 && x > 0) { // Top-left
+				let j = i - side - 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y > 0) { // Top
+				let j = i - side;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y > 0 && x < side - 1) { // Top-right
+				let j = i - side + 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (x > 0) { // Left
+				let j = i - 1;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (x < side - 1) { // Right
+				let j = i + 1;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+		}
+	}
+
+	// Second pass: Bottom-right to top-left
+	for (let y = side - 2; y > 0; y--) {
+		for (let x = side - 2; x > 0; x--) {
+			let i = (y << sideBits) | x;
+			if (dist[i] === 0) continue; // Skip processing for voxels
+
+			// Check neighbors and update distances
+			if (y < side - 1 && x < side - 1) { // Bottom-right
+				let j = i + side + 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y < side - 1) { // Bottom
+				let j = i + side;
+				let distance = dist[j] + orthogonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+			if (y < side - 1 && x > 0) { // Bottom-left
+				let j = i + side - 1;
+				let distance = dist[j] + diagonal;
+				if (distance < dist[i]) {
+					dist[i] = distance;
+				}
+			}
+		}
+	}
+
+	return dist; // Return the updated array of distances
+};
+
+/*
+const computeBalancedDistances = (sideBits, voxelYs, voxelXs) => {
+	const side = 1 << sideBits;
+	const size = side * side;
+	const distSq = new Int32Array(size).fill(INF); // Initialize all distances to INF
+
+	// Initialize distance at each voxel position to 0
+	for (let v = 0; v < voxelYs.length; v++) {
+		const y = voxelYs[v];
+		const x = voxelXs[v];
+		distSq[(y << sideBits) | x] = 0;
+	}
+
+	// Adjusted distances: orthogonal=10 and diagonal=14 to approximate sqrt(2) ratio
+	//const orthogonal = 10;
+	//const diagonal = 14;
+	const orthogonal = 5;
+	const diagonal = 7;
+
+	// Optimization for cache efficiency with CPU L1 prefetch by minimizing data dependencies and maximizing locality
+	// First pass: Top-left to bottom-right
+	for (let y = 1; y < side - 1; y++) {
+		for (let x = 1; x < side - 1; x++) {
+			let i = (y << sideBits) | x;
+			if (distSq[i] === 0) continue; // Skip processing for voxels
+
+			// Process diagonals first for better distance approximation
+			let j = i - side - 1; // Top-left
+			let distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+
+			j = i - side + 1; // Top-right
+			distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+
+			// Process orthogonal
+			j = i - side; // Top
+			distance = distSq[j] + orthogonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+		}
+	}
+
+	// Second pass: Bottom-right to top-left
+	for (let y = side - 2; y > 0; y--) {
+		for (let x = side - 2; x > 0; x--) {
+			let i = (y << sideBits) | x;
+			if (distSq[i] === 0) continue; // Skip processing for voxels
+
+			// Process diagonals first
+			let j = i + side + 1; // Bottom-right
+			distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+
+			j = i + side - 1; // Bottom-left
+			distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+
+			// Process orthogonal
+			j = i + side; // Bottom
+			distance = distSq[j] + orthogonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+		}
+	}
+
+	return distSq; // Return the updated array of distances
+};
+
+/*const computeBalancedDistances = (sideBits, voxelYs, voxelXs)=>{
+	const side = 1 << sideBits;
+	const size = side * side;
+	const distSq = new Int32Array(size).fill(INF);
+
+	// Initialize distance at each voxel position to 0
+	for (let v = 0; v < voxelYs.length; v++) {
+		const y = voxelYs[v];
+		const x = voxelXs[v];
+		distSq[(y << sideBits) | x] = 0;
+	}
+
+	// Adjusted distances: 2 for orthogonal, 3 for diagonal
+	const orthogonal = 2;
+	const diagonal = 1;
+
+	// First pass: Top-left to bottom-right
+	for (let y = 1; y < side - 1; y++) {
+		for (let x = 1; x < side - 1; x++) {
+			let i = (y << sideBits) | x;
+			if (distSq[i] === 0) continue; // Skip processing for voxels
+
+			// Top-left
+			let j = i - side - 1;
+			let distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+
+			// Top-right
+			j = i - side + 1;
+			distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+			
+			// Top
+			j = i - side;
+			distance = distSq[j] + orthogonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+		}
+	}
+
+	// Second pass: Bottom-right to top-left
+	for (let y = side - 2; y > 0; y--) {
+		for (let x = side - 2; x > 0; x--) {
+			let i = (y << sideBits) | x;
+			if (distSq[i] === 0) continue; // Skip processing for voxels
+
+			// Bottom-right
+			let j = i + side + 1;
+			let distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+
+			// Bottom-left
+			j = i + side - 1;
+			distance = distSq[j] + diagonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+			
+			// Bottom
+			j = i + side;
+			distance = distSq[j] + orthogonal;
+			if (distance < distSq[i]) {
+				distSq[i] = distance;
+			}
+		}
+	}
+
+	return distSq; // Return the updated array of distances
+};*/
+
+
+//this is actually just an approximation of distance, and the angles matter its not exact. not distance squared.
+const computeSquaredDistances_approximateAndHexagonsAndFast = (sideBits, voxelYs, voxelXs)=>{
+	const side = 1 << sideBits;
+	const sideMask = side - 1;
+	const size = side * side;
+	distSq = distSqArrays[sideBits] || (distSqArrays[sideBits] = new Int32Array(1<<(sideBits<<1))); //reuse
+    //const distSq = new Int32Array(size).fill(Infinity);
+	distSq.fill(INF);
+    
+    // Initialize distSq for voxels
+    for(let v = 0; v < voxelYs.length; v++){
+        const y = voxelYs[v] & sideMask;
+        const x = voxelXs[v] & sideMask;
+        distSq[(y << sideBits) | x] = 0;
+    }
+    
+    // First Pass: Top-Left to Bottom-Right
+    for(let y = 0; y < side; y++){
+        for(let x = 0; x < side; x++){
+            let i = (y << sideBits) | x;
+            if(distSq[i] === 0) continue; // Voxel
+            
+            // Check top-left
+            if(y > 0 && x > 0){
+                let j = ((y -1) << sideBits) | (x -1);
+                let distance = distSq[j] + 2; // Diagonal distance squared = 2
+                if(distance < distSq[i]){
+                    distSq[i] = distance;
+                }
+            }
+            // Check top
+            if(y > 0){
+                let j = ((y -1) << sideBits) | x;
+                let distance = distSq[j] + 1; // Vertical distance squared =1
+                if(distance < distSq[i]){
+                    distSq[i] = distance;
+                }
+            }
+            // Check top-right
+            if(y >0 && x < side -1){
+                let j = ((y -1) << sideBits) | (x +1);
+                let distance = distSq[j] + 2; // Diagonal distance squared =2
+                if(distance < distSq[i]){
+                    distSq[i] = distance;
+                }
+            }
+        }
+    }
+    
+    // Second Pass: Bottom-Right to Top-Left
+    for(let y = side -1; y >=0; y--){
+        for(let x = side -1; x >=0; x--){
+            let i = (y << sideBits) | x;
+            if(distSq[i] ===0) continue; // Voxel
+            
+            // Check bottom-right
+            if(y < side -1 && x < side -1){
+                let j = ((y +1) << sideBits) | (x +1);
+                let distance = distSq[j] + 2; // Diagonal distance squared =2
+                if(distance < distSq[i]){
+                    distSq[i] = distance;
+                }
+            }
+            // Check bottom
+            if(y < side -1){
+                let j = ((y +1) << sideBits) | x;
+                let distance = distSq[j] +1; // Vertical distance squared =1
+                if(distance < distSq[i]){
+                    distSq[i] = distance;
+                }
+            }
+            // Check bottom-left
+            if(y < side -1 && x >0){
+                let j = ((y +1) << sideBits) | (x -1);
+                let distance = distSq[j] +2; // Diagonal distance squared =2
+                if(distance < distSq[i]){
+                    distSq[i] = distance;
+                }
+            }
+        }
+    }
+    
+    return distSq; // distance squared from each pixel to nearest voxel.
+};
+
+//Opensource MIT licensed by Ben F Rayfield, that returns int array, 1 int per pixel,
+//of distance squared to nearest voxel, of sparse voxels, in average constant time per pixel.
+//https://github.com/benrayfield/jsutils/blob/master/src/ComputeSquaredDistancesForConstantCostPerPixel.js (that may be an old version as i modify it here)
+const computeSquaredDistances_exactButSlow = (sideBits, voxelYs, voxelXs)=>{
+  // Ensure sideBits does not exceed 15 to prevent integer overflow in squared distances
+  if (sideBits > 15) throw new Error('sideBits must be <= 15');
+
+  const side = 1 << sideBits;           // Compute side length (e.g., 512 for sideBits=9)
+  const size = side * side;             // Total number of pixels in the grid
+
+  // Initialize presence array: 1 where voxel exists, else 0
+  const presence = new Uint8Array(size);
+  for (let i = 0; i < voxelYs.length; i++) {
+    const y = voxelYs[i];
+    const x = voxelXs[i];
+    if (y >= 0 && y < side && x >= 0 && x < side) {
+      presence[(y << sideBits) | x] = 1; // Bitwise indexing for faster computation
+    }
+  }
+
+  const INF = 0x7FFFFFFF;                // Representation of infinity for distances
+  const distRow = new Int32Array(size);   // Intermediate distance array after row-wise transform
+  const finalDist = new Int32Array(size); // Final distance array after column-wise transform
+
+  // Initialize distRow: 0 for voxels, INF otherwise
+  for (let i = 0; i < size; i++) {
+    distRow[i] = presence[i] ? 0 : INF;
+  }
+
+  /**
+   * Row-wise Distance Transform (Two Passes: Forward and Backward)
+   * Optimized for cache locality by accessing memory sequentially.
+   */
+  for (let y = 0; y < side; y++) {
+    const rowOffset = y << sideBits; // Compute row offset using bitwise shift (y * side)
+
+    // Forward Pass: Left to Right
+    let lastVoxelX = -INF;
+    for (let x = 0; x < side; x++) {
+      const idx = rowOffset | x; // Bitwise OR for faster index computation
+      if (presence[idx] === 1) {
+        lastVoxelX = x;
+        distRow[idx] = 0; // Distance to itself is 0
+      } else if (lastVoxelX !== -INF) {
+        const dx = x - lastVoxelX;
+        const dxSq = Math.imul(dx, dx); // Accurate computation of dx²
+        if (dxSq < distRow[idx]) {
+          distRow[idx] = dxSq; // Update distance if smaller
+        }
+      }
+    }
+
+    // Backward Pass: Right to Left
+    lastVoxelX = -INF;
+    for (let x = side - 1; x >= 0; x--) {
+      const idx = rowOffset | x;
+      if (presence[idx] === 1) {
+        lastVoxelX = x;
+        distRow[idx] = 0;
+      } else if (lastVoxelX !== -INF) {
+        const dx = lastVoxelX - x;
+        const dxSq = Math.imul(dx, dx);
+        if (dxSq < distRow[idx]) {
+          distRow[idx] = dxSq;
+        }
+      }
+    }
+  }
+
+  // Initialize finalDist as a copy of distRow
+  for (let i = 0; i < size; i++) {
+    finalDist[i] = distRow[i];
+  }
+
+  /**
+   * Column-wise Distance Transform (Two Passes: Forward and Backward)
+   * Implements the Felzenszwalb and Huttenlocher 1D Distance Transform for each column.
+   * This ensures accurate computation of squared Euclidean distances.
+   */
+
+  /**
+   * Helper function to compute the 1D squared distance transform.
+   * Implements the algorithm by Felzenszwalb and Huttenlocher (2004).
+   * @param {Int32Array} f - The input array representing squared horizontal distances.
+   * @param {number} n - The length of the input array.
+   * @returns {Int32Array} - The output array representing squared Euclidean distances.
+   */
+  const distanceTransform1D = (f, n) => {
+    const d = new Int32Array(n);
+    const v = new Int32Array(n);
+    const z = new Float32Array(n + 1);
+    let k = 0;
+    v[0] = 0;
+    z[0] = -Infinity;
+    z[1] = +Infinity;
+
+    for (let q = 1; q < n; q++) {
+      let s;
+      do {
+        const i = v[k];
+        // Compute the intersection point between the parabola at i and q
+        s = ((f[q] + Math.imul(q, q)) - (f[i] + Math.imul(i, i))) / (2 * q - 2 * i);
+        if (s <= z[k]) {
+          k--;
+        } else {
+          break;
+        }
+      } while (k >= 0);
+
+      k++;
+      v[k] = q;
+      z[k] = s;
+      z[k + 1] = +Infinity;
+    }
+
+    k = 0;
+    for (let q = 0; q < n; q++) {
+      while (z[k + 1] < q) {
+        k++;
+      }
+      const i = v[k];
+      d[q] = Math.imul(q - i, q - i) + f[i];
+    }
+
+    return d;
+  };
+
+  // Perform column-wise distance transform using the 1D distance transform
+  for (let x = 0; x < side; x++) {
+    // Extract the column's row-wise distances
+    const f = new Int32Array(side);
+    for (let y = 0; y < side; y++) {
+      const idx = (y << sideBits) | x;
+      f[y] = distRow[idx];
+    }
+
+    // Compute the 1D distance transform for the column
+    const dt = distanceTransform1D(f, side);
+
+    // Update the finalDist array with the computed distances
+    for (let y = 0; y < side; y++) {
+      const idx = (y << sideBits) | x;
+      finalDist[idx] = dt[y];
+    }
+  }
+
+  return finalDist; // Return the final squared distance array
+};
+
+
+window.onload = ()=>{
+	timeStarted = time();
+	doGraphicsDtAgeByterectAndMore();
+};
+
+
+
+</script>
+</head>
+<body>
+<textarea id=mainTextarea onInput=game.onTextareaInput(this.value); style="background-color:black;color:white;position:absolute;z-index:10;opacity:.7" rows=60 cols=70>testing</textarea>
+</body>
+</html>
