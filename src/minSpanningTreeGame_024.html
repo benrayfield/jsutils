@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Min Spanning Tree Game</title>
+<script>
+var canvas = null;
+var ctx = null;
+
+var diameter = 45;
+var epsilon = .5**20;
+var edges = [];
+
+var mouseY = 0;
+var mouseX = 0;
+
+// Initial mouseMoved handler to update the position of the first ball
+var mouseMoved = function(y, x){
+    let state = GetState();
+    /*state[0] = mouseY = y; // Y position of the first ball
+    state[2] = mouseX = x; // X position of the first ball
+    state[1] = state[3] = 0; // Reset velocities
+	*/
+	mouseY = y; // Y position of the first ball
+    mouseX = x; // X position of the first ball
+	state[YV] = state[XV] = 0; //set velocity of mouse ball to 0
+	state[YP] = mouseY;
+	state[XP] = mouseX;
+    SetState(state);
+};
+
+// Generate random points
+//const numPoints = 100;
+const numPoints = 50;
+var points = [];
+
+// GetState function to encapsulate the game state as a vector
+var GetState = () => {
+    let state = new Float64Array(numPoints * 4);
+    points.forEach((point, index) => {
+        let base = index * 4;
+        state[base] = point.y;
+        state[base + 1] = point.yv;
+        state[base + 2] = point.x;
+        state[base + 3] = point.xv;
+    });
+    return state;
+};
+
+// SetState function to apply a vectorized state to the game objects
+var SetState = (state) => {
+    points.forEach((point, index) => {
+        let base = index * 4;
+        point.y = state[base + YP];
+        point.yv = state[base + YV];
+        point.x = state[base + XP];
+        point.xv = state[base + XV];
+    });
+};
+
+const YP = 0; //y position
+const YV = 1; //y velocity
+const XP = 2; //x position
+const XV = 3; //x velocity
+
+//only for distance between pairs of points selected by minimum spanning tree
+//var distanceToLoss = d=>((Math.max(0, d-diameter)**2));
+//var distanceToLoss = d=>(180*(Math.max(0, d-diameter)**2));
+//var distanceToLoss = d=>(70*(Math.max(0, d-diameter)**2));
+var distanceToLoss = d=>(20*(Math.max(0, d-diameter)**2));
+//var distanceToLoss = d=>(180*(d**2));
+
+var edgeDistance = edge=>Math.hypot(edge.u.y-edge.v.y, edge.u.x-edge.v.x);
+
+var pointPointDistance = (pointA,pointB)=>Math.hypot(pointA.y-pointB.y, pointA.x-pointB.x);
+
+var pointPointLoss = (pointA,pointB)=>distanceToLoss(pointPointDistance(pointA,pointB));
+
+var edgeLoss = edge=>distanceToLoss(edgeDistance(edge));
+
+var LossOfVec = vec=>{
+	let loss = 0;
+	let prevDiameter = diameter;
+	diameter = 0; //so mouse ball goes exactly toward mouse, doesnt stop when its a diameter away.
+	loss += distanceToLoss(Math.hypot(mouseY-vec[YP], mouseX-vec[XP])); //cuz mouse is first ball
+	diameter = prevDiameter;
+	for(let edge of edges){ //use existing MST topology
+		let edgeIndexA = edge.u*4;
+		let edgeIndexB = edge.v*4;
+		let dy = vec[edgeIndexA+YP]-vec[edgeIndexB+YP];
+		let dx = vec[edgeIndexA+XP]-vec[edgeIndexB+XP];
+		let distance = Math.hypot(dy,dx);
+		loss += distanceToLoss(distance);
+	}
+	return loss;
+};
+
+function gradientOfVec(state){
+	let modState = new Float64Array(state.length);
+	for(let i=0; i<state.length; i++){
+		modState[i] = state[i];
+	}
+	let loss = new Float64Array(state.length+1);
+	for(let i=0; i<loss.length; i++){ //last one i==state.length aka loss.length-1, is the neutral loss
+		let prev = modState[i];
+		if(i<state.length) modState[i] += epsilon;
+		loss[i] = LossOfVec(modState);
+		if(i<state.length) modState[i] = prev;
+	}
+	let gradient = modState;
+	for(let i=0; i<state.length; i++){
+		gradient[i] = (loss[i]-loss[state.length])/epsilon;
+	}
+	return gradient;
+};
+
+var velocityDecay = 1.7;
+//var velocityDecay = .0013;
+
+function nextState(state, dt) {
+    //const numIterations = 1000; // Control the number of Gauss-Seidel iterations
+	const numIterations = 100; // Control the number of Gauss-Seidel iterations
+    let newState = new Float64Array(state.length); // To hold the new positions and velocities
+    newState.set(state); // Initialize with current state
+
+    // Function to update a single node's position based on one of its connected edges
+    function adjustPosition(index, connectedIndex, currentDistance, targetDistance) {
+        // Vector from this node to connected node
+        let dx = newState[connectedIndex * 4 + XP] - newState[index * 4 + XP];
+        let dy = newState[connectedIndex * 4 + YP] - newState[index * 4 + YP];
+        let distance = Math.sqrt(dx * dx + dy * dy);
+        //let error = distance - targetDistance;
+		let error = Math.max(0, distance - targetDistance);
+
+        // Normalize the direction vector
+        dx /= distance;
+        dy /= distance;
+
+        // Move the point closer or further away based on the error
+        let correctionMagnitude = error * dt; // dt controls the rate of adjustment
+		//let correctionMagnitude = Math.sqrt(error) * dt; // dt controls the rate of adjustment
+        newState[index * 4 + XP] += correctionMagnitude * dx;
+        newState[index * 4 + YP] += correctionMagnitude * dy;
+    }
+
+    // Perform iterative adjustments
+    for (let iter = 0; iter < numIterations; iter++) {
+        for (let edge of edges) {
+            let u = edge.u, v = edge.v;
+            let distanceCurrent = pointPointDistance({x: newState[u * 4 + XP], y: newState[u * 4 + YP]}, {x: newState[v * 4 + XP], y: newState[v * 4 + YP]});
+            let targetDistance = diameter; // Target distance is the diameter, modify if necessary
+            adjustPosition(u, v, distanceCurrent, targetDistance);
+            adjustPosition(v, u, distanceCurrent, targetDistance); // Symmetric adjustment
+        }
+    }
+
+    // Update velocities based on position changes
+	let velMul = Math.exp(-dt*velocityDecay);
+    for (let i = 0; i < numPoints; i++) {
+        newState[i * 4 + YV] = state[i * 4 + YV] + (newState[i * 4 + YP] - state[i * 4 + YP]) / dt;
+        newState[i * 4 + XV] = state[i * 4 + XV] + (newState[i * 4 + XP] - state[i * 4 + XP]) / dt;
+		newState[i * 4 + YV] *= velMul;
+		newState[i * 4 + XV] *= velMul;
+		newState[i * 4 + YP] = state[i * 4 + YP] + .5*dt*newState[i * 4 + YV];
+		newState[i * 4 + XP] = state[i * 4 + XP] + .5*dt*newState[i * 4 + XV];
+		
+    }
+
+    return newState;
+}
+
+
+
+
+// nextState function to compute the next state of the game from the current state
+function nextStateSimple(state, dt) {
+    let newState = new Float64Array(state.length);
+	let gradient = gradientOfVec(state);
+	let velMul = Math.exp(-dt*velocityDecay);
+	for (let i = 0; i < state.length; i += 4){
+		newState[i+YP] = state[i+YP]+dt*state[i+YV];
+		newState[i+XP] = state[i+XP]+dt*state[i+XV];
+		newState[i+YV] = (state[i+YV]-dt*gradient[i+YP])*velMul;
+		newState[i+XV] = (state[i+XV]-dt*gradient[i+XP])*velMul;
+	}
+    return newState;
+}
+
+function randomVector(baseVec) {
+    let newVec = new Float64Array(baseVec.length);
+    for (let i = 0; i < baseVec.length; i++) {
+        newVec[i] = baseVec[i] + (Math.random() * 20 - 10); // Adjust range according to expected variation
+    }
+    return newVec;
+}
+
+function createMidpoint(vec1, vec2) {
+    let midpoint = new Float64Array(vec1.length);
+    for (let i = 0; i < vec1.length; i++) {
+        midpoint[i] = (vec1[i] + vec2[i]) / 2;
+    }
+    return midpoint;
+}
+
+function mutateVector(vec) {
+    for (let i = 0; i < vec.length; i++) {
+        if (Math.random() < 0.5) { // 50% chance to mutate each element
+            vec[i] += (Math.random() * 10 - 5); // Small mutation
+        }
+    }
+}
+
+/*function nextState(state, dt) {
+    //const velocityDecay = 0.1;
+    let newState = new Float64Array(state.length);
+    let gradient = gradientOfVec(state); // Assume gradientOfVec returns the gradient of the loss function
+    
+    // Gradient descent step to update positions directly
+    for (let i = 0; i < state.length; i += 4) {
+        newState[i] = state[i] - gradient[i] * dt; // Update Y position
+        newState[i + 2] = state[i + 2] - gradient[i + 2] * dt; // Update X position
+    }
+
+    // Calculate the distance moved and apply to velocities
+    let distanceMoved = new Float64Array(state.length);
+    for (let i = 0; i < state.length; i += 4) {
+        distanceMoved[i] = newState[i] - state[i]; // Difference in Y position
+        distanceMoved[i + 2] = newState[i + 2] - state[i + 2]; // Difference in X position
+    }
+
+    // Normalize the distance moved and calculate velocity changes
+    let norm = Math.sqrt(distanceMoved.reduce((acc, val) => acc + val * val, 0));
+    let velMul = Math.exp(-dt * velocityDecay); // Apply velocity decay
+    for (let i = 0; i < state.length; i += 4) {
+        newState[i + 1] = (distanceMoved[i] / norm) * velMul; // Update Y velocity
+        newState[i + 3] = (distanceMoved[i + 2] / norm) * velMul; // Update X velocity
+    }
+
+    return newState;
+}*/
+
+
+
+
+
+
+
+function generateRandomVector(baseVec) {
+    let newVec = new Float64Array(baseVec.length);
+    for (let i = 0; i < baseVec.length; i++) {
+        newVec[i] = baseVec[i] + (Math.random() * 20 - 10);  // Random perturbation
+    }
+    return newVec;
+}
+
+// Function to compute the Minimum Spanning Tree using Prim's algorithm
+function computeMST(points) {
+    const numPoints = points.length;
+    const edges = [];
+    const inMST = new Array(numPoints).fill(false);
+    const minEdge = new Array(numPoints).fill(Infinity);
+    const parent = new Array(numPoints).fill(-1);
+
+    minEdge[0] = 0; // Start from the first point
+
+    for (let i = 0; i < numPoints; i++) {
+        let u = -1;
+
+        // Find the vertex with the minimum edge weight that is not included in MST
+        for (let j = 0; j < numPoints; j++) {
+            if (!inMST[j] && (u === -1 || minEdge[j] < minEdge[u])) {
+                u = j;
+            }
+        }
+
+        inMST[u] = true; // Include this vertex in MST
+
+        // Collect the MST edges if it's not the first point
+        if (parent[u] !== -1) {
+            edges.push({u: parent[u], v: u, weight: minEdge[u]});
+        }
+
+        // Update the edge weights for the adjacent vertices
+        for (let v = 0; v < numPoints; v++) {
+            const weight = Math.sqrt(Math.pow(points[u].x - points[v].x, 2) + Math.pow(points[u].y - points[v].y, 2));
+            if (!inMST[v] && weight < minEdge[v]) {
+                parent[v] = u;
+                minEdge[v] = weight;
+            }
+        }
+    }
+
+    return edges;
+}
+
+// Draw edges of the MST
+function drawEdges(edges, points){
+    ctx.strokeStyle = "#FF5733";
+    ctx.lineWidth = 1.5;
+    edges.forEach(edge => {
+        ctx.beginPath();
+        ctx.moveTo(points[edge.u].x, points[edge.u].y);
+        ctx.lineTo(points[edge.v].x, points[edge.v].y);
+        ctx.stroke();
+    });
+}
+
+var mainLoop = function(){
+    let dt = 1/60; //TODO measure this and limit to range 0 to .1.
+    edges = computeMST(points); // Compute and update MST
+	mouseMoved(mouseY,mouseX); //so it doesnt keep constraint solving to move mouse ball.
+    let state = GetState();
+    let newState = nextState(state, dt);
+    SetState(newState);
+    visualizeMST(true);
+    requestAnimationFrame(mainLoop);
+};
+
+
+// Draw edges of the MST
+function drawEdges(edges, points){
+	ctx.strokeStyle = "#FF5733";
+	ctx.lineWidth = 1.5;
+	edges.forEach(({ u, v }) => {
+		ctx.beginPath();
+		ctx.moveTo(points[u].x, points[u].y);
+		ctx.lineTo(points[v].x, points[v].y);
+		ctx.stroke();
+	});
+}
+
+function visualizeMST(isClearCanvas){
+    if (isClearCanvas) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    points.forEach(point => {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, diameter / 2, 0, Math.PI * 2);
+        ctx.fill();
+    });
+	drawEdges(edges, points, isClearCanvas);
+}
+
+window.onload = () => {
+    canvas = document.getElementById("mstCanvas");
+    ctx = canvas.getContext("2d");
+    points = Array.from({ length: numPoints }, (_, i) => ({
+        y: Math.random() * canvas.height,
+        x: Math.random() * canvas.width,
+        yv: 0,
+        xv: 0
+    }));
+    mainLoop();
+};
+</script>
+</head>
+<body>
+    <canvas id="mstCanvas" width="1400" height="900" onmousemove="let rect = this.getBoundingClientRect(); mouseMoved(event.clientY - rect.top, event.clientX - rect.left);"></canvas>
+</body>
+</html>
