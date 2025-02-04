@@ -3852,11 +3852,11 @@ var Game = function(gameVarInNamespaceVar){
 	//	let normedPreyPoten = preyPoten/voxels.length;
 	//	gamePoten += rpsAccelMul*(normedPreyPoten-normedPredatorPoten);
 	//this.rpsAccelMul = this.bo.rpsAccelMul.if0(300);
-	this.rpsAccelMul = this.bo.rpsAccelMul.if0(30000);
+	this.rpsAccelMul = this.bo.rpsAccelMul.if0(300);
 	
 	//do rock paper scissors?, using teams REDTEAM, BLUETEAM, GREENTEAM, and of course GRAYTEAM is neutral and not directly part of that
 	//this.doRps = this.bo.doRps.setNow(0); //off
-	this.doRps = this.bo.rpsAccelMul.setNow(1); //on
+	this.doRps = this.bo.doRps.setNow(1); //on
 	console.log('Game.doRps.p='+this.doRps.p+' (1 to do Rock Paper Scissors with REDTEAM, BLUETEAM, GREENTEAM, 0 not to)');
 	//TODO also (not just doRps) this.doYXRps which will be a simpler far more efficient kind of RPS, that just uses Y and X, not per voxel.
 	//You would normally do doRps or doYXRps or neither, but technically you could do both.
