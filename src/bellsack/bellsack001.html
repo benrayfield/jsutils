@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Raymarching Bellcurves Demo - opensource MIT license by Ben F Rayfield 2025-3-25 - OpenAI license says "We hereby assign to you all our right, title, and interest, if any, in and to Output. opensource MIT."</title>
+</head>
+<body>
+<canvas id="c" width="320" height="240"></canvas>
+<script>
+"use strict";
+
+// We'll store 200 bellcurves: each has a position (x,y,z), a radius, and a strength.
+const NUM_BELLS=200;
+let bellPositions=new Float32Array(NUM_BELLS*3);
+let bellRadii=new Float32Array(NUM_BELLS);
+let bellStrengths=new Float32Array(NUM_BELLS);
+function initBellcurves(){
+	// Generate random positions within a small area, random radius & strength
+	for(let i=0;i<NUM_BELLS;i++){
+		let idx=i*3;
+		bellPositions[idx+0]=(Math.random()-0.5)*4.0; // x
+		bellPositions[idx+1]=(Math.random()-0.5)*4.0; // y
+		bellPositions[idx+2]=(Math.random()-0.5)*4.0; // z
+		bellRadii[i]=0.2+Math.random()*0.3;
+		bellStrengths[i]=Math.random()*2.0-1.0;
+	}
+}
+
+// Vertex shader: pass through a full-screen quad, pass UV to fragment
+const vertexShaderSource=`#version 300 es
+in vec2 position;
+out vec2 uv;
+void main(){
+	uv=position*0.5+0.5;
+	gl_Position=vec4(position,0.0,1.0);
+}
+`;
+
+// Fragment shader: naive raymarch of the implicit surface sum=0
+const fragmentShaderSource=`#version 300 es
+precision highp float;
+
+in vec2 uv;
+out vec4 outColor;
+
+uniform float time;
+uniform vec3 bellPositions[`+NUM_BELLS+`];
+uniform float bellRadii[`+NUM_BELLS+`];
+uniform float bellStrengths[`+NUM_BELLS+`];
+
+void main(){
+	// Map uv into -1..1 range
+	vec2 st=uv*2.0-1.0;
+
+	// Simple rotating camera
+	float angle=time*0.2;
+	vec3 camPos=vec3(3.0*sin(angle),0.0,3.0*cos(angle));
+	vec3 forward=normalize(-camPos);
+	vec3 right=normalize(cross(vec3(0.0,1.0,0.0),forward));
+	vec3 up=cross(forward,right);
+	float fov=1.0;
+	vec3 rayDir=normalize(forward+st.x*right*fov+st.y*up*fov);
+
+	// Raymarch to find where sum(bellcurves)=0
+	float t=0.0;
+	float tMax=20.0;
+	float stepSize=0.1;
+	float lastVal=0.0;
+	bool found=false;
+	vec3 hitPos=vec3(0.0);
+	float val=0.0;
+
+	for(int i=0;i<64;i++){
+		vec3 p=camPos+rayDir*t;
+		val=0.0;
+		for(int j=0;j<`+NUM_BELLS+`;j++){
+			vec3 d=p-bellPositions[j];
+			float dist2=dot(d,d);
+			val+=bellStrengths[j]*exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+		}
+		if(i>0&&sign(val)!=sign(lastVal)){
+			found=true;
+			// approximate intersection by linear interpolation
+			float dt=stepSize*abs(lastVal)/(abs(val)+abs(lastVal));
+			hitPos=p-rayDir*dt;
+			break;
+		}
+		lastVal=val;
+		t+=stepSize;
+		if(t>tMax){
+			break;
+		}
+	}
+	if(!found){
+		outColor=vec4(0.0,0.0,0.0,1.0);
+		return;
+	}
+
+	// Now compute normal as gradient of sum of bellcurves
+	float eps=0.001;
+	float baseVal=0.0;
+	{
+		// reuse last computed 'val' for hitPos precisely
+		vec3 d2=hitPos-camPos; 
+		baseVal=0.0;
+		for(int j=0;j<`+NUM_BELLS+`;j++){
+			vec3 d=hitPos-bellPositions[j];
+			float dist2=dot(d,d);
+			baseVal+=bellStrengths[j]*exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+		}
+	}
+	vec3 grad=vec3(0.0);
+	// partial x
+	{
+		vec3 px=hitPos+vec3(eps,0.0,0.0);
+		float vx=0.0;
+		for(int j=0;j<`+NUM_BELLS+`;j++){
+			vec3 d=px-bellPositions[j];
+			float dist2=dot(d,d);
+			vx+=bellStrengths[j]*exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+		}
+		grad.x=(vx-baseVal)/eps;
+	}
+	// partial y
+	{
+		vec3 py=hitPos+vec3(0.0,eps,0.0);
+		float vy=0.0;
+		for(int j=0;j<`+NUM_BELLS+`;j++){
+			vec3 d=py-bellPositions[j];
+			float dist2=dot(d,d);
+			vy+=bellStrengths[j]*exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+		}
+		grad.y=(vy-baseVal)/eps;
+	}
+	// partial z
+	{
+		vec3 pz=hitPos+vec3(0.0,0.0,eps);
+		float vz=0.0;
+		for(int j=0;j<`+NUM_BELLS+`;j++){
+			vec3 d=pz-bellPositions[j];
+			float dist2=dot(d,d);
+			vz+=bellStrengths[j]*exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+		}
+		grad.z=(vz-baseVal)/eps;
+	}
+	vec3 N=normalize(grad);
+
+	// Simple lambert shading with single light direction
+	vec3 lightDir=normalize(vec3(1.0,1.0,1.0));
+	float diffuse=max(dot(N,lightDir),0.0);
+	outColor=vec4(vec3(diffuse),1.0);
+}
+`;
+
+// Compile a shader
+function compileShader(gl,type,src){
+	let s=gl.createShader(type);
+	gl.shaderSource(s,src);
+	gl.compileShader(s);
+	if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+		console.log(gl.getShaderInfoLog(s));
+		throw new Error("Shader compile error");
+	}
+	return s;
+}
+
+function createProgram(gl,vsSrc,fsSrc){
+	let vs=compileShader(gl,gl.VERTEX_SHADER,vsSrc);
+	let fs=compileShader(gl,gl.FRAGMENT_SHADER,fsSrc);
+	let prog=gl.createProgram();
+	gl.attachShader(prog,vs);
+	gl.attachShader(prog,fs);
+	gl.linkProgram(prog);
+	if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){
+		console.log(gl.getProgramInfoLog(prog));
+		throw new Error("Program link error");
+	}
+	return prog;
+}
+
+initBellcurves();
+
+let canvas=document.getElementById("c");
+let gl=canvas.getContext("webgl2");
+if(!gl){
+	alert("WebGL2 not supported");
+}
+let program=createProgram(gl,vertexShaderSource,fragmentShaderSource);
+
+// Create a fullscreen quad
+let quadVerts=new Float32Array([
+	-1,-1,
+	 1,-1,
+	-1, 1,
+	-1, 1,
+	 1,-1,
+	 1, 1
+]);
+let vbo=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+gl.bufferData(gl.ARRAY_BUFFER,quadVerts,gl.STATIC_DRAW);
+
+let vao=gl.createVertexArray();
+gl.bindVertexArray(vao);
+let posLoc=gl.getAttribLocation(program,"position");
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,2,gl.FLOAT,false,0,0);
+gl.bindVertexArray(null);
+
+// Get uniform locations
+gl.useProgram(program);
+let timeLoc=gl.getUniformLocation(program,"time");
+let bellPosLoc=gl.getUniformLocation(program,"bellPositions");
+let bellRadiiLoc=gl.getUniformLocation(program,"bellRadii");
+let bellStrLoc=gl.getUniformLocation(program,"bellStrengths");
+
+// Initialize the uniforms once
+gl.uniform3fv(bellPosLoc,bellPositions);
+gl.uniform1fv(bellRadiiLoc,bellRadii);
+gl.uniform1fv(bellStrLoc,bellStrengths);
+
+function render(t){
+	// Convert ms to seconds
+	let secs=t*0.001;
+	gl.viewport(0,0,canvas.width,canvas.height);
+	gl.clearColor(0,0,0,1);
+	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+	gl.useProgram(program);
+	gl.bindVertexArray(vao);
+
+	// Send time
+	gl.uniform1f(timeLoc,secs);
+
+	// Draw
+	gl.drawArrays(gl.TRIANGLES,0,6);
+
+	gl.bindVertexArray(null);
+	requestAnimationFrame(render);
+}
+
+// Aim ~60fps automatically via requestAnimationFrame
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

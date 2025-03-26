@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Raymarching Bellcurves with Quaternions, Gamepad & Sparse Spatial Grid - MIT License</title>
+<style>
+  body { margin: 0; padding: 0; background: #222; }
+  #c { display: block; margin: 0 auto; background: black; }
+</style>
+</head>
+<body>
+<canvas id="c" width="640" height="480"></canvas>
+<script>
+"use strict";
+
+/***********************************************************************
+ *                 1) LARGE-SCALE BELL CURVE LOGIC
+ **********************************************************************/
+
+// We'll store up to 100,000 BellCurves, but only send the closest 200 to the GPU each frame.
+
+// Max number of bellcurves that the GPU fragment shader can handle at once:
+const GPU_BELL_COUNT = 200;
+
+// We'll create 100,000 bellcurves for the world.
+const TOTAL_BELLS = 100000;
+
+// Some wide area for them to spread out in. We'll scatter them in [-WORLD_SIZE/2..WORLD_SIZE/2].
+//const WORLD_SIZE = 1000.0;
+const WORLD_SIZE = 100.0;
+
+// We'll define a class to store properties of each BellCurve, to keep the data tidy.
+class BellCurve {
+    constructor(x, y, z, radius, strength) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.radius = radius;
+        this.strength = strength;
+    }
+}
+
+// We'll also define a 3D spatial grid for efficiently searching for bellcurves near the camera.
+class SpatialGrid {
+    // We specify the cellSize in world units. We'll store a map from "cellKey" => array of bellcurves.
+    constructor(cellSize) {
+        this.cellSize = cellSize;
+        this.cells = new Map();
+    }
+
+    // Compute a cell key string from (x, y, z)
+    _cellKey(x, y, z) {
+        const ix = Math.floor(x / this.cellSize);
+        const iy = Math.floor(y / this.cellSize);
+        const iz = Math.floor(z / this.cellSize);
+        return `${ix},${iy},${iz}`;
+    }
+
+    insert(bc) {
+        const key = this._cellKey(bc.x, bc.y, bc.z);
+        if(!this.cells.has(key)) {
+            this.cells.set(key, []);
+        }
+        this.cells.get(key).push(bc);
+    }
+
+    // Return all bellcurves in the cubic region [center +/- range].
+    queryNearby(cx, cy, cz, range) {
+        const minX = Math.floor((cx - range) / this.cellSize);
+        const maxX = Math.floor((cx + range) / this.cellSize);
+        const minY = Math.floor((cy - range) / this.cellSize);
+        const maxY = Math.floor((cy + range) / this.cellSize);
+        const minZ = Math.floor((cz - range) / this.cellSize);
+        const maxZ = Math.floor((cz + range) / this.cellSize);
+        const results = [];
+
+        for(let ix = minX; ix <= maxX; ix++){
+            for(let iy = minY; iy <= maxY; iy++){
+                for(let iz = minZ; iz <= maxZ; iz++){
+                    const key = `${ix},${iy},${iz}`;
+                    if(this.cells.has(key)) {
+                        results.push(...this.cells.get(key));
+                    }
+                }
+            }
+        }
+        return results;
+    }
+}
+
+// We'll store all 100k bellcurves here, plus the grid.
+let allBellcurves = [];
+let spatialGrid = null;
+
+/**
+ * Build the huge set of bellcurves and place them into a SpatialGrid.
+ * Each bellcurve is randomly scattered in [-WORLD_SIZE/2..WORLD_SIZE/2].
+ * Each has random radius & strength, ~ like your 200-bell version but scaled.
+ */
+function initLargeBellcurves() {
+    // Create the grid with some cell size. 
+    // - If cellSize is too small, we'll have many empty cells. 
+    // - If too big, queries are less efficient. 
+    // We'll pick 10. Adjust if desired.
+    spatialGrid = new SpatialGrid(10);
+
+    for(let i=0; i < TOTAL_BELLS; i++){
+        const x = (Math.random()-0.5)*WORLD_SIZE;
+        const y = (Math.random()-0.5)*WORLD_SIZE;
+        const z = (Math.random()-0.5)*WORLD_SIZE;
+        const r = 0.2 + Math.random()*0.3;
+        const s = Math.random()*2.0 - 1.0;
+        const bc = new BellCurve(x, y, z, r, s);
+        allBellcurves.push(bc);
+        spatialGrid.insert(bc);
+    }
+    console.log(`Created ${TOTAL_BELLS} bellcurves in a ${WORLD_SIZE}^3 region`);
+}
+
+/***********************************************************************
+ * 2) WEBGL SHADER CODE - STILL 200 BELL CURVES IN THE FRAGMENT SHADER
+ **********************************************************************/
+
+// For clarity, we keep GPU_BELL_COUNT = 200 in the uniform arrays. The
+// nearest 200 will be placed into these arrays each frame, effectively
+// letting the GPU fragment shader do the sum of those 200 only.
+
+const vertexShaderSource = `#version 300 es
+in vec2 position;
+out vec2 uv;
+void main(){
+    uv = position * 0.5 + 0.5;
+    gl_Position = vec4(position, 0.0, 1.0);
+}
+`;
+
+const fragmentShaderSource = `#version 300 es
+precision highp float;
+
+in vec2 uv;
+out vec4 outColor;
+
+uniform float time;
+uniform vec3 camPos;
+uniform vec3 camForward;
+uniform vec3 camRight;
+uniform vec3 camUp;
+
+// We'll do exactly 200 in our uniform arrays, ignoring any others
+uniform vec3 bellPositions[${GPU_BELL_COUNT}];
+uniform float bellRadii[${GPU_BELL_COUNT}];
+uniform float bellStrengths[${GPU_BELL_COUNT}];
+
+uniform vec3 color1;
+uniform vec3 color2;
+uniform vec3 color3;
+
+const float fov = 1.0;
+
+void main(){
+    // Convert 0..1 UV to -1..1
+    vec2 st = uv * 2.0 - 1.0;
+    // Build a ray from the camera orientation
+    vec3 rayDir = normalize(camForward + st.x * camRight * fov + st.y * camUp * fov);
+
+    // Raymarch
+    float t = 0.0;
+    float tMax = 100.0;  
+    float stepSize = 0.1;
+    float lastVal = 0.0;
+    bool found = false;
+    vec3 hitPos = vec3(0.0);
+    float val = 0.0;
+
+    for(int i=0; i<64; i++){
+        vec3 p = camPos + rayDir * t;
+        val = 0.0;
+        // Evaluate sum of all 200 bellcurves
+        for(int j=0; j<${GPU_BELL_COUNT}; j++){
+            vec3 d = p - bellPositions[j];
+            float dist2 = dot(d,d);
+            val += bellStrengths[j] * exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+        }
+        // Check sign change for crossing F=0
+        if(i>0 && sign(val) != sign(lastVal)){
+            found = true;
+            float dt = stepSize * abs(lastVal)/(abs(val)+abs(lastVal));
+            hitPos = p - rayDir*dt;
+            break;
+        }
+        lastVal = val;
+        t += stepSize;
+        if(t > tMax) {
+            break;
+        }
+    }
+    if(!found){
+        // No surface => gray background
+        outColor = vec4(0.5, 0.5, 0.5, 1.0);
+        return;
+    }
+
+    // Compute normal via finite-diff gradient of sum
+    float eps = 0.001;
+    float baseVal = 0.0;
+    {
+        for(int j=0; j<${GPU_BELL_COUNT}; j++){
+            vec3 d = hitPos - bellPositions[j];
+            float dist2 = dot(d,d);
+            baseVal += bellStrengths[j] * exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+        }
+    }
+    vec3 grad = vec3(0.0);
+    // partial X
+    {
+        vec3 px = hitPos + vec3(eps, 0.0, 0.0);
+        float vx = 0.0;
+        for(int j=0; j<${GPU_BELL_COUNT}; j++){
+            vec3 d = px - bellPositions[j];
+            float dist2 = dot(d,d);
+            vx += bellStrengths[j] * exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+        }
+        grad.x = (vx - baseVal) / eps;
+    }
+    // partial Y
+    {
+        vec3 py = hitPos + vec3(0.0, eps, 0.0);
+        float vy = 0.0;
+        for(int j=0; j<${GPU_BELL_COUNT}; j++){
+            vec3 d = py - bellPositions[j];
+            float dist2 = dot(d,d);
+            vy += bellStrengths[j] * exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+        }
+        grad.y = (vy - baseVal) / eps;
+    }
+    // partial Z
+    {
+        vec3 pz = hitPos + vec3(0.0, 0.0, eps);
+        float vz = 0.0;
+        for(int j=0; j<${GPU_BELL_COUNT}; j++){
+            vec3 d = pz - bellPositions[j];
+            float dist2 = dot(d,d);
+            vz += bellStrengths[j] * exp(-dist2/(2.0*bellRadii[j]*bellRadii[j]));
+        }
+        grad.z = (vz - baseVal) / eps;
+    }
+    vec3 N = normalize(grad);
+
+    // Simple brightness from dot(N, lightDir), with a logistic twist:
+    vec3 lightDir = normalize(vec3(1.0,1.0,1.0));
+    float brightness = 1.0 / (1.0 + exp(-dot(N, lightDir)));
+    brightness *= 1.8;
+
+    // Mix color from normal direction
+    float wx = dot(N, vec3(1.0,0.0,0.0))*0.5 + 0.5;
+    float wy = dot(N, vec3(0.0,1.0,0.0))*0.5 + 0.5;
+    float wz = dot(N, vec3(0.0,0.0,1.0))*0.5 + 0.5;
+    float sumw = wx + wy + wz + 1e-6;
+    vec3 angleColor = (color1*wx + color2*wy + color3*wz) / sumw;
+
+    vec3 finalColor = angleColor * brightness;
+    outColor = vec4(finalColor, 1.0);
+}
+`;
+
+// We'll have exactly 200 float3 positions, 200 radii, 200 strengths on GPU side.
+const GPU_BELL_FLOATS_3 = GPU_BELL_COUNT*3;
+
+/***********************************************************************
+ * 3) SETUP WEBGL
+ **********************************************************************/
+
+let canvas = document.getElementById("c");
+let gl = canvas.getContext("webgl2");
+if(!gl){
+    alert("WebGL2 not supported");
+}
+
+// Compile & link
+function compileShader(gl, type, src){
+    let s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+        console.error(gl.getShaderInfoLog(s));
+        throw new Error("Shader compile error");
+    }
+    return s;
+}
+function createProgram(gl, vsSrc, fsSrc){
+    let vs = compileShader(gl, gl.VERTEX_SHADER, vsSrc);
+    let fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSrc);
+    let prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+        console.error(gl.getProgramInfoLog(prog));
+        throw new Error("Program link error");
+    }
+    return prog;
+}
+
+let program = createProgram(gl, vertexShaderSource, fragmentShaderSource);
+
+// Fullscreen quad
+let quadVerts = new Float32Array([
+    -1,-1,  1,-1,  -1, 1,
+    -1, 1,  1,-1,   1, 1
+]);
+let vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
+
+let vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+let posLoc = gl.getAttribLocation(program, "position");
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+gl.bindVertexArray(null);
+
+// Uniform locations
+gl.useProgram(program);
+let timeLoc     = gl.getUniformLocation(program, "time");
+let bellPosLoc  = gl.getUniformLocation(program, "bellPositions");
+let bellRadLoc  = gl.getUniformLocation(program, "bellRadii");
+let bellStrLoc  = gl.getUniformLocation(program, "bellStrengths");
+
+let camPosLoc   = gl.getUniformLocation(program, "camPos");
+let camFwdLoc   = gl.getUniformLocation(program, "camForward");
+let camRightLoc = gl.getUniformLocation(program, "camRight");
+let camUpLoc    = gl.getUniformLocation(program, "camUp");
+
+let color1Loc   = gl.getUniformLocation(program, "color1");
+let color2Loc   = gl.getUniformLocation(program, "color2");
+let color3Loc   = gl.getUniformLocation(program, "color3");
+
+// Arrays to send to GPU each frame for the nearest 200 bellcurves
+let gpuBellPositions = new Float32Array(GPU_BELL_FLOATS_3);   // 200 * 3
+let gpuBellRadii     = new Float32Array(GPU_BELL_COUNT);
+let gpuBellStrengths = new Float32Array(GPU_BELL_COUNT);
+
+// Set up some color constants
+let color1 = [1.0, 0.2, 0.2]; 
+let color2 = [0.2, 1.0, 0.2]; 
+let color3 = [0.2, 0.2, 1.0]; 
+
+// Upload the color uniforms once
+gl.uniform3fv(color1Loc, color1);
+gl.uniform3fv(color2Loc, color2);
+gl.uniform3fv(color3Loc, color3);
+
+/***********************************************************************
+ * 4) BUILD WORLD (100K BELL CURVES) & SPATIAL GRID
+ **********************************************************************/
+
+// We'll define them here
+//duplicate var: let spatialGrid = null;
+//duplicate var: let allBellcurves = [];
+
+// Class for big grid is described above (BellCurve, SpatialGrid).
+
+// Actually build them:
+function buildLargeWorld() {
+    const cellSize = 10;  
+    spatialGrid = new SpatialGrid(cellSize);
+    for(let i=0; i < 100000; i++){
+        const x = (Math.random()-0.5)*WORLD_SIZE;
+        const y = (Math.random()-0.5)*WORLD_SIZE;
+        const z = (Math.random()-0.5)*WORLD_SIZE;
+        const r = 0.2 + Math.random()*0.3;
+        const s = Math.random()*2.0 - 1.0;
+        let bc = new BellCurve(x, y, z, r, s);
+        allBellcurves.push(bc);
+        spatialGrid.insert(bc);
+    }
+    console.log(`Created ${allBellcurves.length} bellcurves in ~[${-WORLD_SIZE/2}..${WORLD_SIZE/2}]^3`);
+}
+
+/***********************************************************************
+ * 5) CAMERA & GAMEPAD
+ **********************************************************************/
+
+// Camera state
+let camPos = [0, 0, 5];
+let camQuaternion = [0, 0, 0, 1]; 
+let turnSpeed = 2.5;
+let moveSpeed = 2.0;
+
+function createQuaternion(axis, angle) {
+    let halfAngle = angle * 0.5;
+    let s = Math.sin(halfAngle);
+    return [axis[0]*s, axis[1]*s, axis[2]*s, Math.cos(halfAngle)];
+}
+function multiplyQuaternions(q1, q2){
+    let x1=q1[0], y1=q1[1], z1=q1[2], w1=q1[3];
+    let x2=q2[0], y2=q2[1], z2=q2[2], w2=q2[3];
+    return [
+        w1*x2 + x1*w2 + y1*z2 - z1*y2,
+        w1*y2 - x1*z2 + y1*w2 + z1*x2,
+        w1*z2 + x1*y2 - y1*x2 + z1*w2,
+        w1*w2 - x1*x2 - y1*y2 - z1*z2
+    ];
+}
+function normalizeQuaternion(q){
+    let l = Math.hypot(q[0], q[1], q[2], q[3]);
+    if(l<1e-10) return [0,0,0,1];
+    return [q[0]/l, q[1]/l, q[2]/l, q[3]/l];
+}
+function dot(a,b){ return a[0]*b[0]+ a[1]*b[1]+ a[2]*b[2]; }
+function cross(a,b){
+    return [
+        a[1]*b[2]-a[2]*b[1],
+        a[2]*b[0]-a[0]*b[2],
+        a[0]*b[1]-a[1]*b[0]
+    ];
+}
+function normalize(v){
+    let l = Math.hypot(v[0], v[1], v[2]);
+    if(l<1e-9) return [0,0,0];
+    return [v[0]/l, v[1]/l, v[2]/l];
+}
+function calculateForwardVector(q){
+    let x=q[0], y=q[1], z=q[2], w=q[3];
+    let xx = 2*(x*z + w*y);
+    let yy = 2*(y*z - w*x);
+    let zz = 1.0 - 2.0*(x*x + y*y);
+    return normalize([xx, yy, zz]);
+}
+function calculateUpVector(q){
+    let x=q[0], y=q[1], z=q[2], w=q[3];
+    let xx = 2*(x*y - w*z);
+    let yy = 1.0 - 2.0*(x*x + z*z);
+    let zz = 2*(y*z + w*x);
+    return normalize([xx, yy, zz]);
+}
+
+function rotateCamera(rx, ry, dt){
+    const threshold = 0.001;
+    let combinedQ = [0,0,0,1];
+    let forward = calculateForwardVector(camQuaternion);
+    let up = calculateUpVector(camQuaternion);
+    let right = cross(forward, up); 
+    right=normalize(right); 
+    up=normalize(cross(right,forward));
+
+    if(Math.abs(rx)>threshold){
+        let yawAngle = -rx*turnSpeed*dt;
+        let yawQ = createQuaternion(up,yawAngle);
+        combinedQ = multiplyQuaternions(yawQ,combinedQ);
+    }
+    if(Math.abs(ry)>threshold){
+        let pitchAngle = -ry*turnSpeed*dt;
+        let pitchQ = createQuaternion(right,pitchAngle);
+        combinedQ = multiplyQuaternions(combinedQ,pitchQ);
+    }
+    camQuaternion = multiplyQuaternions(combinedQ, camQuaternion);
+    camQuaternion = normalizeQuaternion(camQuaternion);
+}
+
+function updateFromGamepad(dt){
+    let gps = navigator.getGamepads();
+    if(!gps) return;
+    let gp = gps[0];
+    if(!gp) return;
+
+    let lx = gp.axes[0], ly = gp.axes[1];
+    let rx = gp.axes[2], ry = gp.axes[3];
+    let ltrig = gp.buttons[6]?.value || 0.0;
+    let rtrig = gp.buttons[7]?.value || 0.0;
+
+    // Flip right joystick Y
+    ry*=-1;
+    rotateCamera(rx, ry, dt);
+
+    let forward = calculateForwardVector(camQuaternion);
+    let up = calculateUpVector(camQuaternion);
+    let right = cross(forward, up);
+    right=normalize(right); 
+    up=normalize(cross(right,forward));
+
+    // Move
+    let upDown = -ly;
+    let leftRight = lx;
+    let fb = ltrig - rtrig;
+    fb*=-1;
+
+    camPos[0] += (upDown*up[0] + leftRight*right[0] + fb*forward[0])*moveSpeed*dt;
+    camPos[1] += (upDown*up[1] + leftRight*right[1] + fb*forward[1])*moveSpeed*dt;
+    camPos[2] += (upDown*up[2] + leftRight*right[2] + fb*forward[2])*moveSpeed*dt;
+}
+
+/***********************************************************************
+ * 6) NEAREST 200 BELL CURVES EACH FRAME
+ **********************************************************************/
+
+// This function updates the GPU arrays with the nearest 200 bellcurves to the current camera position
+function updateClosestBellcurves() {
+    // 1) Find bellcurves in a region near camera
+    const range = 200; // how far to search in the grid
+    const cpx = camPos[0];
+    const cpy = camPos[1];
+    const cpz = camPos[2];
+    const candidates = spatialGrid.queryNearby(cpx, cpy, cpz, range);
+    
+    // 2) Sort by distance
+    candidates.sort((a,b) => {
+        let da = (a.x-cpx)*(a.x-cpx)+(a.y-cpy)*(a.y-cpy)+(a.z-cpz)*(a.z-cpz);
+        let db = (b.x-cpx)*(b.x-cpx)+(b.y-cpy)*(b.y-cpy)+(b.z-cpz)*(b.z-cpz);
+        return da - db; 
+    });
+
+    // 3) Take up to 200 of them
+    let count = Math.min(candidates.length, GPU_BELL_COUNT);
+
+    // 4) Fill the arrays
+    for(let i=0; i<count; i++){
+        let bc = candidates[i];
+        gpuBellPositions[i*3+0] = bc.x;
+        gpuBellPositions[i*3+1] = bc.y;
+        gpuBellPositions[i*3+2] = bc.z;
+        gpuBellRadii[i] = bc.radius;
+        gpuBellStrengths[i] = bc.strength;
+    }
+    // Fill the remaining with far-away data so they won't affect the sum
+    for(let i=count; i<GPU_BELL_COUNT; i++){
+        // For safety, place them super far
+        gpuBellPositions[i*3+0] = 99999999;
+        gpuBellPositions[i*3+1] = 99999999;
+        gpuBellPositions[i*3+2] = 99999999;
+        gpuBellRadii[i] = 0.001; 
+        gpuBellStrengths[i] = 0.0;
+    }
+
+    // 5) Send to GPU
+    gl.uniform3fv(bellPosLoc,  gpuBellPositions);
+    gl.uniform1fv(bellRadLoc,  gpuBellRadii);
+    gl.uniform1fv(bellStrLoc,  gpuBellStrengths);
+}
+
+/***********************************************************************
+ * 7) MAIN RENDER LOOP
+ **********************************************************************/
+
+let lastTime = performance.now();
+
+function render(t){
+    let dt = (t - lastTime)*0.001;
+    lastTime = t;
+
+    // 1) Update from gamepad
+    updateFromGamepad(dt);
+
+    // 2) Update GPU with nearest 200 bellcurves
+    updateClosestBellcurves();
+
+    // 3) Compute camera basis for the raymarch uniform
+    let forward = calculateForwardVector(camQuaternion);
+    let up = calculateUpVector(camQuaternion);
+    let right = cross(forward, up);
+    right = normalize(right);
+    up = normalize(cross(right, forward));
+
+    // 4) Render
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0,0,0,1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.useProgram(program);
+    gl.bindVertexArray(vao);
+
+    // Send camera uniforms
+    gl.uniform1f(timeLoc, t*0.001);
+    gl.uniform3f(camPosLoc,   camPos[0], camPos[1], camPos[2]);
+    gl.uniform3f(camFwdLoc,   forward[0], forward[1], forward[2]);
+    gl.uniform3f(camRightLoc, right[0],   right[1],   right[2]);
+    gl.uniform3f(camUpLoc,    up[0],      up[1],      up[2]);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    gl.bindVertexArray(null);
+    requestAnimationFrame(render);
+}
+
+/***********************************************************************
+ * 8) STARTUP
+ **********************************************************************/
+
+// Build the big set of bellcurves & grid
+buildLargeWorld();
+
+// Start rendering
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
