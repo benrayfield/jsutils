@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BellSack - Single-Pass with Circles in GPU</title>
+  <style>
+    body {
+      margin: 0; padding: 0; background: #222;
+      font-family: sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #container {
+      position: relative;
+      width: 400px;
+      height: 300px;
+      background: black;
+    }
+    canvas {
+      position: absolute;
+      left: 0; top: 0;
+      width: 400px; height: 300px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="container">
+  <canvas id="glCanvas" width="400" height="300"></canvas>
+  <canvas id="overlay" width="400" height="300"></canvas>
+</div>
+
+<script>
+"use strict";
+
+/***********************************************************************
+ * 1) Config
+ **********************************************************************/
+
+const opt = {
+  horizon: 30.0,            // how far we search for surfaces
+  isRaymarch: true,          // variable-step or fixed-step
+  //isRaymarch: false,
+  marchMaxSteps: 700,        // maximum steps
+  closeEnufToLinear: 0.001,  // tolerance for crossing
+  circleBandPx: 1,         // ring thickness in screen px
+  drawOverlayCPU: true,      // if you still want the CPU ring overlay
+  //drawOverlayCPU: false,      // if you still want the CPU ring overlay
+  TOTAL_BELLS: 100000,       // large world
+  NEAR_TOTAL: 192,           // how many bells pass to GPU
+  NEAR_ACTIVE: 64,           // how many get knob controls, etc. in CPU overlay
+  KNOB_COUNT: 5              // x,y,z,radius,strength
+};
+
+const WORLD_SIZE = 70; // region where we randomly place the bellcurves
+
+/***********************************************************************
+ * 2) BellCurve & SpatialGrid
+ **********************************************************************/
+
+function pickRandomColor(){
+  let r=Math.floor(128+128*Math.random());
+  let g=Math.floor(128+128*Math.random());
+  let b=Math.floor(128+128*Math.random());
+  return `rgb(${r},${g},${b})`;
+}
+
+class BellCurve {
+  constructor(x,y,z,stdDev,str){
+    this.x        = x;
+    this.y        = y;
+    this.z        = z;
+    this.radius   = stdDev;
+    this.strength = str;
+    this.color    = pickRandomColor();
+  }
+}
+
+class SpatialGrid {
+  constructor(cellSize){
+    this.cellSize = cellSize;
+    this.cells    = new Map();
+  }
+  _cellKey(x,y,z){
+    const ix=Math.floor(x/this.cellSize);
+    const iy=Math.floor(y/this.cellSize);
+    const iz=Math.floor(z/this.cellSize);
+    return `${ix},${iy},${iz}`;
+  }
+  insert(bc){
+    let k= this._cellKey(bc.x, bc.y, bc.z);
+    if(!this.cells.has(k)){
+      this.cells.set(k, []);
+    }
+    this.cells.get(k).push(bc);
+  }
+  queryNearby(cx,cy,cz, range){
+    const minX=Math.floor((cx-range)/this.cellSize);
+    const maxX=Math.floor((cx+range)/this.cellSize);
+    const minY=Math.floor((cy-range)/this.cellSize);
+    const maxY=Math.floor((cy+range)/this.cellSize);
+    const minZ=Math.floor((cz-range)/this.cellSize);
+    const maxZ=Math.floor((cz+range)/this.cellSize);
+    let arr=[];
+    for(let ix=minX; ix<=maxX; ix++){
+      for(let iy=minY; iy<=maxY; iy++){
+        for(let iz=minZ; iz<=maxZ; iz++){
+          let key=`${ix},${iy},${iz}`;
+          if(this.cells.has(key)){
+            arr.push(...this.cells.get(key));
+          }
+        }
+      }
+    }
+    return arr;
+  }
+}
+
+let allBells=[];
+let spatialGrid=null;
+
+function buildWorld(){
+  spatialGrid= new SpatialGrid(10);
+  for(let i=0;i<opt.TOTAL_BELLS;i++){
+    let x=(Math.random()-0.5)*WORLD_SIZE;
+    let y=(Math.random()-0.5)*WORLD_SIZE;
+    let z=(Math.random()-0.5)*WORLD_SIZE;
+    let r=0.2+ Math.random()*0.3;
+    let s=Math.random()*2-1.0;
+    let bc=new BellCurve(x,y,z,r,s);
+    allBells.push(bc);
+    spatialGrid.insert(bc);
+  }
+  console.log(`Created ${allBells.length} bellcurves in a ${WORLD_SIZE}^3 region`);
+}
+buildWorld();
+
+/***********************************************************************
+ * 3) WebGL Setup: We'll do a single pass. So we only need one program.
+ **********************************************************************/
+
+const glCanvas      = document.getElementById("glCanvas");
+const overlayCanvas = document.getElementById("overlay");
+const gl            = glCanvas.getContext("webgl2");
+if(!gl){
+  alert("WebGL2 not found!");
+}
+
+// For possible float usage if we wanted an FBO, but we're not using it now:
+if(!gl.getExtension("EXT_color_buffer_float")){
+  console.warn("EXT_color_buffer_float not found, but we might not need it if no FBO pass");
+}
+
+/***********************************************************************
+ * 4) compileShader + createProgram, so we dont forget
+ **********************************************************************/
+function compileShader(gl, type, src){
+  const s= gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    console.error("Shader compile error:", gl.getShaderInfoLog(s));
+    throw new Error("Shader compile fail");
+  }
+  return s;
+}
+function createProgram(gl, vsSrc, fsSrc){
+  const vs= compileShader(gl, gl.VERTEX_SHADER, vsSrc);
+  const fs= compileShader(gl, gl.FRAGMENT_SHADER, fsSrc);
+  const p= gl.createProgram();
+  gl.attachShader(p, vs);
+  gl.attachShader(p, fs);
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+    console.error("Program link error:", gl.getProgramInfoLog(p));
+    throw new Error("Program link fail");
+  }
+  return p;
+}
+
+/***********************************************************************
+ * 5) Single-Pass Fragment
+ **********************************************************************/
+// Vertex
+const vsSource=`#version 300 es
+in vec2 position;
+out vec2 uv;
+void main(){
+  uv= position*0.5+ 0.5;
+  gl_Position= vec4(position,0,1);
+}
+`;
+
+// We do a single pass that:
+//  - Raymarches the bell surface
+//  - Also tries a billboard circle approach for each near circle (192).
+//    If that circle is closer => ring color in that pixel. 
+//
+// There's a "2 px ring" logic done by approximations. 
+// We'll skip partial CPU occlusion or multiple passes. 
+//
+// We'll define "sumOfBellcurves", "stepFunction", "findSurface", "findBillboardCircle", etc. 
+// But let's do it in a more direct approach inside main() to keep code shorter.
+
+const fsSource=`#version 300 es
+precision highp float;
+
+in vec2 uv;
+out vec4 outColor;
+
+uniform vec3 camPos;
+uniform vec3 camForward;
+uniform vec3 camRight;
+uniform vec3 camUp;
+
+uniform float horizon;
+uniform float isRaymarch;
+uniform float closeEnuf;
+uniform float circleBandPx;
+
+uniform vec3 bellPositions[${opt.NEAR_TOTAL}];
+uniform float bellRadii[${opt.NEAR_TOTAL}];
+uniform float bellStrengths[${opt.NEAR_TOTAL}];
+
+// shading
+uniform vec3 color1;
+uniform vec3 color2;
+uniform vec3 color3;
+
+// const for how many steps
+const int MARCH_MAX_STEPS = ${opt.marchMaxSteps};
+
+// Sum of bellcurves
+float sumOfBellcurves(in vec3 p){
+  float val=0.0;
+  for(int i=0; i<${opt.NEAR_TOTAL}; i++){
+    vec3 d= p- bellPositions[i];
+    float dist2= dot(d,d);
+    float e= exp(-dist2/(2.0* bellRadii[i]* bellRadii[i]));
+    val+= bellStrengths[i]* e;
+  }
+  return val;
+}
+
+// step size logic
+float stepFunction(in float val, in float lastVal){
+  float doVar= step(0.5, isRaymarch); // 0 or 1
+  float fixedSz= 0.2;
+  float raw= 2.0* abs(val);
+  float minimal= 0.001;
+  float stepDist= max(raw, minimal);
+  return mix(fixedSz, stepDist, doVar);
+}
+
+// find surface
+float findSurface(in vec3 origin, in vec3 dir, out vec3 outPos){
+  float t=0.0;
+  float val=0.0, lastVal=0.0;
+  bool found= false;
+  for(int i=0;i<MARCH_MAX_STEPS;i++){
+    if(t> horizon) break;
+    vec3 p= origin+ dir* t;
+    val= sumOfBellcurves(p);
+    if(i>0 && (sign(val)!= sign(lastVal) || abs(val)< closeEnuf)){
+      found= true;
+      // approximate crossing
+      float dt= ( stepFunction(val,lastVal)* abs(lastVal)) / (abs(val)+ abs(lastVal)+ 1e-9);
+      t= t- stepFunction(val,lastVal) + dt;
+      outPos= origin+ dir* t;
+      break;
+    }
+    lastVal= val;
+    float stSz= stepFunction(val,lastVal);
+    t+= stSz;
+  }
+  if(!found) return 9999.0;
+  return t;
+}
+
+// billboard ring
+// We do a plane normal= camForward, param tC= dot((center- origin), normal)/ dot(dir, normal).
+// Then we check if 0< tC< horizon. Then we see if dist(planeP, center) ~ bellRadii[i]. 
+// We allow ± some band => 2 px. We'll do a quick approximate.
+float findBillboardRing(in vec3 origin, in vec3 dir, out int ringIdx){
+  float bestT=9999.0;
+  ringIdx= -1;
+  vec3 n= normalize(camForward); // plane normal
+  for(int i=0;i<${opt.NEAR_TOTAL}; i++){
+    // skip if bellPositions[i].x>9000 => invalid
+    if(bellPositions[i].x>9000.0) continue;
+    vec3 c= bellPositions[i];
+    float denom= dot(dir,n);
+    if(abs(denom)<1e-9) continue;
+    float tC= dot( (c- origin), n)/ denom;
+    if(tC<0.01 || tC> horizon) continue;
+    // plane point
+    vec3 pp= origin+ dir* tC;
+    float dist3D= distance(pp, c);
+    // approximate 2 px. 
+    float pxScale= 0.003* tC; // naive approach 
+    float band= circleBandPx* pxScale;
+    float ringDiff= abs(dist3D- bellRadii[i]);
+    if(ringDiff< band){
+      if(tC< bestT){
+        bestT= tC;
+        ringIdx= i;
+      }
+    }
+  }
+  return bestT;
+}
+
+// shading a surface
+vec3 shadeSurface(in vec3 p){
+  float eps=0.001;
+  float base= sumOfBellcurves(p);
+  vec3 grad= vec3(0);
+  {
+    vec3 px= p+ vec3(eps,0,0);
+    float vx= sumOfBellcurves(px);
+    grad.x= (vx- base)/ eps;
+  }
+  {
+    vec3 py= p+ vec3(0,eps,0);
+    float vy= sumOfBellcurves(py);
+    grad.y= (vy- base)/ eps;
+  }
+  {
+    vec3 pz= p+ vec3(0,0,eps);
+    float vz= sumOfBellcurves(pz);
+    grad.z= (vz- base)/ eps;
+  }
+  vec3 N= normalize(grad);
+  vec3 lightDir= normalize(vec3(1,1,1));
+  float brightness= 1.7/(1.0+ exp(-2.1*dot(N, lightDir)));
+  float wx= dot(N, vec3(1,0,0))*0.5+ 0.5;
+  float wy= dot(N, vec3(0,1,0))*0.5+ 0.5;
+  float wz= dot(N, vec3(0,0,1))*0.5+ 0.5;
+  float sumw= wx+wy+wz+ 1e-9;
+  vec3 angleColor= (color1*wx + color2*wy + color3*wz)/ sumw;
+  return angleColor* brightness;
+}
+
+void main(){
+  vec2 st= uv*2.0-1.0;
+  vec3 rayDir= normalize(camForward + st.x* camRight + st.y* camUp);
+
+  // ring
+  int ringIndex=-1;
+  float tRing= findBillboardRing(camPos, rayDir, ringIndex);
+
+  // surface
+  vec3 hitPos= vec3(0);
+  float tSurf= findSurface(camPos, rayDir, hitPos);
+
+  if(tRing< tSurf){
+    // ring
+    outColor= vec4(0.7,0.7,0.7,1.0);
+  } else if(tSurf< 9999.0){
+    // surface
+    vec3 c= shadeSurface(hitPos);
+    outColor= vec4(c,1);
+  } else {
+    // background
+    outColor= vec4(0.5,0.5,0.5,1.0);
+  }
+}
+`;
+
+/***********************************************************************
+ * 6) Build the singleProgram
+ **********************************************************************/
+
+const vs= compileShader(gl, gl.VERTEX_SHADER, vsSource);
+const fs= compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+const singleProg= gl.createProgram();
+gl.attachShader(singleProg, vs);
+gl.attachShader(singleProg, fs);
+gl.linkProgram(singleProg);
+if(!gl.getProgramParameter(singleProg, gl.LINK_STATUS)){
+  console.error("Program link error:", gl.getProgramInfoLog(singleProg));
+  throw new Error("Program link fail");
+}
+
+// uniform loc
+const spLoc= {
+  bellPos:  gl.getUniformLocation(singleProg,"bellPositions"),
+  bellRad:  gl.getUniformLocation(singleProg,"bellRadii"),
+  bellStr:  gl.getUniformLocation(singleProg,"bellStrengths"),
+  camPos:   gl.getUniformLocation(singleProg,"camPos"),
+  camFwd:   gl.getUniformLocation(singleProg,"camForward"),
+  camRight: gl.getUniformLocation(singleProg,"camRight"),
+  camUp:    gl.getUniformLocation(singleProg,"camUp"),
+  horizon:  gl.getUniformLocation(singleProg,"horizon"),
+  isRay:    gl.getUniformLocation(singleProg,"isRaymarch"),
+  closeE:   gl.getUniformLocation(singleProg,"closeEnuf"),
+  circleB:  gl.getUniformLocation(singleProg,"circleBandPx"),
+  col1:     gl.getUniformLocation(singleProg,"color1"),
+  col2:     gl.getUniformLocation(singleProg,"color2"),
+  col3:     gl.getUniformLocation(singleProg,"color3")
+};
+
+// build a quad VAO
+const quadVerts= new Float32Array([
+  -1,-1,  1,-1,  -1,1,
+  -1,1,   1,-1,  1,1
+]);
+const quadVBO= gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
+
+const singleVao= gl.createVertexArray();
+gl.bindVertexArray(singleVao);
+const posLoc= gl.getAttribLocation(singleProg,"position");
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,2,gl.FLOAT,false,0,0);
+gl.bindVertexArray(null);
+
+/***********************************************************************
+ * 7) Searching up to 192 near
+ **********************************************************************/
+
+let nearBells=[];
+let gpuBellPos= new Float32Array(opt.NEAR_TOTAL*3);
+let gpuBellRad= new Float32Array(opt.NEAR_TOTAL);
+let gpuBellStr= new Float32Array(opt.NEAR_TOTAL);
+
+function updateNearBells(){
+  const range= 200;
+  let cpx= camPos[0], cpy= camPos[1], cpz= camPos[2];
+  let cands= spatialGrid.queryNearby(cpx,cpy,cpz, range);
+  cands.sort((a,b)=>{
+    let da=(a.x-cpx)**2+(a.y-cpy)**2+(a.z-cpz)**2;
+    let db=(b.x-cpx)**2+(b.y-cpy)**2+(b.z-cpz)**2;
+    return da-db;
+  });
+  nearBells= cands.slice(0,opt.NEAR_TOTAL);
+  for(let i=0;i<nearBells.length;i++){
+    const b= nearBells[i];
+    gpuBellPos[i*3+0]= b.x;
+    gpuBellPos[i*3+1]= b.y;
+    gpuBellPos[i*3+2]= b.z;
+    gpuBellRad[i]    = b.radius;
+    gpuBellStr[i]    = b.strength;
+  }
+  for(let i= nearBells.length; i< opt.NEAR_TOTAL; i++){
+    gpuBellPos[i*3+0]=9999;
+    gpuBellPos[i*3+1]=9999;
+    gpuBellPos[i*3+2]=9999;
+    gpuBellRad[i]=0.01;
+    gpuBellStr[i]=0.0;
+  }
+}
+
+/***********************************************************************
+ * 8) Basic Camera + Gamepad
+ **********************************************************************/
+
+let camPos=[0,0,5];
+let camQ=[0,0,0,1];
+let turnSpeed=2.0;
+let moveSpeed=2.0;
+
+function multiplyQuaternions(q1,q2){
+  const[x1,y1,z1,w1]= q1;
+  const[x2,y2,z2,w2]= q2;
+  return [
+    w1*x2+ x1*w2+ y1*z2- z1*y2,
+    w1*y2- x1*z2+ y1*w2+ z1*x2,
+    w1*z2+ x1*y2- y1*x2+ z1*w2,
+    w1*w2- x1*x2- y1*y2- z1*z2
+  ];
+}
+function createQuaternion(axis,angle){
+  const ha= angle*0.5;
+  const s= Math.sin(ha);
+  return[ axis[0]*s, axis[1]*s, axis[2]*s, Math.cos(ha)];
+}
+function normalizeQuaternion(q){
+  const ln= Math.hypot(q[0],q[1],q[2],q[3]);
+  if(ln<1e-9)return[0,0,0,1];
+  return[ q[0]/ln, q[1]/ln, q[2]/ln, q[3]/ln];
+}
+function cross(a,b){
+  return [
+    a[1]*b[2]- a[2]*b[1],
+    a[2]*b[0]- a[0]*b[2],
+    a[0]*b[1]- a[1]*b[0]
+  ];
+}
+function normalize(v){
+  const ln= Math.hypot(v[0],v[1],v[2]);
+  if(ln<1e-9)return[0,0,0];
+  return[v[0]/ln, v[1]/ln, v[2]/ln];
+}
+function calculateForwardVector(q){
+  const[x,y,z,w]= q;
+  const xx= 2.0*(x*z+ w*y);
+  const yy= 2.0*(y*z- w*x);
+  const zz= 1.0- 2.0*( x*x+ y*y );
+  const ln= Math.hypot(xx,yy,zz);
+  if(ln<1e-9)return[0,0,1];
+  return[ xx/ln, yy/ln, zz/ln];
+}
+function calculateUpVector(q){
+  const[x,y,z,w]= q;
+  const xx= 2.0*( x*y- w*z );
+  const yy= 1.0- 2.0*( x*x+ z*z );
+  const zz= 2.0*( y*z+ w*x );
+  const ln= Math.hypot(xx,yy,zz);
+  if(ln<1e-9)return[0,1,0];
+  return[ xx/ln, yy/ln, zz/ln ];
+}
+
+function rotateCamera(rx,ry,dt){
+  const threshold=0.001;
+  let fwd= calculateForwardVector(camQ);
+  let upv= calculateUpVector(camQ);
+  let rig= cross(fwd, upv); rig= normalize(rig);
+  upv= normalize(cross(rig, fwd));
+  let combined=[0,0,0,1];
+  if(Math.abs(rx)> threshold){
+    let yawAngle= -rx*turnSpeed* dt;
+    let yawQ= createQuaternion(upv,yawAngle);
+    combined= multiplyQuaternions(yawQ,combined);
+  }
+  if(Math.abs(ry)> threshold){
+    let pitchAngle= -ry*turnSpeed* dt;
+    let pitchQ= createQuaternion(rig,pitchAngle);
+    combined= multiplyQuaternions(combined, pitchQ);
+  }
+  camQ= multiplyQuaternions(combined,camQ);
+  camQ= normalizeQuaternion(camQ);
+}
+
+function updateFromGamepad(dt){
+  let gps= navigator.getGamepads();
+  if(!gps)return;
+  let gp= gps[0];
+  if(!gp)return;
+  let lx= gp.axes[0], ly= gp.axes[1];
+  let rx= gp.axes[2], ry= gp.axes[3];
+  const dead= 0.06;
+  let lenL= Math.hypot(lx,ly);
+  if(lenL> dead){
+    let leftover= lenL- dead;
+    lx*= leftover/ lenL;
+    ly*= leftover/ lenL;
+  } else { lx=0; ly=0; }
+  let lenR= Math.hypot(rx,ry);
+  if(lenR> dead){
+    let leftover2= lenR- dead;
+    rx*= leftover2/ lenR;
+    ry*= leftover2/ lenR;
+  } else { rx=0; ry=0; }
+  ry*=-1;
+  rotateCamera(rx,ry, dt);
+
+  let fwdVal= gp.buttons[7]?.value - gp.buttons[6]?.value; // RT-LT
+  let upDown= -ly;
+  let leftRight= lx;
+
+  let fwd= calculateForwardVector(camQ);
+  let upv= calculateUpVector(camQ);
+  let rig= cross(fwd, upv); rig= normalize(rig);
+  upv= normalize(cross(rig, fwd));
+
+  camPos[0]+= (fwd[0]*fwdVal + upv[0]*upDown + rig[0]*leftRight)* moveSpeed* dt;
+  camPos[1]+= (fwd[1]*fwdVal + upv[1]*upDown + rig[1]*leftRight)* moveSpeed* dt;
+  camPos[2]+= (fwd[2]*fwdVal + upv[2]*upDown + rig[2]*leftRight)* moveSpeed* dt;
+}
+
+/***********************************************************************
+ * 9) CPU overlay for “knobs”
+ **********************************************************************/
+
+let dragState=null;
+overlayCanvas.addEventListener("mousedown", e=>{
+  let k= findKnobAt(e.offsetX,e.offsetY);
+  if(!k)return;
+  dragState={ 
+    bc:k.bell,
+    knobIndex:k.knobIndex,
+    startY:e.offsetY,
+    startVal:getParamVal(k.bell,k.knobIndex)
+  };
+});
+overlayCanvas.addEventListener("mousemove", e=>{
+  if(!dragState)return;
+  let dy= e.offsetY- dragState.startY;
+  let newVal= dragState.startVal+ (-dy*0.02);
+  setParamVal(dragState.bc, dragState.knobIndex, newVal);
+});
+overlayCanvas.addEventListener("mouseup", e=>{ dragState=null; });
+
+function findKnobAt(mx,my){
+  for(let i=0; i< Math.min(opt.NEAR_ACTIVE, nearBells.length); i++){
+    const b= nearBells[i];
+    let p= project3d(b.x,b.y,b.z);
+    if(!p) continue;
+    let[cx,cy,fw]= p;
+    let rPx= b.radius*(700/fw);
+    if(rPx<2) rPx=2;
+    for(let k=0;k<opt.KNOB_COUNT;k++){
+      let angle= (k/opt.KNOB_COUNT)*2.0*Math.PI;
+      let px= cx+ rPx*Math.cos(angle);
+      let py= cy+ rPx*Math.sin(angle);
+      let dist= Math.hypot(mx-px, my-py);
+      if(dist<6) return {bell:b, knobIndex:k};
+    }
+  }
+  return null;
+}
+function getParamVal(b,k){
+  switch(k){
+    case 0:return b.x;
+    case 1:return b.y;
+    case 2:return b.z;
+    case 3:return b.radius;
+    case 4:return b.strength;
+  }
+}
+function setParamVal(b,k,v){
+  switch(k){
+    case 0:b.x= v;break;
+    case 1:b.y= v;break;
+    case 2:b.z= v;break;
+    case 3:b.radius= Math.max(0.01,v);break;
+    case 4:b.strength= v;break;
+  }
+}
+const knobColors=["red","green","blue","white","black"];
+
+// 2D projection
+let forwardVec=[0,0,1], upVec=[0,1,0], rightVec=[1,0,0];
+function project3d(x,y,z){
+  let dx= x- camPos[0], dy= y- camPos[1], dz= z- camPos[2];
+  let fw= dx* forwardVec[0] + dy* forwardVec[1] + dz* forwardVec[2];
+  if(fw<=0)return null;
+  let ru= dx* rightVec[0] + dy* rightVec[1] + dz* rightVec[2];
+  let uu= dx* upVec[0]    + dy* upVec[1]    + dz* upVec[2];
+  let px= 400 + ru*(700/fw);
+  let py= 300 - uu*(700/fw);
+  return [px,py,fw];
+}
+
+function drawOverlayCPU(){
+  let ctx= overlayCanvas.getContext("2d");
+  ctx.clearRect(0,0,400,300);
+
+  for(let i=0; i< nearBells.length; i++){
+    let b= nearBells[i];
+    let p= project3d(b.x,b.y,b.z);
+    if(!p) continue;
+    let[cx,cy,fw]= p;
+    let rPx= b.radius*(700/fw);
+    if(rPx<2) rPx=2;
+    let isActive= (i< opt.NEAR_ACTIVE);
+
+    // ring
+    ctx.beginPath();
+    ctx.lineWidth=2;
+    ctx.strokeStyle= isActive? b.color: "gray";
+    let steps=1260;
+    ctx.moveTo(cx+rPx,cy);
+    for(let s=1; s<=steps; s++){
+      let a= (s/steps)*2.0*Math.PI;
+      let px= cx+ rPx*Math.cos(a);
+      let py= cy+ rPx*Math.sin(a);
+      ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+
+    if(isActive){
+      // knobs
+      for(let k=0;k<opt.KNOB_COUNT;k++){
+        let angle= (k/opt.KNOB_COUNT)*2.0*Math.PI;
+        let px= cx+ rPx*Math.cos(angle);
+        let py= cy+ rPx*Math.sin(angle);
+        ctx.beginPath();
+        ctx.fillStyle= knobColors[k];
+        ctx.arc(px,py,6,0,2*Math.PI);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+/***********************************************************************
+ * 10) Render Loop
+ **********************************************************************/
+
+let lastTime= performance.now();
+
+function renderFrame(t){
+  let dt= (t- lastTime)*0.001;
+  lastTime= t;
+
+  updateFromGamepad(dt);
+  updateNearBells();
+
+  // camera basis
+  forwardVec= calculateForwardVector(camQ);
+  upVec= calculateUpVector(camQ);
+  rightVec= cross(forwardVec, upVec);
+  rightVec= normalize(rightVec);
+  upVec= normalize(cross(rightVec, forwardVec));
+
+  // do single pass
+  gl.viewport(0,0,400,300);
+  gl.clearColor(0,0,0,1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  gl.useProgram(singleProg);
+
+  // set uniforms
+  gl.uniform3fv(spLoc.bellPos, gpuBellPos);
+  gl.uniform1fv(spLoc.bellRad, gpuBellRad);
+  gl.uniform1fv(spLoc.bellStr, gpuBellStr);
+
+  gl.uniform3f(spLoc.camPos, camPos[0], camPos[1], camPos[2]);
+  gl.uniform3f(spLoc.camFwd, forwardVec[0], forwardVec[1], forwardVec[2]);
+  gl.uniform3f(spLoc.camRight, rightVec[0], rightVec[1], rightVec[2]);
+  gl.uniform3f(spLoc.camUp, upVec[0], upVec[1], upVec[2]);
+
+  gl.uniform1f(spLoc.horizon, opt.horizon);
+  gl.uniform1f(spLoc.isRay, opt.isRaymarch?1.0:0.0);
+  gl.uniform1f(spLoc.closeE, opt.closeEnufToLinear);
+  gl.uniform1f(spLoc.circleB, opt.circleBandPx);
+
+  gl.uniform3fv(spLoc.col1, [1.0,0.2,0.2]);
+  gl.uniform3fv(spLoc.col2, [0.2,1.0,0.2]);
+  gl.uniform3fv(spLoc.col3, [0.2,0.2,1.0]);
+
+  gl.bindVertexArray(singleVao);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+  gl.bindVertexArray(null);
+
+  if(opt.drawOverlayCPU){
+    drawOverlayCPU();
+  }
+
+  requestAnimationFrame(renderFrame);
+}
+requestAnimationFrame(renderFrame);
+
+/***********************************************************************
+ * 11) Quicksave / Quickload
+ **********************************************************************/
+
+function doQuicksave(slot){
+  const c= {pos:[...camPos], quat:[...camQ]};
+  let arr=[];
+  for(let b of allBells){
+    arr.push([b.x,b.y,b.z,b.radius,b.strength]);
+  }
+  let obj={ camera:c, bellcurves:arr };
+  let s= JSON.stringify(obj);
+  let key= "bellsack_quicksave_"+slot;
+  localStorage.setItem(key, s);
+  alert("Saved slot "+slot+" length="+s.length);
+}
+
+function doQuickload(slot){
+  const key="bellsack_quicksave_"+slot;
+  const s= localStorage.getItem(key);
+  if(!s){
+    alert("No data in slot "+slot);
+    return;
+  }
+  const obj= JSON.parse(s);
+  camPos[0]= obj.camera.pos[0];
+  camPos[1]= obj.camera.pos[1];
+  camPos[2]= obj.camera.pos[2];
+  camQ[0]  = obj.camera.quat[0];
+  camQ[1]  = obj.camera.quat[1];
+  camQ[2]  = obj.camera.quat[2];
+  camQ[3]  = obj.camera.quat[3];
+
+  allBells=[];
+  spatialGrid= new SpatialGrid(10);
+  for(let row of obj.bellcurves){
+    const bc= new BellCurve(row[0],row[1],row[2],row[3],row[4]);
+    allBells.push(bc);
+    spatialGrid.insert(bc);
+  }
+  alert(`Loaded slot ${slot}, bells=${allBells.length}`);
+}
+</script>
+
+</body>
+</html>
