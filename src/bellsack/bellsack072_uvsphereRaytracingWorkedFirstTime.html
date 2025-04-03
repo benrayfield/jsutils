@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>BellSack 3d game engine opensource MIT</title>
+	<style>
+		body {
+			margin: 0; padding: 0; background: #222;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			font-family: sans-serif;
+		}
+		canvas {
+			background: black;
+		}
+	</style>
+</head>
+<body>
+
+<table><tr><td style="color:#cccccc">
+	Play BellSack. MOVE: left joystick and 2 triggers. TURN: right joystick.<br>
+	EDIT TERRAIN: mouse drag the 5 colored knobs per circle/bell.<br>
+	Save/load: TODO. Opensource MIT
+</td></tr><tr><td>
+	<canvas id="glCanvas" width="640" height="480"></canvas>
+</td></tr><tr><td>
+	<div id=ballOverlay style="color:#cccccc">balls...</div>
+</td></tr></table><br>
+<script>
+"use strict";
+const Err = str=>{throw new Error(str);};
+const Todo = str=>{throw new Error('TODO: '+str);};
+
+/* prompt that generated gptBellRaymarch3d_001_opensourceMITLicensed.html which is opensource MIT licensed by Ben F Rayfield 2025-3-25.
+
+write a html that demonstrates this kind of raymarching with a target FPS of 60 and low resolution canvas
+
+Post
+Conversation
+Lambda Rick /acc
+@benrayfield
+·
+41m
+A weighted set of 3d bellcurves (x y z radius strength) defines a smooth 2d surface at every x y z where sum=0 of all bellcurves touching there.
+Lambda Rick /acc
+@benrayfield
+·
+27m
+200 such 3d bell curves could be stored in a GPU shader that runs in a browser. u get a few thousand float32s to do whatever u want with, so it could be programmed to make each GPU thread do its own gradient descent recursively
+Lambda Rick /acc
+@benrayfield
+·
+25m
+it could be raymarched
+Lambda Rick /acc
+@benrayfield
+it could raymarch and reflect on saddlepoint shaped curved mirrors
+ChatGPT said:
+
+<!DOCTYPE html>...
+*/
+
+
+/***************************************************************
+ * 1) Config
+ ***************************************************************/
+
+const opt = {
+	type: 'bellsack_opt', //options {}
+	//horizon: 60.0,					// how far to search for surfaces
+	horizon: 60.0,					// how far to search for surfaces
+	////isRaymarch: true,			 // variable-step or fixed-step
+	isRaymarch: false,
+	//raytraceStep: .2,
+	raytraceStep: .1,
+	//marchMaxSteps: 50,		 // maximum steps
+	//marchMaxSteps: 200,		 // maximum steps
+	//marchMaxSteps: 40,		 // maximum steps
+	marchMaxSteps: 100,		 // maximum steps
+	closeEnufToZero: 0.01, // tolerance for crossing
+	//closeEnufToZero: 0.00001, // tolerance for crossing
+	//circleBandPx: 1.5,			// ring thickness in screen px
+	//circleBandPx: 7,
+	circleBandPx: 4,
+	//circleBandPx: 0,
+	knobAngleBand: 0.15,		// how wide an angle for each knob (approx)
+	//TOTAL_BELLS: 100000,
+	TOTAL_BELLS: 10000,
+	NEAR_TOTAL: 192,
+	KNOB_COUNT: 5,
+	//displayCenterForwardOfCam: 0,
+	displayCenterForwardOfCam: 4,
+	displayTerrain: true, //normal
+	//displayTerrain: false, //test
+	//removed balls 2025-4-2 cuz focusing on making UVSpheres sparse, then will finish balls. doBalls: true, //experimental as of 2025-3-28
+	//doBalls:false,
+	flipTurnX: false, //gamepad right joystick turns
+	flipTurnY: true, //gamepad right joystick turns
+	doPassA: true, //normal. paint isosurface onto cameraUvsphere.texA
+	//doPassA: false, //test
+	doPassB: true, //normal. paint cameraUvsphere.texA onto canvas
+	//doPassB: false, //test
+};
+
+// region to place random bellcurves
+//const WORLD_SIZE = 70;
+const WORLD_SIZE = 30;
+//const WORLD_SIZE = 40;
+//const WORLD_SIZE = 25;
+
+/***************************************************************
+ * 2) Large set of bellcurves + a spatial grid
+ ***************************************************************/
+
+function pickRandomColor() {
+	let r = Math.floor(128 + 128 * Math.random());
+	let g = Math.floor(128 + 128 * Math.random());
+	let b = Math.floor(128 + 128 * Math.random());
+	return 'rgb('+r+','+g+','+b+')';
+}
+
+var xyzLenSq = xyz=>(xyz[0]**2 + xyz[1]**2 + xyz[2]**2);
+
+//returns the max len of the 3 vectors.
+var radius3x3ToRadius = radius3x3=>{
+	return Math.sqrt(Math.max(xyzLenSq(radius3x3[0]),xyzLenSq(radius3x3[1]),xyzLenSq(radius3x3[2])))
+};
+
+//
+class BellCurve {
+	constructor(x, y, z, radiusOr3x3, strength, isSelected){
+		this.x = x;
+		this.y = y;
+		this.z = z;
+	if(typeof(radiusOr3x3)==='number'){
+		this.type = 'bellsack_robell'; //weighted round 3d bellcurve
+		this.radius = radiusOr3x3;
+		this.radius3x3 = [[radiusOr3x3,0,0],[0,radiusOr3x3,0],[0,0,radiusOr3x3]];
+	}else{
+		this.type = 'bellsack_afbell'; //weighted affine transformed 3d bellcurve
+		this.radius = radius3x3ToRadius(radiusOr3x3);
+		this.radius3x3 = radiusOr3x3;
+	}
+		//this.radius = typeof(radiusOr3x3)==='number' ? radiusOr3x3 : radius3x3ToRadius(radiusOr3x3);
+		this.strength = strength;
+		// We'll store an integer color in [0..255] x 3 for convenience
+		// or store it as random floats in [0..1], or just store a string and parse it in JS.
+		// We'll store as random floats 0..1 so we can pass them to GPU if we want.
+		// But for big sets we might skip it. For demonstration, let's store them anyway:
+		this.colorR = 0.5 + 0.5 * Math.random();
+		this.colorG = 0.5 + 0.5 * Math.random();
+		this.colorB = 0.5 + 0.5 * Math.random();
+	this.isSelected = !!isSelected;
+	}
+}
+
+class SpatialGrid{
+	constructor(cellSize){
+		this.type = 'bellsack_spatialgrid_fixme';
+		this.bellList = []; //FIXME remove this when get SpatialGrid working
+	}
+	insert(bc) {
+		this.bellList.push(bc);
+	}
+	queryNearby(cx,cy,cz, range){
+		let ret = [];
+		let rangeSq = range**2;
+		for(let bell of this.bellList){
+			if((bell.x-cx)**2 + (bell.y-cy)**2 + (bell.z-cz)**2 <= rangeSq){
+				ret.push(bell);
+			}
+		}
+		return ret;
+	}
+}
+
+let allBells=[];
+let spatialGrid=null;
+
+function buildWorld(){
+	spatialGrid=new SpatialGrid(10);
+	for(let i=0; i<opt.TOTAL_BELLS; i++){
+		let x= (Math.random()-0.5)*WORLD_SIZE;
+		let y= (Math.random()-0.5)*WORLD_SIZE;
+		let z= (Math.random()-0.5)*WORLD_SIZE;
+		let r= 0.2+ 0.3*Math.random();
+		let s= Math.random()*2.0-1.0;
+		let bc= new BellCurve(x,y,z,r,s,false);
+		allBells.push(bc);
+		spatialGrid.insert(bc);
+	}
+	console.log("Created", allBells.length, "bellcurves in", WORLD_SIZE, "^3 region");
+}
+buildWorld();
+
+/***************************************************************
+ * 3) WebGL Setup
+ ***************************************************************/
+
+let canvas = document.getElementById("glCanvas");
+let gl = canvas.getContext("webgl2");
+if(!gl){
+	alert("WebGL2 not found!");
+}
+
+/***************************************************************
+ * 4) compileShader & createProgram
+ ***************************************************************/
+
+function compileShader(gl, type, src){
+	let s=gl.createShader(type);
+	gl.shaderSource(s, src);
+	gl.compileShader(s);
+	if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+		console.error("Shader compile error:", gl.getShaderInfoLog(s));
+		throw new Error("Shader compile fail");
+	}
+	return s;
+}
+function createProgram(gl, vsSrc, fsSrc){
+	let vs= compileShader(gl, gl.VERTEX_SHADER, vsSrc);
+	let fs= compileShader(gl, gl.FRAGMENT_SHADER, fsSrc);
+	let p= gl.createProgram();
+	gl.attachShader(p, vs);
+	gl.attachShader(p, fs);
+	gl.linkProgram(p);
+	if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+		console.error("Program link error:", gl.getProgramInfoLog(p));
+		throw new Error("Program link fail");
+	}
+	return p;
+}
+
+/***************************************************************
+ * 5) Single-Pass FS: Raymarch + Billboard Circles + GPU knobs
+ ***************************************************************/
+
+const vsSource=`#version 300 es
+in vec2 position;
+out vec2 uv;
+void main(){
+	uv = position * 0.5 + 0.5;
+	gl_Position = vec4(position, 0,1);
+}
+`;
+
+// We'll define NEAR_TOTAL = opt.NEAR_TOTAL
+// We'll do a ring search for each bell & also a local tangent-plane transform
+// to see if it's near 1 of the 5 knob angles, coloring them differently.
+const fsSource=`#version 300 es
+precision highp float;
+
+in vec2 uv;
+out vec4 outColor;
+
+uniform vec3 camPos;
+uniform vec3 camForward;
+uniform vec3 camRight;
+uniform vec3 camUp;
+
+uniform float horizon;
+uniform float isRaymarch;
+uniform float closeEnuf;
+uniform float circleBandPx;
+uniform float knobAngleBand;	// how large an angle difference to consider a knob
+uniform int selectedBellI; //-1 if none. 0 to NEAR_TOTAL-1 if selected.
+
+uniform vec3 bellPositions[${opt.NEAR_TOTAL}];
+uniform float bellRadii[${opt.NEAR_TOTAL}];
+uniform float bellStrengths[${opt.NEAR_TOTAL}];
+
+// We'll do no per-bell color for now, just ring vs knob vs surface. 
+// If you want each bell to have a random color, you'd need arrays for that.
+uniform vec3 color1;
+uniform vec3 color2;
+uniform vec3 color3;
+
+const int MARCH_MAX_STEPS = ${opt.marchMaxSteps};
+const int NEAR_TOTAL = ${opt.NEAR_TOTAL};
+const int KNOB_COUNT = ${opt.KNOB_COUNT};
+
+float sumOfBellcurves(in vec3 p){
+	float val=0.0;
+	for(int i=0;i<NEAR_TOTAL;i++){
+		vec3 d = p - bellPositions[i];
+		float dist2= dot(d,d);
+		val += bellStrengths[i]* exp(-dist2/(2.0 * bellRadii[i]* bellRadii[i]));
+	}
+	return val;
+}
+
+// step function
+float stepFunction(float val, float lastVal){
+	// if isRaymarch>0.5 => variable step
+	float doVar= step(0.5, isRaymarch);
+	float fixedSz = ${opt.raytraceStep}; //float fixedSz= 0.2;
+	float raw= 2.0* abs(val);
+	float minimal=0.001;
+	float stDist= max(raw, minimal);
+	return mix(fixedSz, stDist, doVar);
+	
+	//return abs(val);
+	//return stDist;
+	//return val; //FIXME
+}
+
+// find the implicit surface
+float findSurface(in vec3 origin, in vec3 dir, out vec3 outPos){
+	float t=0.0;
+	float val=0.0, lastVal=0.0;
+	bool found=false;
+	for(int i=0;i<MARCH_MAX_STEPS;i++){
+		if(t> horizon) break;
+		vec3 p= origin + dir*t;
+		val= sumOfBellcurves(p);
+		if(i>0 && (sign(val)!=sign(lastVal) || abs(val)< closeEnuf)){
+			found= true;
+			// approximate crossing
+			float dt= ( stepFunction(val,lastVal)*abs(lastVal) ) / ( abs(val)+ abs(lastVal)+ 1e-9 );
+			t= t- stepFunction(val,lastVal)+ dt;
+			outPos= origin + dir*t;
+			break;
+		}
+		lastVal= val;
+		float stSz= stepFunction(val,lastVal);
+		t+= stSz;
+	}
+	if(!found) return 999999.0;
+	return t;
+}
+
+// For billboard ring & knobs. 
+// We'll store bestRingT, bestRingColor, etc.
+struct RingResult {
+	float t;
+	vec3 color;
+	int i; //index 0 to NEAR_TOTAL-1 of the ring
+};
+
+RingResult findNearestBillboard(in vec3 origin, in vec3 dir){
+	RingResult rr;
+	rr.t= 999999.0;
+	rr.color= vec3(0.0);
+	rr.i = -2;
+
+	// We'll define a stable planeRight, planeUp for the knob angles
+	// We'll pick worldUp= (0,1,0) unless dot(worldUp, camForward)>0.9 => pick (1,0,0).
+	vec3 worldUp= vec3(0,1,0);
+	float d= abs(dot(worldUp, normalize(camForward)));
+	if(d>0.9){
+		worldUp= vec3(1,0,0);
+	}
+	vec3 planeRight= normalize( cross(camForward, worldUp) );
+	vec3 planeUp	 = normalize( cross(planeRight, camForward) );
+
+	for(int i=0; i<NEAR_TOTAL; i++){
+		// skip if it's dummy
+		if(bellPositions[i].x>9000.0) continue;
+		// plane intersection
+		float denom= dot(dir, normalize(camForward));
+		if(abs(denom)<1e-9) continue;
+		float tC= dot( (bellPositions[i]-origin), normalize(camForward))/ denom;
+		if(tC<0.01 || tC> horizon) continue;
+
+		// dist3D from the plane point to bell center
+		vec3 planePt= origin + dir* tC;
+		float distCenter= distance(planePt, bellPositions[i]);
+
+		// approximate how many px is "1 px" at distance tC
+		float pxScale= 0.003 * tC;
+		float band= circleBandPx * pxScale;
+
+		// ring check
+		float ringDiff= abs(distCenter - bellRadii[i]);
+		if(ringDiff < band){
+			// we have found a ring. Possibly a knob.
+			// local 2D coords in plane: localX= dot(planeRight, (planePt-center)), localY= dot(planeUp, (planePt-center))
+			vec3 localVec= planePt - bellPositions[i];
+			float localX= dot(localVec, planeRight);
+			float localY= dot(localVec, planeUp);
+			float angle= atan(localY, localX); // in [-pi, pi]
+			if(angle<0.0) angle += 6.2831853; // so [0..2pi)
+			float knobAngle= 6.2831853 / float(KNOB_COUNT); // 2pi/5 => ~1.2566
+			// find which knob index is closest:
+			float kFloat= angle / knobAngle; // e.g. 2.2 => knob #2
+			float kRound= floor( kFloat+0.5 );
+			float angleDiff= abs( kFloat - kRound );
+			// if angleDiff < knobAngleBand? We do a subband. e.g. 0.2 => yes
+			float angleThresh= knobAngleBand; // e.g. 0.2 or 0.15
+			if(angleDiff < angleThresh){
+				// color the knob
+				float knobIdx= mod( kRound, float(KNOB_COUNT) );
+				// map 0->red,1->green,2->blue,3->white,4->black for example
+				// We'll do a quick if-else or a small array. For brevity, do if else:
+				vec3 knobColor;
+				if(knobIdx<0.5) knobColor= vec3(1,0,0);
+				else if(knobIdx<1.5) knobColor= vec3(0,1,0);
+				else if(knobIdx<2.5) knobColor= vec3(0,0,1);
+				else if(knobIdx<3.5) knobColor= vec3(1,1,1);
+				else knobColor= vec3(0,0,0);
+				// pick that
+				if(tC< rr.t){
+					rr.t= tC;
+					rr.color= knobColor;
+			rr.i = i;
+				}
+			} else {
+				// it's ring but not a knob => e.g. gray
+				if(tC< rr.t){
+					rr.t= tC;
+			rr.color= vec3(0.6,0.6,0.6);
+			rr.i = i;
+				}
+			}
+		}
+	}
+	return rr;
+}
+
+// shading the surface
+vec3 shadeSurface(in vec3 p){
+	float eps= 0.001;
+	float base= sumOfBellcurves(p);
+	vec3 grad= vec3(0);
+	for(int k=0;k<3;k++){
+		vec3 offset= vec3(0);
+		offset[k]= eps;
+		float val2= sumOfBellcurves(p+ offset);
+		grad[k]= (val2 - base)/ eps;
+	}
+	vec3 N= normalize(grad);
+	vec3 L= normalize(vec3(1,1,1));
+	float bright= 1.8/(1.0+ exp(-2.5* dot(N,L)));
+	float weirdBright = .5+.5*sin(bright*10.);
+	float wx= dot(N,vec3(1,0,0))*0.5 +0.5;
+	float wy= dot(N,vec3(0,1,0))*0.5 +0.5;
+	float wz= dot(N,vec3(0,0,1))*0.5 +0.5;
+	float sumw= wx+wy+wz +1e-9;
+	vec3 angleColor= (color1*wx + color2*wy + color3*wz)/ sumw;
+	//return angleColor* bright;
+	//return bright;
+	//return angleColor;
+	//return vec3(bright)*-.31+angleColor*.54+weirdBright*.54;
+	//float smul = 8.;
+	float smul = 2.5;
+	vec3 stable3dColor = vec3(.5+.5*sin(p[0]*smul),.5+.5*sin(p[1]*smul),.5+.5*sin(p[2]*smul));
+	vec3 abc = vec3(bright)*-.31+angleColor*.54+weirdBright*.54;
+	return abc*.03+stable3dColor*.7+bright*-.3;
+}
+
+//This main() is opt.doPassB
+void main(){
+
+		//outColor= vec4(0.,.3,0.,1.0);
+		//commentedout 2025-4-2-1157aET but it didnt change anything, still the cameraUvsphere is displayed around.
+		float pi = 3.1415926535897932384626433832795;
+		// Keep negative signs so your old orientation/controls stay consistent
+		float theta = -2.0 * pi * uv.x; // range ~ [-2π..0], if uv.x in [0..1]
+		float phi	 = -pi * uv.y;			 // range ~ [-π..0],	if uv.y in [0..1]
+
+		// Convert spherical coords (theta, phi) to Cartesian
+		// Add a small sign flip on cos(phi) so center matches your prior camera
+		vec3 dir = vec3(
+				sin(phi)*cos(theta),
+				-cos(phi),
+				sin(phi)*sin(theta)
+		);
+
+		// 1) find ring
+		RingResult rRing= findNearestBillboard(camPos, dir);
+
+		// 2) find surface
+		vec3 surfPos= vec3(0);
+		float tSurf= findSurface(camPos, dir, surfPos);
+
+		// pick whichever is near
+		if(rRing.t < tSurf){
+			vec3 color = rRing.color;
+			outColor= vec4(color,1.0);
+		}else if(tSurf< 999999.0){
+			vec3 c = shadeSurface(surfPos);
+			outColor= vec4(c,1.0);
+		} else {
+			outColor= vec4(0.5,0.5,0.5,1.0);
+		}
+}
+`;
+
+/***************************************************************
+ * 6) Create & link
+ ***************************************************************/
+
+let vs=compileShader(gl,gl.VERTEX_SHADER,vsSource);
+let fs=compileShader(gl,gl.FRAGMENT_SHADER,fsSource);
+let program= gl.createProgram();
+gl.attachShader(program,vs);
+gl.attachShader(program,fs);
+gl.linkProgram(program);
+if(!gl.getProgramParameter(program,gl.LINK_STATUS)){
+	console.error("link err:",gl.getProgramInfoLog(program));
+	throw new Error("link fail");
+}
+gl.useProgram(program);
+
+// uniform locs
+let loc_bellPos = gl.getUniformLocation(program,"bellPositions");
+let loc_bellRad = gl.getUniformLocation(program,"bellRadii");
+let loc_bellStr = gl.getUniformLocation(program,"bellStrengths");
+
+let loc_camPos	 = gl.getUniformLocation(program,"camPos");
+let loc_camFwd	 = gl.getUniformLocation(program,"camForward");
+let loc_camRight = gl.getUniformLocation(program,"camRight");
+let loc_camUp		= gl.getUniformLocation(program,"camUp");
+
+let loc_horizon	= gl.getUniformLocation(program,"horizon");
+let loc_isRay		= gl.getUniformLocation(program,"isRaymarch");
+let loc_closeE	 = gl.getUniformLocation(program,"closeEnuf");
+let loc_circPx	 = gl.getUniformLocation(program,"circleBandPx");
+let loc_knobAng	= gl.getUniformLocation(program,"knobAngleBand");
+let loc_selectedBellI	 = gl.getUniformLocation(program,"selectedBellI");
+
+let loc_col1		 = gl.getUniformLocation(program,"color1");
+let loc_col2		 = gl.getUniformLocation(program,"color2");
+let loc_col3		 = gl.getUniformLocation(program,"color3");
+
+// VAO
+let quadVBO= gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quadVBO);
+let quadData= new Float32Array([
+	-1,-1, 1,-1, -1,1,
+	-1,1, 1,-1, 1,1
+]);
+gl.bufferData(gl.ARRAY_BUFFER,quadData,gl.STATIC_DRAW);
+
+let vao= gl.createVertexArray();
+gl.bindVertexArray(vao);
+let posLoc= gl.getAttribLocation(program,"position");
+gl.enableVertexAttribArray(posLoc);
+gl.vertexAttribPointer(posLoc,2,gl.FLOAT,false,0,0);
+gl.bindVertexArray(null);
+
+/***************************************************************
+ * 7) Searching up to NEAR_TOTAL
+ ***************************************************************/
+
+let nearBells=[];
+let selectedBellI = -1; //index in nearBells, copied into GPU for display
+let gpuPos= new Float32Array(opt.NEAR_TOTAL*3);
+let gpuRad= new Float32Array(opt.NEAR_TOTAL);
+let gpuStr= new Float32Array(opt.NEAR_TOTAL);
+
+function updateNearBells(){
+	let rng= 200;
+	let cpx= camPos[0], cpy= camPos[1], cpz= camPos[2];
+	if(opt.displayCenterForwardOfCam){
+	let fwd = calculateForwardVector(camQ);
+	cpx += fwd[0]*opt.displayCenterForwardOfCam
+	cpy += fwd[1]*opt.displayCenterForwardOfCam;
+	cpz += fwd[2]*opt.displayCenterForwardOfCam;
+	}
+	let cands= spatialGrid.queryNearby(cpx,cpy,cpz, rng);
+	//FIXME 2025-3-27 this is returning all 100k bells cuz cell size is 10.
+	cands.sort((a,b)=>{
+		let da=(a.x-cpx)**2+(a.y-cpy)**2+(a.z-cpz)**2;
+		let db=(b.x-cpx)**2+(b.y-cpy)**2+(b.z-cpz)**2;
+		return da-db;
+	});
+	nearBells= cands.slice(0,opt.NEAR_TOTAL);
+	//let prev_selectedBellI = selectedBellI;
+	selectedBellI = -1; //none
+	for(let i=0;i<nearBells.length; i++){
+		gpuPos[i*3+0]= nearBells[i].x;
+		gpuPos[i*3+1]= nearBells[i].y;
+		gpuPos[i*3+2]= nearBells[i].z;
+		gpuRad[i]		= nearBells[i].radius;
+		gpuStr[i]		= nearBells[i].strength;
+	if(nearBells[i].isSelected){
+		if(selectedBellI != -1){
+			throw new Error('Found second selected bell. max 1.');
+		}
+		selectedBellI = i;
+	}
+	}
+	//if(prev_selectedBellI != selectedBellI) console.log('selectedBellI='+selectedBellI);
+	console.log('selectedBellI='+selectedBellI);
+}
+
+/***************************************************************
+ * 8) Camera + Gamepad
+ ***************************************************************/
+
+let camPos=[0,0,5];
+let camQ	=[0,0,0,1];
+
+function updateFromGamepad(dt){
+	let gps= navigator.getGamepads();
+	if(!gps) return;
+	let gp= gps[0];
+	if(!gp) return;
+	let lx= gp.axes[0], ly= gp.axes[1];
+	let rx= gp.axes[2], ry= gp.axes[3];
+	const dead= 0.06;
+	//const dead= 0; //FIXME
+	let lLen= Math.hypot(lx,ly);
+	if(lLen>dead){
+		let leftover= lLen- dead;
+		lx*= leftover/lLen;
+		ly*= leftover/lLen;
+	} else { lx=0; ly=0; }
+	let rLen= Math.hypot(rx,ry);
+	if(rLen>dead){
+		let leftover2= rLen- dead;
+		rx*= leftover2/rLen;
+		ry*= leftover2/rLen;
+	} else { rx=0; ry=0; }
+	if(opt.flipTurnY) ry *= -1; //flip y in turning joystick
+	let turnSpd = 2;
+	rx *= turnSpd;
+	ry *= turnSpd;
+	rotateCamera(rx,ry,dt);
+	
+	if(opt.flipTurnX) rx *= 1; //flip x in turning joystick
+
+	let fwdVal= gp.buttons[7]?.value - gp.buttons[6]?.value;
+	let upDown= -ly;
+	let leftRight= lx;
+	let fwd= calculateForwardVector(camQ);
+	let upv= calculateUpVector(camQ);
+	let rig= cross(fwd, upv); rig= normalize(rig);
+	upv= normalize(cross(rig, fwd));
+	//let moveSpd=2.0;
+	let moveSpd=2.0;
+	camPos[0]+= (fwd[0]*fwdVal + upv[0]*upDown + rig[0]*leftRight)* moveSpd* dt;
+	camPos[1]+= (fwd[1]*fwdVal + upv[1]*upDown + rig[1]*leftRight)* moveSpd* dt;
+	camPos[2]+= (fwd[2]*fwdVal + upv[2]*upDown + rig[2]*leftRight)* moveSpd* dt;
+}
+
+function rotateCamera(rx, ry, dt){
+	const threshold= 0.001;
+	let fwd= calculateForwardVector(camQ);
+	let upv= calculateUpVector(camQ);
+	let rig= cross(fwd, upv); rig= normalize(rig);
+	upv= normalize(cross(rig, fwd));
+
+	let combined=[0,0,0,1];
+	if(Math.abs(rx)> threshold){
+		let yawAngle= -rx*2.0* dt;
+		let yawQ= createQuaternion(upv,yawAngle);
+		combined= multiplyQuaternions(yawQ,combined);
+	}
+	if(Math.abs(ry)> threshold){
+		let pitchAngle= -ry*2.0* dt;
+		let pitchQ= createQuaternion(rig,pitchAngle);
+		combined= multiplyQuaternions(combined,pitchQ);
+	}
+	camQ= multiplyQuaternions(combined, camQ);
+	camQ= normalizeQuaternion(camQ);
+}
+
+/***************************************************************
+ * 9) CPU overlay of ring+knobs is removed. 
+ *		But user wants to “click + drag” to update the 5 numbers per bell?
+ *		That now means we have no 2D or “visible overlay.” 
+ *		We'll do a trivial approach:
+ *		If user clicks => we do a “nearest billboard ring.” 
+ *		Then if it’s near a knob => store which bell & knob. 
+ *		Drag changes that param.	But we cannot see them, 
+ *		because we removed the CPU overlay.
+ ***************************************************************/
+
+// For demonstration, we'll still handle mouse so user can drag (like a big invisible UI).
+// We'll do the same findKnobAt approach in JS, but that means we replicate the plane intersection logic in JS 
+// or we do readPixels but that’s more complicated. 
+// We'll replicate the plane logic + local tangent-plane transform here. 
+// If you truly want *perfect* matching, you'd do a readback from a picking buffer or do an extra pass, but that’s advanced.
+
+// We'll do a minimal approach, scanning the same nearBells.	
+// If found ring & knob => we set dragState. Then as user drags => we adjust radius, or strength, or x,y,z, etc.
+
+let dragState=null;
+let mousedown = e=>{
+	let rect= canvas.getBoundingClientRect();
+	let mx= e.clientX- rect.left;
+	//FIXME findKnobAt is flipped in y, +y is up. let my= e.clientY- rect.top;
+	//let my= rect.y-e.clientY; //cuz flipped. FIXME
+	let my= e.clientY- rect.top;
+	my = rect.height-1-my; //cuz flipped. FIXME.
+	let k= findKnobAt(mx,my);
+	if(k){
+	for(let bc of allBells) bc.isSelected = false; //unselect all
+		//if(dragState) dragState.bc.isSelected = false; //unselect prev selection
+		dragState={
+			bc: k.bc,
+			knobIndex: k.knobIndex,
+			startY: my,
+			startVal: getParamVal(k.bc,k.knobIndex)
+		};
+	dragState.bc.isSelected = true; //select next
+	}
+};
+canvas.addEventListener("mousedown", mousedown);
+canvas.addEventListener("mousemove", e=>{
+	//mousedown(e); //FIXME
+	if(!dragState) return;
+	let rect= canvas.getBoundingClientRect();
+	let my= e.clientY-rect.top; //FIXME
+	my = rect.height-1-my; //FIXME cuz flipped y between cpu and gpu
+	let dy= my- dragState.startY;
+	let newVal= dragState.startVal+ (-dy*0.02);
+	setParamVal(dragState.bc, dragState.knobIndex, newVal);
+});
+canvas.addEventListener("mouseup", e=>{
+	for(let bc of allBells) bc.isSelected = false; //unselect all
+});
+canvas.addEventListener("mouseup", e=>{
+	dragState=null;
+});
+
+var selectedKnob = null;
+
+// We replicate the plane logic for ring & knob detection in JS. 
+// See the approach used in the fragment code, but we do it once for every bell. 
+// Then we pick whichever is closest in tC. If ringDiff < band => we also do knob angle check.
+function findKnobAt(mx,my){
+	console.log('findKnobAt mx='+mx+' my='+my);
+	let camForward = calculateForwardVector(camQ);
+	let camUp= calculateUpVector(camQ);
+	let camRight= cross(camForward, camUp);
+	camRight = normalize(camRight);
+	console.log('camForward='+camForward);
+
+	// transform pixel -> st => [-1..1], st => build ray
+	let width= canvas.width, height= canvas.height;
+	//let stx= (mx/(float(width))) *2.0 -1.0; 
+	let stx= (mx/width) *2.0 -1.0; 
+	//let sty= (my/(float(height)))*2.0 -1.0;
+	let sty= (my/height)*2.0 -1.0;
+	// but we are in JS, so do
+	let stxF= (mx/width)*2 -1;
+	let styF= (my/height)*2-1;
+	let dir= normalize( vecAdd( camForward, vecAdd( scale(camRight,stxF), scale(camUp,styF) ) ) );
+
+	// define plane normal= camForward
+	let n= normalize(camForward);
+	let bestT= 999999;
+	let bestBell=null;
+	let bestKnob=-1;
+
+	// define stable planeRight, planeUp
+	let wUp= [0,1,0];
+	let d= Math.abs(dot(wUp, n));
+	if(d>0.9){
+		wUp= [1,0,0];
+	}
+	let pRight= normalize( cross(n, wUp) );
+	let pUp	 = normalize( cross(pRight, n) );
+
+	for(let i=0; i< nearBells.length; i++){
+		let bc= nearBells[i];
+		if(bc.x>9000) continue;
+		let denom= dot(dir, n);
+		if(Math.abs(denom)<1e-9) continue;
+		let c= [bc.x, bc.y, bc.z];
+		let diff= vecSub(c, camPos);
+		let tC= dot(diff,n)/ denom;
+		
+	
+	
+	
+	//if(tC<0.01 || tC> opt.horizon) continue; //commentedout 2025-3-28 for testing
+	if(tC<0.01 || tC> opt.horizon) continue;
+	
+	
+	
+	
+		// planePt
+		let planePt= vecAdd( camPos, scale(dir, tC) );
+		let distC= length( vecSub(planePt, c) );
+		// ring diff
+		let pxScale= 0.003* tC;
+		let band= opt.circleBandPx* pxScale;
+		let ringDiff= Math.abs(distC- bc.radius);
+		if(ringDiff < band){
+			// might be a knob
+			// local2D
+			let localVec= vecSub(planePt, c);
+			let localX= dot(localVec, pRight);
+			let localY= dot(localVec, pUp);
+			let angle= Math.atan2(localY, localX);
+			if(angle<0) angle+= 2*Math.PI;
+			let knobAng= 2*Math.PI/ opt.KNOB_COUNT; 
+			let kFloat= angle/ knobAng;
+			let kRound= Math.floor(kFloat+0.5);
+			let angleDiff= Math.abs( kFloat- kRound );
+			if(angleDiff < opt.knobAngleBand){
+				// it's a knob
+				if(tC< bestT){
+					bestT= tC;
+					bestBell= bc;
+					bestKnob= kRound % opt.KNOB_COUNT;
+				}
+			} else {
+				// ring
+				// maybe store a separate best ring, but user only wants to drag knobs.
+				// so if it’s ring only => no knob => no drag
+				// skip
+			}
+		}
+	}
+	if(!bestBell) return null;
+	selectedKnob={bc: bestBell, knobIndex: bestKnob};
+	console.log('selectedKnob='+JSON.stringify(selectedKnob));
+	setParamVal(selectedKnob.bc, selectedKnob.knobIndex,
+	getParamVal(selectedKnob.bc, selectedKnob.knobIndex)+.001);
+	return selectedKnob;
+}
+
+// minimal vector utilities in JS:
+function vecAdd(a,b){ return [a[0]+b[0], a[1]+b[1], a[2]+b[2]];}
+function vecSub(a,b){ return [a[0]-b[0], a[1]-b[1], a[2]-b[2]];}
+function dot(a,b){ return a[0]*b[0]+ a[1]*b[1]+ a[2]*b[2];}
+function cross(a,b){
+	return [
+		a[1]*b[2]- a[2]*b[1],
+		a[2]*b[0]- a[0]*b[2],
+		a[0]*b[1]- a[1]*b[0]
+	];
+}
+function scale(a,s){return [a[0]*s, a[1]*s, a[2]*s];}
+function length(a){ return Math.hypot(a[0],a[1],a[2]);}
+function normalize(a){
+	let L= length(a);
+	if(L<1e-9) return [0,0,0];
+	return [a[0]/L, a[1]/L, a[2]/L];
+}
+
+/***************************************************************
+ * 11) Editing the 5 knobs means x,y,z,radius,str
+ ***************************************************************/
+
+function getParamVal(bc,k){
+	switch(k){
+		case 0: return bc.x;
+		case 1: return bc.y;
+		case 2: return bc.z;
+		case 3: return bc.radius;
+		case 4: return bc.strength;
+	}
+}
+function setParamVal(bc,k,v){
+	console.log('setParamVal k='+k+' v='+v+' bc='+bc);
+	switch(k){
+		case 0: bc.x= v; break;
+		case 1: bc.y= v; break;
+		case 2: bc.z= v; break;
+		case 3: bc.radius= Math.max(0.01,v); break;
+		case 4: bc.strength= v; break;
+	}
+}
+
+/***************************************************************
+ * 12) Render loop
+ ***************************************************************/
+
+function updateUVSpheresSparsely(){
+	// Invoke the GPU-based update each frame. This does no CPU voxel storage.
+	cameraUvsphere.updateFromBalls(allBalls);
+	console.log('TODO updateUVSpheresSparsely');
+};
+
+//1) Add a second fragment shader + Program for drawing the sphere to the canvas
+//In JavaScript near your other shaders, define something like:
+const vsFullQuad = `#version 300 es
+//in mat3 rotate3x3;
+//uniform vec3 centerPosition;
+uniform mat3 rotate3x3;
+in vec2 position; //position in some affine transform of 2d canvas coordinates
+//TODO Transform vec2 position by the usual perspective calculation, to a unit vec3 as a 3d angle,
+//then rotate that, then back to uv
+//out vec2 uv;
+out vec3 dir;              // We want to pass a 3D direction to FS
+//This main() is opt.doPassA
+void main(){
+	//vec3 rotatedPosition = position*rotate3x3;
+	//uv = (position * 0.5) + 0.5;	// map [-1..1] to [0..1]
+	//gl_Position = vec4(position+vec2(.21,.52), 0, 1);
+	//gl_Position = vec4(position, 0, 1);+  // 1) create a 3D vector from 2D: 
+	//gl_Position = vec4(centerPosition, 1);
+	gl_Position = vec4(position, 0, 1); //is this affine transformed canvas 2d coordinates?
+	
+	//    e.g. (x,y,1) if you want a pinhole perspective
+	vec3 base = vec3(position, 1.0); 
+
+	// 2) multiply by your rotate3x3 uniform
+	vec3 rotated = rotate3x3 * base;
+
+	// Optionally, we can store that as dir for the fragment shader:
+	dir = normalize(rotated); // pass a direction?
+}`;
+
+// Then build a small Program for it:
+let progDrawSphere=null;
+let loc_drawSphere_sphereTex=null;
+
+function throwErrorOnGLError(gl) {
+    const error = gl.getError();
+    if (error !== gl.NO_ERROR) {
+        const errorString = {
+            [gl.INVALID_ENUM]: "INVALID_ENUM",
+            [gl.INVALID_VALUE]: "INVALID_VALUE",
+            [gl.INVALID_OPERATION]: "INVALID_OPERATION",
+            [gl.INVALID_FRAMEBUFFER_OPERATION]: "INVALID_FRAMEBUFFER_OPERATION",
+            [gl.OUT_OF_MEMORY]: "OUT_OF_MEMORY",
+            [gl.CONTEXT_LOST_WEBGL]: "CONTEXT_LOST_WEBGL"
+        }[error] || "Unknown Error";
+        
+        throw new Error("WebGL Error: " + errorString);
+    }
+}
+
+
+function buildDrawSphereProg(){
+		let vs = compileShader(gl, gl.VERTEX_SHADER, vsFullQuad);
+		let fs = compileShader(gl, gl.FRAGMENT_SHADER, fsDrawSphereToCanvas);
+		let p	= gl.createProgram();
+		gl.attachShader(p, vs);
+		gl.attachShader(p, fs);
+		gl.linkProgram(p);
+		if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+				console.error("DrawSphereProgram link error:", gl.getProgramInfoLog(p));
+				throw new Error("Program link fail");
+		}
+		// we can detach+delete vs,fs after linking
+		gl.deleteShader(vs);
+		gl.deleteShader(fs);
+
+		// get uniform loc
+		let loc_sphereTex = gl.getUniformLocation(p, "sphereTex");
+		let loc_timeUint12 = gl.getUniformLocation(p, "timeUint12");
+		
+		let loc_rotate3x3 = gl.getUniformLocation(p, "rotate3x3");
+
+		// build a VAO for the full screen quad (like you already do)
+		let vbo = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+		const quadData = new Float32Array([
+				-1,-1,	1,-1, -1, 1,
+				-1, 1,	1,-1,	1, 1
+		]);
+		gl.bufferData(gl.ARRAY_BUFFER, quadData, gl.STATIC_DRAW);
+
+		let vao = gl.createVertexArray();
+		gl.bindVertexArray(vao);
+		let posLoc = gl.getAttribLocation(p, "position");
+		gl.enableVertexAttribArray(posLoc);
+		gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+		gl.bindVertexArray(null);
+
+		return {
+				program: p,
+				vao: vao,
+				loc_sphereTex: loc_sphereTex,
+				loc_rotate3x3: loc_rotate3x3,
+				loc_timeUint12: loc_timeUint12,
+		};
+}
+
+const fsDrawSphereToCanvas = `#version 300 es
+precision highp float;
+
+//in vec2 uv;						// [0..1] from the vertex shader
+in vec3 dir; //3d direction of length 1.
+out vec4 outColor;
+uniform float timeUint12;  //range 0 to 4095, normally in units of video frames since it started
+uniform sampler2D sphereTex; // the cameraUvsphere.texA
+// If you need gamma-correction or other adjustments, do them here. 
+// For now, just sample directly:
+/*void main(){
+		outColor = texture(sphereTex, uv);
+}*/
+void main(){
+	// Convert direction vector to spherical coordinates
+	float pi = 3.14159265359;
+    float u = 0.5 + atan(dir.z, dir.x) / (2.0 * pi);
+    //float v = 0.5 - asin(dir.y) / 3.14159265359;
+	float v = 0.5 - atan(dir.y, sqrt(dir.x * dir.x + dir.z * dir.z)) / pi;
+	vec2 uv = vec2(u, v);
+	
+	vec4 texColor = texture(sphereTex, uv);
+	//texColor.x += mod(timeUint12,30.)/30.; //make it change amount of red over time as a test
+	if (int(gl_FragCoord.x) % 16 == 0 && int(gl_FragCoord.y) % 2 == 0) {
+		outColor = vec4(0.0, 0.0, 1.0, 1.0);	// Make every other pixel blue
+	} else {
+		outColor = texColor;	// Original texture color
+	}
+}
+`;
+
+var drawSphereProg = null;
+var fbo = null; //Global framebuffer
+
+// Then each frame, or whenever your camera rotates, build a mat3:
+function buildRotate3x3(camQ){
+	let camForward = calculateForwardVector(camQ);	
+	let camUp = calculateUpVector(camQ);
+	let camRight = cross(camForward, camUp);
+	camRight = normalize(camRight);
+    /*// produce a 3×3 from e.g. your (camFwd, camRight, camUp)
+    // or build from angles
+    return new Float32Array([
+        // r00, r01, r02,
+        // r10, r11, r12,
+        // r20, r21, r22
+    ]);*/
+	// Construct the rotation matrix columns from the camera basis vectors.
+    // Note: WebGL expects column-major order for matrices.
+    return new Float32Array([
+        camRight[0], camUp[0], -camForward[0], // Column 1
+        camRight[1], camUp[1], -camForward[1], // Column 2
+        camRight[2], camUp[2], -camForward[2]  // Column 3
+    ]);
+}
+
+var timeUint12 = 0;
+
+function renderLoop(t){
+	let dt= 0.016; // approximate
+	timeUint12 = (timeUint12+1)&0xfff; //in units of video frames. Use this with colorUint12/4096 in fourth number in a vec4.
+	if(!drawSphereProg){
+	
+		//must call this so vec4 (float[4]) can be use as input texture. as output texture u dont need it.
+		var ext = gl.getExtension('EXT_color_buffer_float'); //load extension
+		if(ext) console.log('Loaded EXT_color_buffer_float');
+		else consoleerror('FAIL EXT_color_buffer_float');
+	
+		if(cameraUvsphere) Err('already had a cameraUvsphere');
+		//if (!cameraUvsphere){
+		// Just pick some size for demonstration; you can change as needed.
+		//cameraUvsphere = new UVSphere(gl, [0, 0, 0], 128, 256, 0);
+		//let h = 32;
+		//let w = 64;
+		let h = 128;
+		let w = 256;
+		let floats = new Float32Array(h*w*4);
+		for(let i=0; i<floats.length; i++){ //test data to start, so can see SOMETHING when it boots, todo
+			floats[i] = Math.random(); //FIXME
+		}
+		cameraUvsphere = new UVSphere(gl, [0, 0, 0], h, w, 0, floats);
+		//cameraUvsphere = new UVSphere(gl, [0, 0, 0], canvas.height, canvas.width, 0);
+		cameraUvsphere.isCamera = true;
+		uvspheres.push(cameraUvsphere);
+		//}
+	
+		/*2025-4-2-2pET when brought back fbo.
+		Created 10000 bellcurves in 30 ^3 region bellsack069.html:189:10
+		selectedBellI=-1 bellsack069.html:582:10
+		Uncaught Error: WebGL Error: INVALID_FRAMEBUFFER_OPERATION
+			throwErrorOnGLError file:///S:/q/q52x/w/gptBellRaymarch3d/bellsack069.html:913
+			renderLoop file:///S:/q/q52x/w/gptBellRaymarch3d/bellsack069.html:1113
+		bellsack069.html:913:15
+		WebGL warning: clear: Framebuffer not complete. (status: 0x8cd6) COLOR_ATTACHMENT0: Attachment has an effective format of RGBA32F, which is not renderable.
+		WebGL warning: clear: Framebuffer must be complete.
+		WebGL warning: drawArraysInstanced: Framebuffer not complete. (status: 0x8cd6) COLOR_ATTACHMENT0: Attachment has an effective format of RGBA32F, which is not renderable.
+		WebGL warning: drawArraysInstanced: Framebuffer must be complete.
+		WebGL warning: clear: Framebuffer not complete. (status: 0x8cd6) COLOR_ATTACHMENT0: Attachment has an effective format of RGBA32F, which is not renderable.
+		WebGL warning: clear: Framebuffer must be complete. 
+		// Initialize the global framebuffer
+		fbo = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+		// Attach the first texture you're going to use
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, cameraUvsphere.texA, 0);
+		*/
+		// Initialize the global framebuffer
+		fbo = gl.createFramebuffer();
+		throwErrorOnGLError(gl);
+		
+		// Check framebuffer status after setup
+		if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+			console.error("Framebuffer is not complete");
+			throw new Error("Framebuffer setup failed");
+		}else{
+			console.log('fbo framebuffer complete');
+		}
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+		throwErrorOnGLError(gl);
+		// Attach the first texture you're going to use
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, cameraUvsphere.texA, 0);
+		throwErrorOnGLError(gl);
+			
+		drawSphereProg = buildDrawSphereProg();
+		throwErrorOnGLError(gl);
+	}
+	//TODO use drawSphereProg.
+	//2 passes, first one to fill in cameraUvsphere and the second to display parts of it on the rectangle canvas.
+	
+	updateFromGamepad(dt);
+	//updateUVSpheresSparsely(); //FIXME this is just doing .flip() but other code isnt filled in. was making it flash 2025-4-2.
+	updateNearBells();
+	//if(opt.doBalls){
+	//	updateBalls(dt);
+	//}
+
+	// camera basis
+	let fwd= calculateForwardVector(camQ);
+	let upv= calculateUpVector(camQ);
+	let rig= cross(fwd, upv); rig= normalize(rig);
+	upv= normalize(cross(rig, fwd));
+	
+	
+	/*GPT-4.5 thinks this is the problem causing framebuffer not ready in doPassA 2025-4-2-310pET[[[
+		Your current WebGL error:
+
+		"WebGL warning: drawArraysInstanced: Texture level 0 would be read by TEXTURE_2D unit 0, but written by framebuffer attachment COLOR_ATTACHMENT0, which would be illegal feedback."
+
+		happens because you're attempting to simultaneously read from and write to the same texture (cameraUvsphere.texA). WebGL explicitly forbids this because it creates undefined behavior (a feedback loop).
+
+		Why is this happening?
+		In your current setup, you're performing two passes:
+
+		First Pass (pass A):
+		Writes (renders) into cameraUvsphere.texA by attaching it to the framebuffer (fbo) as COLOR_ATTACHMENT0.
+
+		Second Pass (pass B):
+		Reads (samples) from cameraUvsphere.texA to render it to the default framebuffer (the canvas).
+
+		The problem occurs because after enabling both passes dynamically, the framebuffer with cameraUvsphere.texA attached as a color buffer remains bound when you try to read from the same texture again in a subsequent draw call. This is exactly the condition WebGL forbids.
+
+		How to fix it:
+		You must unbind cameraUvsphere.texA from the framebuffer (fbo) before pass B tries to sample it. In other words, after you've finished writing to cameraUvsphere.texA in pass A, unbind it completely from the framebuffer before reading it.
+
+		Add this after your first pass draw call and before the second pass:
+
+		javascript
+		Copy
+		Edit
+		// after pass A drawing...
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null); // Unbind framebuffer after rendering to texture
+	]]]
+	*/
+	if(opt.doPassA){
+		/*it works but strangley stopped giving the framebuffer not ready error when just checked this.
+		var ext = gl.getExtension('EXT_color_buffer_float');
+		if(!ext){
+			console.error('Failed to enable EXT_color_buffer_float extension');
+		}else{
+			console.log('OK EXT_color_buffer_float');
+		}*/
+		// First Pass: Render to cameraUvsphere.texA
+		gl.viewport(0, 0, cameraUvsphere.width, cameraUvsphere.height);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+		gl.clearColor(0, 0, 0, 1);
+		//gl.clear(gl.COLOR_BUFFER_BIT);
+		gl.useProgram(program); // Use the main program that handles raymarching or similar effects
+		
+		// FIX: Unbind texture (cameraUvsphere.texA) from any active texture unit
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+
+		// Set uniforms for the first pass
+		gl.uniform3fv(loc_bellPos, gpuPos);
+		gl.uniform1fv(loc_bellRad, gpuRad);
+		gl.uniform1fv(loc_bellStr, gpuStr);
+		gl.uniform3f(loc_camPos, camPos[0], camPos[1], camPos[2]);
+		gl.uniform3f(loc_camFwd, fwd[0], fwd[1], fwd[2]);
+		gl.uniform3f(loc_camRight, rig[0], rig[1], rig[2]);
+		gl.uniform3f(loc_camUp, upv[0], upv[1], upv[2]);
+		gl.uniform1f(loc_horizon, opt.horizon);
+		gl.uniform1f(loc_isRay, (opt.isRaymarch ? 1.0 : 0.0));
+		gl.uniform1f(loc_closeE, opt.closeEnufToZero);
+		gl.uniform1f(loc_circPx, opt.circleBandPx);
+		gl.uniform1f(loc_knobAng, opt.knobAngleBand);
+		gl.uniform1i(loc_selectedBellI, selectedBellI);
+		gl.uniform3fv(loc_col1, [1.0, 0.2, 0.2]);
+		gl.uniform3fv(loc_col2, [0.2, 1.0, 0.2]);
+		gl.uniform3fv(loc_col3, [0.2, 0.2, 1.0]);
+
+		// Draw scene into cameraUvsphere's texture
+		gl.bindVertexArray(vao);
+		gl.drawArrays(gl.TRIANGLES, 0, 6);
+		gl.bindVertexArray(null);
+		
+		//Unbind framebuffer after rendering to texture, so its not an input and output at same time
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	}
+	
+
+
+	if(opt.doPassB){
+		// Second Pass: Draw from cameraUvsphere.texA to canvas
+		//gl.bindFramebuffer(gl.FRAMEBUFFER, null); // Bind to default framebuffer
+		gl.viewport(0, 0, canvas.width, canvas.height);
+		gl.clear(gl.COLOR_BUFFER_BIT);
+		let R = buildRotate3x3(camQ);
+		gl.useProgram(drawSphereProg.program); // Use the program for drawing the sphere texture
+		gl.uniformMatrix3fv(drawSphereProg.loc_rotate3x3, false, R);
+		
+		gl.uniform1f(drawSphereProg.loc_timeUint12, timeUint12);
+		
+		throwErrorOnGLError(gl);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, cameraUvsphere.texA);
+		gl.uniform1i(drawSphereProg.loc_sphereTex, 0);
+
+		// Draw the full-screen quad to the canvas
+		gl.bindVertexArray(drawSphereProg.vao);
+		gl.drawArrays(gl.TRIANGLES, 0, 6);
+		//gl.bindVertexArray(null);
+	}
+
+	// Request the next frame
+	//requestAnimationFrame(renderLoop);
+
+	
+	/*
+	// set uniforms
+	gl.viewport(0,0, canvas.width, canvas.height);
+	gl.clearColor(0,0,0,1);
+	gl.clear(gl.COLOR_BUFFER_BIT);
+	gl.useProgram(program);
+
+	gl.uniform3fv(loc_bellPos, gpuPos);
+	gl.uniform1fv(loc_bellRad, gpuRad);
+	gl.uniform1fv(loc_bellStr, gpuStr);
+
+	gl.uniform3f(loc_camPos, camPos[0], camPos[1], camPos[2]);
+	gl.uniform3f(loc_camFwd, fwd[0], fwd[1], fwd[2]);
+	gl.uniform3f(loc_camRight, rig[0], rig[1], rig[2]);
+	gl.uniform3f(loc_camUp, upv[0], upv[1], upv[2]);
+
+	gl.uniform1f(loc_horizon, opt.horizon);
+	gl.uniform1f(loc_isRay, (opt.isRaymarch?1.0:0.0));
+	gl.uniform1f(loc_closeE, opt.closeEnufToZero);
+	gl.uniform1f(loc_circPx, opt.circleBandPx);
+	gl.uniform1f(loc_knobAng, opt.knobAngleBand);
+	gl.uniform1i(loc_selectedBellI, selectedBellI);
+
+	gl.uniform3fv(loc_col1, [1.0,0.2,0.2]);
+	gl.uniform3fv(loc_col2, [0.2,1.0,0.2]);
+	gl.uniform3fv(loc_col3, [0.2,0.2,1.0]);
+
+	gl.bindVertexArray(vao);
+	gl.drawArrays(gl.TRIANGLES,0,6);
+	gl.bindVertexArray(null);
+	*/
+
+	requestAnimationFrame(renderLoop);
+	
+}
+
+/***************************************************************
+ * 13) Quicksave / Quickload
+ ***************************************************************/
+
+
+/***************************************************************
+ * 14) Quaternions & small vector ops
+ ***************************************************************/
+
+function calculateForwardVector(q){
+	const[x,y,z,w]=q;
+	const xx= 2.0*(x*z+ w*y);
+	const yy= 2.0*(y*z- w*x);
+	const zz= 1.0- 2.0*(x*x+ y*y);
+	const ln= Math.hypot(xx,yy,zz);
+	if(ln<1e-9) return [0,0,1];
+	return [xx/ln, yy/ln, zz/ln];
+}
+function calculateUpVector(q){
+	const[x,y,z,w]=q;
+	const xx= 2.0*( x*y- w*z );
+	const yy= 1.0- 2.0*( x*x+ z*z );
+	const zz= 2.0*( y*z+ w*x );
+	const ln= Math.hypot(xx,yy,zz);
+	if(ln<1e-9) return [0,1,0];
+	return [xx/ln, yy/ln, zz/ln];
+}
+function cross(a,b){
+	return [
+		a[1]*b[2]-a[2]*b[1],
+		a[2]*b[0]-a[0]*b[2],
+		a[0]*b[1]-a[1]*b[0]
+	];
+}
+function normalize(v){
+	const ln= Math.hypot(v[0],v[1],v[2]);
+	if(ln<1e-9) return [0,0,0];
+	return [v[0]/ln, v[1]/ln, v[2]/ln];
+}
+function multiplyQuaternions(q1,q2){
+	const[x1,y1,z1,w1]=q1;
+	const[x2,y2,z2,w2]=q2;
+	return [
+		w1*x2 + x1*w2 + y1*z2 - z1*y2,
+		w1*y2 - x1*z2 + y1*w2 + z1*x2,
+		w1*z2 + x1*y2 - y1*x2 + z1*w2,
+		w1*w2 - x1*x2 - y1*y2 - z1*z2
+	];
+}
+function createQuaternion(axis,angle){
+	const ha= angle*0.5;
+	const s = Math.sin(ha);
+	return [ axis[0]*s, axis[1]*s, axis[2]*s, Math.cos(ha)];
+}
+function normalizeQuaternion(q){
+	const ln= Math.hypot(q[0],q[1],q[2],q[3]);
+	if(ln<1e-9) return [0,0,0,1];
+	return [q[0]/ln, q[1]/ln, q[2]/ln, q[3]/ln];
+}
+
+var makeGLTexture = (gl, height, width, optionalFloat32Array)=>{
+	let t = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, t);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	let floats = optionalFloat32Array || null;
+	//gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, width, height, 0, gl.RGBA, gl.FLOAT, floats);
+	gl.texImage2D(
+		gl.TEXTURE_2D,
+		0,
+		gl.RGBA32F,
+		width,
+		height,
+		0,
+		gl.RGBA,
+		gl.FLOAT,
+		floats
+	);
+	return t;
+};
+
+//a rectangular GL texture wrapped around a sphere, all angles.
+//At each angle there is a vec4 which is: [x y z tc] were tc is time+color/4096,
+//where time and color are integers ranging 0 to 4095, time in units of video frames,
+//so thats about 68 seconds.
+//It stores 2 textures and swaps them so it can merge its previous self and another UVSphere
+//into its next version. You cant read and write the same GL texture in the same GPU shader call.
+//A UVSphere has no radius as its just a 3d point and 2 vec4's (1 per buffer) per angle,
+//but TODO it might still be displayed that way in some debug modes.
+class UVSphere{
+	constructor(gl, pos, height, width, minTime, optionalFloat32Array){
+		this.type = 'bellsack_uvsphere';
+		this.gl = gl;
+		this.pos = pos; //[x,y,z] or Float32Array.of(x,y,z)
+		this.height = height;
+		this.width = width;
+		this.texA = makeGLTexture(gl,height,width,optionalFloat32Array);
+		this.texB = makeGLTexture(gl,height,width);
+		this.minTime = minTime;
+	}
+	flip(){ //swap the 2 GL textures like double buffering
+		[this.texA, this.texB] = [this.texB, this.texA];
+	}
+	updateFromUVSphere(fromUVSphere, isCompareByTimeElseDistance){
+		if(isCompareByTimeElseDistance){
+			this.updateFromTextureSortByDistance(fromUVSphere);
+		}else{
+			this.updateFromTextureSortByTime(fromUVSphere);
+		}
+	}
+	//after update, this.texA is newest.
+	//updateFromTexture(fromUvsphere, newMinTime, isCompareByTimeElseDistance){
+	//voxelsTexture could be another UVSphere.texA or unordered list of them.
+	updateFromTextureSortByTime(voxelsTexture){
+		/*flip();
+		//read this.texB and fromUvsphere.texA. Write this.texA.
+		Todo();
+		*/
+		
+		this.flip();
+
+		// Create the shared pipeline once
+		if (!sphereUpdatePipeline) {
+			sphereUpdatePipeline = new SphereUpdatePipeline(this.gl);
+		}
+
+		sphereUpdatePipeline.run(
+			this.texA,						// outTex
+			this.texB,						// oldTex
+			voxelsTexture.texA,	 // fromTex
+			this.pos,						 // sphereCenter (unused in time mode)
+			/* isCompareByTimeElseDistance= */ true
+		);
+	}
+	//param is a GL Texture that every vec4 in is used individually, regardless of order,
+	updateFromTextureSortByDistance(voxelsTexture){
+		/*flip();
+		//read this.texB and fromUvsphere.texA. Write this.texA.
+		Todo();
+		*/
+		this.flip();
+
+		if (!sphereUpdatePipeline) {
+			sphereUpdatePipeline = new SphereUpdatePipeline(this.gl);
+		}
+
+		sphereUpdatePipeline.run(
+			this.texA,
+			this.texB,
+			voxelsTexture.texA,
+			this.pos,
+			/* isCompareByTimeElseDistance= */ false
+		);
+	}
+	//param is list of Ball.
+	updateFromBalls(ballsList){
+		/*flip();
+		//read this.texB and fromUvsphere.texA. Write this.texA.
+		Todo();
+		*/
+		this.flip();
+		// TODO: create or update a "temp" texture from the balls,
+		// then call sphereUpdatePipeline.run(...) to merge with this.texB.
+		console.log("TODO: updateFromBalls using GPU pass to draw ball shapes, then merge them.");
+	}
+	updateFromBells(roundBellsList, afBellsList, maxDistance){
+		this.flip();
+		// TODO: create a "temp" texture of the bell shapes,
+		// then run the pipeline with distance or time-based logic.
+		console.log("TODO: updateFromBells using GPU pass to draw bell shapes, then merge them.");
+	}
+	getFloats(){ //get copy of this.texA as Float32Array(this.height*this.width*4)
+		const gl = this.gl;
+		const fbo = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.texA.texture, 0);
+
+		const out = new Float32Array(this.width * this.height * 4);
+		gl.readPixels(0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, out);
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.deleteFramebuffer(fbo);
+		return out;
+	}
+	setFloats(floats){ //put copy into this.texA as Float32Array(this.height*this.width*4)
+		const gl = this.gl;
+		gl.bindTexture(gl.TEXTURE_2D, this.texA.texture);
+		gl.texSubImage2D(
+			gl.TEXTURE_2D,
+			0,
+			0, 0,
+			this.width,
+			this.height,
+			gl.RGBA,
+			gl.FLOAT,
+			floats
+		);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	}
+}
+
+var uvspheres = [];
+var cameraUvsphere = null;
+
+class Ball {
+	constructor(x, y, z, radius, color){
+	this.type = 'bellsack_ball';
+		this.x = x;
+		this.y = y;
+		this.z = z;
+		this.vx = 0;
+		this.vy = 0;
+		this.vz = 0;
+		this.radius = radius;
+
+		// Create an SVG circle
+		this.svgCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+		this.svgCircle.setAttribute("fill", color); 
+		this.svgCircle.setAttribute("r", radius); // Temporary placeholder; will be updated
+		document.getElementById("ballOverlay").appendChild(this.svgCircle);
+	}
+}
+
+
+function sumOfBellcurvesCPU(px, py, pz) {
+	let val = 0;
+	for (let bc of allBells) {
+		let dx = px - bc.x, dy = py - bc.y, dz = pz - bc.z;
+		let dist2 = dx*dx + dy*dy + dz*dz;
+		val += bc.strength * Math.exp(-dist2 / (2.0 * bc.radius * bc.radius));
+	}
+	return val;
+}
+
+function isOccluded(cx, cy, cz, bx, by, bz) {
+	let dx = bx - cx, dy = by - cy, dz = bz - cz;
+	let dist = Math.hypot(dx, dy, dz);
+	let steps = Math.floor(dist);
+	dx /= dist; dy /= dist; dz /= dist;
+	for (let i=0; i<steps; i+=2) {
+		let val = sumOfBellcurvesCPU(cx+dx*i, cy+dy*i, cz+dz*i);
+		if (val <= 0) return true;
+	}
+	return false;
+}
+
+window.onload = ()=>{
+	requestAnimationFrame(renderLoop);
+};
+
+</script>
+</body>
+</html>
