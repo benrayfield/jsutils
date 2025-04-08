@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Tensor Display</title>
+	<style>
+		canvas { border: 1px solid black; }
+		textarea { width: 100%; height: 150px; margin-top: 10px; }
+	</style>
+</head>
+<body>
+	<canvas id="tensorCanvas"></canvas>
+	<textarea id="dataInput"></textarea>
+	<script>
+		const canvas = document.getElementById('tensorCanvas');
+		const ctx = canvas.getContext('2d');
+		const textarea = document.getElementById('dataInput');
+
+		const tensorSize = { x: 30, y: 30, z: 100 }; // Tensor dimensions
+		const dataLength = tensorSize.x * tensorSize.y * tensorSize.z;
+		let tensorData = new Float32Array(dataLength).fill(0).map(() => Math.random() * 6 - 3);
+
+		const cellSize = 50; // Overall size of each cell in pixels
+		const bulbSize = 5; // Size of each bulb within the cell
+		const numBulbs = 100; // Number of bulbs per cell
+
+		// Generate colors such that R+G+B = 1
+		const colors = generateColors(numBulbs);
+
+		function generateColors(num) {
+			let colors = [];
+			//for (let i = 0; i < num; i++) {
+			while(colors.length<num){
+				/*let r = Math.random();
+				let g = Math.random() * (1 - r);
+				let b = 1 - r - g;
+				*/
+				let add = .3;
+				let r = add+Math.random();
+				let g = add+Math.random();
+				let b = add+Math.random();
+				let sum = r+g+b;
+				//if(sum<=0) continue;
+				r /= sum;
+				g /= sum;
+				b /= sum;
+				g *= .8; //cuz green is too bright normally
+				
+				let circle = 2*Math.PI;
+				let randAngle = Math.random()*2*Math.PI;
+				r = .5+.5*Math.sin(randAngle);
+				g = .5+.5*Math.sin(randAngle+circle/3);
+				b = .5+.5*Math.sin(randAngle+circle*2/3);
+				
+				colors.push({r, g, b});
+			}
+			return colors;
+		}
+
+		function drawCell(x, y, values) {
+			for (let i = 0; i < values.length; i++) {
+				let brightness = 1 / (1 + Math.exp(-values[i]));
+				//brightness = 1;
+				const color = colors[i];
+				ctx.fillStyle = `rgba(${color.r * 255 * brightness}, ${color.g * 255 * brightness}, ${color.b * 255 * brightness}, 1)`;
+				const colIndex = i % 10;
+				const rowIndex = Math.floor(i / 10);
+				ctx.fillRect(
+					x * cellSize + colIndex * bulbSize,
+					y * cellSize + rowIndex * bulbSize,
+					bulbSize,
+					bulbSize
+				);
+			}
+			// Add border around the cell
+			//ctx.strokeStyle = 'blue';
+			ctx.strokeStyle = 'white';
+			ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
+		}
+
+		function updateCanvas(data) {
+			canvas.width = tensorSize.x * cellSize;
+			canvas.height = tensorSize.y * cellSize;
+
+			for (let y = 0; y < tensorSize.y; y++) {
+				for (let x = 0; x < tensorSize.x; x++) {
+					const cellValues = data.subarray((y * tensorSize.x + x) * tensorSize.z, (y * tensorSize.x + x + 1) * tensorSize.z);
+					drawCell(x, y, cellValues);
+				}
+			}
+		}
+
+		function updateJSON(data) {
+			textarea.value = JSON.stringify(Array.from(data));
+		}
+
+		textarea.addEventListener('input', function() {
+			try {
+				const newData = new Float32Array(JSON.parse(this.value));
+				updateCanvas(newData);
+			} catch (e) {
+				console.error("Invalid JSON data.");
+			}
+		});
+
+		updateCanvas(tensorData);
+		updateJSON(tensorData);
+
+	</script>
+</body>
+</html>
