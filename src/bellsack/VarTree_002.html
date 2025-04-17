@@ -1,0 +1,374 @@
+<!DOCTYPE html><html><head><script>
+//VarTree/Var/V and BellSack (which it loads from json) are offered opensource MIT by Ben F Rayfield.
+//
+//tiny html will load the bigger html from json, along with 3d raytraced extra curvy isosurface
+//of custom GPU code streamed by many players across the internet. Here its just this 4 line html
+//loaded that way and some math code in another part of the json
+
+const Todo = str => { throw new Error(str || 'TODO'); };
+const Err = str => { throw new Error(str || '(Err with no message)'); };
+
+//Var class was copied 2025-4-16 from blobMonstersGame_2025-3-27.html then modified TODO...
+//
+//this is a named var in gob.brain(...vars). It may modify .kv .dp .dv .mn .mx and .poten
+//but NOT .p and NOT .v cuz that happens after a block of calculations in var.nextState(dt)
+//so order of calling gob.brain(...vars) of many gobs and Vars, has no effect except float64 roundoff.
+//Also dont modify prevP, epsilon, accelMul, or gp. Those are set externally.
+//TODO over time, remove this.gob/optionalGob and use ONLY Var, and same for Game and other classes.
+//They were made first, then redesigned as Var is their data format but its also a fast param like centerY.p.
+//So far the tree is entirely organized by root.namespace.object.field, which is a Var tree 3 deep, as you see
+//in the pic of json, but it can be any tree shape. Each var has a position, velocity, and 0 or more named childs.
+//https://x.com/benrayfield/status/1877462454222958657 2025-1-9.
+//
+//To add new code, you move in a many dimensional space. Each possible code string is hashed to name
+//it as a dimension. Position in that dimension means does the code exist or not. Child dimensions are its
+//parameters, part of the high dimensional game state vector. It returns list or Int32Array of int voxels.
+//You just write a javascript function of any parameters you want (Var instances which have
+//position and velocity) and generate whatever pic you want based on that. The params will automatically
+//change so the pics come to life.
+//
+const Var = function(optionalParentVar, optionalName, optionalBig, optionalGob){
+
+	//fixme remove Var.brain cuz Var.getOb().brain would be that if ob is a Gob,
+	//and remove Var.vars cuz thats now Var.pu aka the opposite spelling of Var.up.
+	//this.brain = null; //where compiled (this.big || this.name) goes, normally a js func of Var's to list/array of int voxels.
+	//this.vars = null;
+	
+	//If this.name is a hash id (or might be prefixed with something? todo), then its the hash of this.big which is probably a string of json (see Dagverse json norming, in dagball, TODO).
+	//This must be verifiable. Dont just make up a name and make up a big that cant prove that its name is the hash of that.
+	this.big = optionalBig || null;
+	this.t = 0; //not used as of 2025-2-20 even though some code copies it, maybe later? TODO actual current time //TODO? this.t = utc time as float64 so has at least microsecond precision for 100+ more years.
+	
+	//TODO? this.ch = [] child vars list (gob.vars if this is gob.influence), if this is a .influence var
+	//that is 1 for this thing exists and 0 for does not exist.
+	//so there is 1 correct answer, or it should converge, to what .p and .v should a var be at time t
+	//TODO? this.ns = string namespace, like game.ns.
+	//TODO? this.pk = primaryKey of this Var. or should that be per scalar instead of per Var?
+	//should pk depend on namespace? be concat to that? or what? pk certainly should not depend on t/time.
+	this.name = optionalName || 'v'+(++generatedNameCounter);
+	this.cache = {}; //holds constY and constX if this wraps a tile
+	if(this.name.startsWith('tile')){
+		if(isTileString(this.name)){
+			let square = tileStringToSquare(this.name);
+			this.cache.constY = SquareMidY(square);
+			this.cache.constX = SquareMidX(square);
+			//let yOfTopLeftCorner = SquareY(square);
+			//let xOfTopLeftCorner = SquareX(square);
+			//for Var.y() when Var.ob would be a QuadTile since it doesnt have Y and X Var childs cuz its in the square number instead
+			//cant use this.constY cuz it will make a Var instance and put it in this.pu.constY
+			//this.constY = yOfTopLeftCorner;
+			//this.constX = xOfTopLeftCorner; //for Var.x()
+			//this.cache.constY = yOfTopLeftCorner;
+			//this.cache.constX = yOfTopLeftCorner;
+		}
+	}
+
+	/*Should Var also have a namespace (game.ns) so can make up new vectors without affecting the current game? ... TODO something like this?... /namespaceABC/game/distToPoten0 /namespaceABC/game/distToPoten1023 /namespaceABC/monster567sHashId/centerY /namespaceABC/monster567sHashId/centerX /namespaceABC/monster567sHashId/heightToWidthRatio, and each of those refers to a Var. That could be its primaryKey. /namespaceABC/monster567sHashId would also be a Var and is the .influence of that gob, and thatGob.vars would be its childs including /namespaceABC/monster567sHashId/heightToWidthRatio which is a Var.
+	*/
+	this.up = optionalParentVar || null;
+	if(!this.up && this.name != 'V'){ //FIXME remove this. The V global var is root of all Vars, but someone might rename it something else, who knows. This is a test to find those not in the tree at all 2024-11-21.
+		throw new Error('Var not in the tree: '+this.path());
+	}
+	//path height. V is height 0. V.testnet aka namespace is height 1. and so on.
+	//Gobs normally go at height 2. Gob fields height 3.
+	this.h = this.up ? this.up.h+1 : 0;
+	
+	if(this.name=='Y' && this.h==2){
+		throw new Error('Var named '+this.name+' as child in namespace. should be 1 deeper.');
+	}
+	
+	//pu is opposite of up aka down.
+	//TODO make a {} whose Object.getPrototypeOf is custom built so any field that doesnt exist automatically creates
+	//a Var instance as that child with that name and this Var as its parent and its .p of 0 and .v of 0 and other defaults.
+	this.pu = {}; //mape of childVar.name to childVar.//this.down = {}; //mape of childVar.name to childVar.
+	
+	//2025-2-6+ will probably keep Var.ob as it can be Gob or Game instance
+	//(like V.testnet.game.getOb() is a Game and sets V.testnet.game.ob and returns from that on next call of getOb()),
+	//maybe other types later too. If you just type V.someOtherNamespace567.game.getOb() that should also make a Game instance.
+	//TODO this field Var.gob will be removed???, Var class replaces Gob class. parent is this.up. childs are in this.pu.
+	//can put same fields in Var as long as they're deriveable by Var.p Var.v Var.name Var.big etc.
+	//The root (V) Var, and a namespace Var (like V/blobMonstersGameDefaultNamespace), dont have a Gob.
+	//Its 1 layer deeper (theGobVar itself instead of gob.instance), and inside that is gob.vars.
+	this.ob = null; //Gob or Game instance, whose parent Var is the same such as V.testnet: this.gob = optionalGob || null;
+	
+	this.p = 0; //position
+	this.v = 0; //velocity
+	this.kv = 0; //velocity continuous decay per second, using this.v *= Math.exp(-dt*this.kv)
+	this.dp = 0; //diffeq, extra change of p per second See pinballBumper in dagball.
+	this.dv = 0; //diffeq, extra change of v per second. See pinballBumper in dagball.
+	//dv is this i think, dont need da: this.da = 0; //da accel. dv velocity. dp position. so dv += da*dt; then dp += dv*dt; so we dont need dt param to accelerate by game.gravY.p.
+	this.gr = 0; //same as (negative) .dv but duplicates it cuz this stores gradient separately, and .dv can be set by gob.brain(...vars).
+	this.mn = -Infinity; //for truncating this.p to Math.max(this.mn, Math.min(this.p, this.mx)). mn is min. mx is max.
+	this.mx = Infinity; //for truncating this.p
+	//you only need to add to poten in 1 Var but could do it in all of them. will just get summed.
+	//This is extra poten, not including game.poten. Normally you just add to the first var's poten, if you do it at all.
+	//You can put things here like spring forces or up to NP-complete and fourier math etc, anything by least-squares etc.
+	this.poten = 0;
+	this.prevP = 0; //stores the prev value of this.p while an epsilon is added to this.p during a gradient calculation, then restore it
+	this.epsilon = DefaultEpsilon; //FIXME, replacement for indexToEpsilon
+	this.accelMul = 1; //FIXME, replacement for indexToAccelMul
+	//use this.brain instead: this.evaled = null; //eval of this.big || this.name, a js lambda whose params are all Var objects, those in this.influence.vars or gob.vars
+	
+	/* A tighter security copy of this.p, that may differ from this.p like by game.sparseUpdate() or game.tryEval(string) etc.
+	Decides if its evaled into local game state or removed. Should try to stay equal to this.p if this.y() this.x() is near enough to view.
+	
+	2025-2-18 mmMain:redesignDisorganizedBuggyTiles2025-2-18+ which led to the creation
+	of Var.e and TODO Var.setE(number) or something like that TODO.
+	
+	Ive probably broken the loading of tiles again but ive got to mmMain:"fix why the tiles are appearing/disappearing approx like they should but at a few hundred pixels past where the gobs appear/disappear at the sparse distance (see sparseUpdate)"
+
+	This whole tile thing is getting too complex. Its time for a small redesign, to get things straight in the design before writing more code. Its too many places things are being stored:
+	Var.ob is a QuadTile, which has a square (uint53) and a Quad.
+	game.wal is a BigTile containing Tile's.
+	tile.dense is a 128x128 byte array.
+	tile.sparse is a Quad.
+	game.board is modified by a Quad in Tile.prototype.paintGame and it remembers that in tile.lastPaintedQuadOnGame (similar to gob.voxInGame int array but its a Quad instead).
+
+	Theres also autoEval in Var.
+
+	Theres Var.p NOT being used for create/delete at height 2 (V.testnet.objectName.p). State was supposed to be in the Var tree but some parts are not, and its causing an avalanche of cache errors that confusing me and getting way too much stuff tangled.
+	Maybe I need a bit field in Var to say if its in the game or not, or a scalar field to say gradually how much, 0 to 1 in the simplest case.
+	I recently changed Gob to not change its Var (gob.bo is a Var whose Var.ob is that Gob) when you edit the textarea. The var changes, but its a new Gob. Similarly, I dont want state stored in Tile thats not in Var, which might mean I have to redesign how you paint on BigTile to queue updates in some other structure and do them all at once (before next video frame).
+
+	These redesigns wont be covered here[[[
+	wikib upgrades.
+	gob.m.isSelected etc put in the Var tree.
+	redesign gob.brain funcs to not modify their param Vars and instead be a pure-function (except maybe the mouse gob that reads Controls.mouseY etc) but I dont know how to do that efficiently.
+	]]]
+
+	This might turn into a bigger redesign than I thought, but think thru it carefully. In general I think I want to make game.wal (which is a BigTile) be a backing wrapper of the V/Var tree instead of storing out of sync caches of it, and I likely want another upgrade to the Var class which is Var.pExistsInGame but find something smaller to write it as maybe p.e. Yes, lets call it p.e for amount of eval, thats supposed to usually be the same as .p but .e goes thru more security checks, while .p can be changed by merging V tree across internet, its only evaled (TODO) into game.board etc  if !!p.e where p.e is normally 0 or 1. Also, we dont share Var.e across internet cuz its about local views of the Var tree, such as viewing it in a specific game.board game.gobs game.wal etc.
+	...
+	And im gonna need events to update things whenever .e changes, so .setE func instead of setting .e directly?
+	*/
+	this.e = 0;
+	
+	//gp works. it makes the gobs voxels overlap eachother less and bounce better. keep it. now is 2025-1-16.
+	//gp: Like -dt*gr (gradient) usually goes into velocity, this part goes into position. p += -dt*gp.
+	//This is an experimental field of Var added 2024-11-13 to try to solve that gobs overlap too much, take too long to accel away from eachother,
+	//so this should slightly make them instantly jump away from eachother too.
+	//I just doubled constraint solving efficiency of Blob Monster Game in 2 lines of code, in Var class:
+	//"this.gp = 1.5; //TODO this.gp = 0;" and "let nextP = this.p + dt*(this.v+this.dp-this.gp*this.gr);".
+	//Now they overlap less. https://pic.x.com/7OjEWfA9hC (2024_pic.x.comSLASH7OjEWfA9hC.png)
+	//This might be useful as a neuralnet param, built on the loss function it solves toward lower. Ive already live trained a 22 node sigmoid RNN
+	//whose output is to recurse 15 cycles then take one node's output as potentialEnergy. Bent it like neural playdough. Havent tried this on it 2024-11-13.
+	//--https://x.com/benrayfield/status/1856780041985687963
+	//this.gp = 2.3; //TODO this.gp = 0;
+	this.gp = DefaultGp;
+	if(this.up && this.up.pu[this.name]){
+		throw new Error('Duplicate Var, same name, same parent Var');
+	}
+	if(this.up) this.up.pu[this.name] = this;
+	
+	/*doesnt work, need Proxy: this.get = function(fieldName){
+		console.log('fieldName='+fieldName);
+		return this[fieldName]!==undefined ? this[fieldName] : this.Pu(fieldName); //creates fieldName
+	};*/
+	
+	//has no effect if ps==0. position taRget, like in dagball.Ed having a target ave and strength as a parabola
+	this.pr = 0;
+	//strength of p toward pr, as pr and ps define a parabola of poten
+	this.ps = 0;
+	this.cv = 0; //base kv. its cv+kv, not just kv, but kv is set by code dynamicly, and cv is set in the Var.
+};
+
+//Var class was copied 2025-4-16 from blobMonstersGame_2025-3-27.html then modified TODO...
+//
+//This is how you turn Gob's and QuadTile's (Var.getOb(), and make sure NOT to autoEval its a param, let Var.e do that)
+//on/off as they appear and disappear when near/far from view (game.sparseUpdate()) and if their code string is allowed etc.
+//set Var.e with events to mod game state. e is normally 0 (not exist in local game state)
+//or 1 (is evaled into local game state) but could have values between that like if a thing can be
+//multiplied by something like dagball.Circ.influence or dagball.Ball.influence.
+Var.prototype.setE = function(e){
+	let prevE = this.e;
+	if(prevE != e){
+		this.e = e;
+		//instance of Gob, QuadTile, Game, or possibly other types later, or may be null (or undefined?),
+		//and FIXME might throw instead of returning null if it doesnt know how to make an object for a this.name and this.big.
+		let ob = this.getOb();
+		if(ob instanceof Var){
+			Err('Var.ob is a Var');
+		}
+		if(ob){
+			//create if e==1, delete if e==0. Some object types may (TODO) support fraction values of e,
+			//like dagball.Circ.influence and dagball.Ball.influence, though those dont exist in Blob Monsters Game as of 2025-2-23.
+			ob.setE_(e); //to be called only by Var.setE
+		}
+	}
+};
+
+//var DefaultEpsilon = 2**-7;
+var DefaultEpsilon = 2**-12; //FIXME is this small enuf? is it for float32 or float64?
+
+//This should be a little more than the common epsilon of 1 for pixel coordinates (1 pixel over)
+//so it can jump a little past that. If its 1, it moves a little too slow. If 2 its noticably jumpy.
+//var DefaultGp = 1.5; //normal
+var DefaultGp = .2;
+//var DefaultGp = 0; //experimental, trying setting this to 0 2024-11-25 to experiment with game.collideSqMul.
+//var DefaultGp = 5.5;
+//var DefaultGp = 15.5;
+
+//Var class was copied 2025-4-16 from blobMonstersGame_2025-3-27.html then modified TODO...
+//blobMonstersGame used V.testnet. BellSack/LamGL will use V.bellsack.room1 or V.bellsack.makeUpARoomName etc,
+//and V.htmls to put the html in,
+//like v.htmls.sha256$9dda0dee909c8e96c82caf183cd938a1e07c23c9c79c06d5b53e626b36b54efc.big = '<html>...</html>' will load in iframe here,
+//but only whichever of them has nonzero (or highest?) v.htmls.someHtml24353245.p.
+//
+//V is the root Var of the tree of Vars. Each Var is a time-series of .p/position and .v/velocity and .t/time. gob.influence like dagball.Circ.influence
+//and dagball.Ball.influence is a Var that if its .p/value is 1 it exists and if 0 does not exist, in that namespace.
+const V = new Var(null, 'V'); //var Var = function(optionalParentVar, optionalName, optionalBig, optionalGob)
+
+Var.prototype.loadHtml = function(){
+	if(this.up != V.htmls) Err('must be in V.htmls but is '+this.path());
+	Todo();
+};
+
+var htmlToDataUrl = html=>('data:text/html;charset=utf-8,'+encodeURIComponent(html));
+
+var loadHtml = html=>{
+	console.log('loadHtml, len='+html.length);
+	document.getElementById('mainIframe').src = htmlToDataUrl(html);
+};
+
+//OUTER HTML: Listen for iframe requests
+window.addEventListener('message', (event) => {
+	let [action, name, value] = event.data;
+
+	if (action === 'getCookie') {
+		//let cookies = Object.fromEntries(document.cookie.split('; ').map(c => c.split('=')));
+		let val = localStorage.getItem(name);
+		//let reply = ['cookieValue', name, cookies[name] || ''];
+		let reply = ['cookieValue', name, val];
+		event.source.postMessage(reply, '*');
+	}
+
+	if (action === 'setCookie') {
+		//document.cookie = `${name}=${value}; path=/`;
+		localStorage.setItem(name, value);
+	}
+	
+	if (action === 'clearCookies') {
+		//document.cookie = `${name}=${value}; path=/`;
+		localStorage.clear();
+	}
+});
+
+
+window.onload = ()=>{
+	let html = VExample.htmls.hash4352345.big.join('\n');
+	loadHtml(html);
+};
+
+var VExample = {
+	htmls:{
+		hash4352345:{
+			comment: 'boot with this html',
+			p:1,
+			v:0,
+			big:[
+				'<!DOCTYPE html><html><head><script>',
+				'//INNER HTML: Ask outer to get a cookie',
+				'function getCookie(name, callback) {',
+				'	const handler = function(event){',
+				'		let [type, cookieName, value] = event.data;',
+				'		if (type === "cookieValue" && cookieName === name) {',
+				'			window.removeEventListener("message", handler);',
+				'			callback(value);',
+				'		}',
+				'	};',
+				'	window.addEventListener("message", handler);',
+				'	parent.postMessage(["getCookie", name], "*");',
+				'}',
+				'function setCookie(name, value) {',
+				'	parent.postMessage(["setCookie", name, value], "*");',
+				'}',
+				'function clearCookies(name, value) {',
+				'	parent.postMessage(["clearCookies"], "*");',
+				'}',
+				'//TODO',
+				'</script',
+				'></head><body>',
+				'Test HTML',
+				'<input type=button value="test cookie WONT WORK CUZ IN DATAURL IFRAME" onclick="console.log(\'test cookie...\'); let val = localStorage.get(\'testCookie55\')||0; val++; localStorage.set(\'testCookie55\',val); this.value=\'set cookie value \'+val;">',
+				'<input type=button value="test cookie RIGHT WAY" onclick="console.log(\'test cookie...\'); getCookie(\'testCookie55\', val=>{ console.log(\'got val = \'+val+\' and type is \'+typeof(val)); let newVal = (parseFloat(val)||0)+1; setCookie(\'testCookie55\', newVal); this.value = \'cookieVal_\'+newVal; }); console.log(\'waiting on async setCookie\');">',
+				'<input type=button value="clearCookies" onclick="clearCookies();">',
+				'<input type=button value="test ajax" onclick="',
+				'	const xhr = new XMLHttpRequest();',
+				'	xhr.onreadystatechange = function() {',
+				'		if (xhr.readyState === 4 && xhr.status === 200) {',
+				'			this.value = xhr.responseText;',
+				'		}',
+				'	}.bind(this);',
+				//'	console.log("Requires server set Access-Control-Allow-Origin header to *"+',
+				//'		" or maybe a more specific value would work too, cuz using dataUrl in iframe src");',
+				'	xhr.open(\'GET\', \'http://localhost:8080/bellsack/dagballIndex.jsp?func=simpleNetInfo\', true);',
+				'	xhr.send();',
+				'">',
+				'</body></html>',
+			],
+		},
+	},
+	bellsack:{
+		room1:{
+			uvsphere:{},
+			species:{
+				sha256$07d59eac64a76cbdcb5d01a9e11fc2ce4cb7aa84d310682de2fec9e9012a8df6:{
+					comment: 'species defined by the code string in big',
+					big: [
+						'([pos0, pos1, pos2, weight, cen0, cen1, cen2, xvec0, xvec1, xvec2, yvec0, yvec1, yvec2, zvec0, zvec1, zvec2])=>{',
+						'	//this is an attempt at making the float[13] bell, TODO.',
+						'	let [diff0, diff1, diff2] = [pos0-cen0, pos1-cen1, pos2-cen2]; //this pattern gets auto optimized to vec3 = vec3-vec3',
+						'	let xdot = diff0*xvec0 + diff1*xvec1 + diff2*xvec2; //let xdot = dot(diff,xvec);',
+						'	let ydot = diff0*yvec0 + diff1*yvec1 + diff2*yvec2;',
+						'	let zdot = diff0*zvec0 + diff1*zvec1 + diff2*zvec2;',
+						'	let distSq = xdot**2 + ydot**2 + zdot**2; //in coordinates as if ',
+						'	return weight*Math.exp(-.5*distSq); //bell height',
+						'}',
+					],
+					listof3dpoints8899isinstanceid:{
+						potenFuncs:{
+							potenfunc456:{},
+						},
+						diffeqFuncs:{
+							diffeqfunc221:{}
+						},
+						cx:{
+							comment: 'centerX',
+						},
+						cy:{},
+						cz:{},
+						r:{
+							comment: 'radius',
+						},
+					},
+				},
+			},
+			rule:{
+				nearBallPairRule:{
+				},
+				ballRule:{
+				},
+			},
+			ball:{
+				myBall:{
+					cx:{},
+					cy:{},
+					cz:{},
+					r:{},
+					red:{},
+					green:{},
+					blue:{},
+					rpsTeam:{
+						comment: 'if playing rock paper scissors, this can be 0/shield 1/rock 2/paper 3/scissors.',
+					},
+					stream:{
+						"{say: 'hello world'}":{},
+					}
+				}
+			}
+		}
+	}
+};
+
+</script></head><body>
+	<iframe id=mainIframe style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;"></iframe>
+</body></html>
