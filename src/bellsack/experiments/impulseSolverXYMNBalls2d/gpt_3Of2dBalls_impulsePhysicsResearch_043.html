@@ -1,0 +1,244 @@
+<!doctype html>
+(Ben F Rayfield offers this gpt_3Of2dBalls_impulsePhysicsResearch_043.html as opensource/Apache2, and theres a video gpt_3Of2dBalls_impulsePhysicsResearch_043.html.mp4 at https://x.com/benrayfield/status/2049533643505225808 )
+<canvas id="sim" width="512" height="512"></canvas>
+
+<!-- UI controls -->
+gravity <input id="gravity"    type="number" min="0" max="500" value="67">
+cycles  <input id="cycles"     type="number" value="0" disabled>
+log2(dt) <input id="exp"       type="number" min="-20" max="1" step="1" value="1">
+log2VelDecay_xy <input id="ldecay_xy" type="number" min="-20" max="5" step="1" value="-18">
+log2VelDecay_mn <input id="ldecay_mn" type="number" min="-20" max="5" step="1" value="-18">
+<button id="reset">reset</button>
+
+<script>
+// === canvas utilities =====================================================
+const cv  = document.getElementById('sim');               // drawing surface
+const ctx = cv.getContext('2d');                          // 2‑D context
+const rand = (a,b)=>a+Math.random()*(b-a);                // random in range
+const rad  = (m,n)=>15*(2+Math.sin(m*Math.sin(n)));       // radius law r(m,n)
+
+// === data model ===========================================================
+class Var{ // one scalar degree‑of‑freedom (mass stays constant)
+	constructor(p=0, v=0, m=1){
+		this.mass = m;   // invariant mass (unused except placeholder)
+		this.pos  = p;   // position / phase value
+		this.vel  = v;   // velocity  d(pos)/dt
+		this.add  = 0;   // per‑frame Δvelocity accumulator
+	}
+}
+
+class Ball{ // a particle with 4 coordinates: x y m n
+	constructor(){
+		this.x = new Var;   // horizontal position
+		this.y = new Var;   // vertical position
+		this.m = new Var;   // internal phase m (affects radius)
+		this.n = new Var;   // internal phase n (affects radius)
+	}
+	r(){ return rad(this.m.pos, this.n.pos); }                    // current radius
+	sd(other){                                                    // signed distance to another ball
+		const dx = this.x.pos - other.x.pos;
+		const dy = this.y.pos - other.y.pos;
+		return Math.hypot(dx,dy) - this.r() - other.r();
+	}
+}
+
+// === solver: caches geometry & Jacobian ==================================
+class Solver{
+	constructor(N, balls){
+		this.N   = N;                 // number of balls
+		this.V   = N * 4;             // number of parameters (x y m n per ball)
+		this.C   = N * N;             // number of contact slots (flat i*N+j)
+
+		this.sd  = new Float32Array(this.C);               // signed‑distance snapshot
+		this.changeOfSignedDistancePer1ChangeOfVar =       // Jacobian ∂sd/∂var
+			new Float32Array(this.C * this.V);
+
+		this.vars = [];                                      // flat list of Var refs
+		for(const b of balls) this.vars.push(b.x,b.y,b.m,b.n);
+	}
+	cid(i,j){ return i * this.N + j; }                    // contact index
+	pid(ball,coord){ return ball*4 + coord; }             // parameter index
+
+	clear(){ // zero per‑frame caches
+		this.sd.fill(0);
+		this.changeOfSignedDistancePer1ChangeOfVar.fill(0);
+	}
+
+	setConst(i,j,v){ this.sd[this.cid(i,j)] = v; }        // store sd value
+	getConst(i,j){  return this.sd[this.cid(i,j)]; }
+	// store ∂sd/∂var with contact‑major layout (C blocks × V floats)
+	setGrad(paramIdx, contactIdx, val){
+		this.changeOfSignedDistancePer1ChangeOfVar[contactIdx * this.V + paramIdx] = val;
+	}
+}
+
+// === simulation constants =================================================
+const N   = 20;          // balls
+const EPS = 1e-3;        // finite‑difference step
+
+// === world state ==========================================================
+const balls  = Array.from({length:N}, () => new Ball());
+const solver = new Solver(N, balls);
+
+// gravity & time‑step parameters (updated by UI) ---------------------------
+let GR       = 67;            // gravitational acceleration px/s² (y‑down)
+let EXP      = 1;             // log₂(dt) cap ⇒ DT = 2¹  = 2 s max
+let DT       = 2 ** EXP;      // max physics step size
+let LDEC_XY  = -18;           // log₂ decay rate for x,y velocities
+let LDEC_MN  = -18;           // log₂ decay rate for m,n velocities
+let DECAY_XY = 2 ** LDEC_XY;  // decay‑per‑second for x,y
+let DECAY_MN = 2 ** LDEC_MN;  // decay‑per‑second for m,n
+
+// mouse proxy ball ---------------------------------------------------------
+let mouse = { x:256, y:256, in:false }; // cursor position + flag
+
+// === helpers ==============================================================
+function reseed(){ // randomise ball positions & velocities
+	balls.forEach(b=>{
+		b.x.pos = 256 + rand(-150,150);
+		b.y.pos = 256 + rand(-150,150);
+		b.m.pos = rand(0,6.28);
+		b.n.pos = rand(0,6.28);
+		b.x.vel = rand(-50,50);
+		b.y.vel = rand(-50,50);
+		b.m.vel = b.n.vel = 0;
+	});
+	solver.clear();
+}
+reseed();
+
+// === UI wiring ============================================================
+const $ = id => document.getElementById(id);
+$('gravity').oninput   = e=> GR         = +e.target.value;
+$('exp').oninput       = e=> { EXP      = +e.target.value; DT       = 2**EXP;      };
+$('ldecay_xy').oninput = e=> { LDEC_XY  = +e.target.value; DECAY_XY = 2**LDEC_XY; };
+$('ldecay_mn').oninput = e=> { LDEC_MN  = +e.target.value; DECAY_MN = 2**LDEC_MN; };
+$('reset').onclick     = reseed;
+
+// mouse events
+cv.onmousemove = e=>{ const r=cv.getBoundingClientRect(); mouse.x=e.clientX-r.left; mouse.y=e.clientY-r.top; mouse.in=true; };
+cv.onmouseleave = ()=> mouse.in=false;
+
+// === per‑frame stages =====================================================
+function zero(){ // clear per‑frame accumulators
+	balls.forEach(b=> b.x.add=b.y.add=b.m.add=b.n.add = 0);
+	solver.clear();
+}
+
+function fillJac(){ // compute signed‑distance snapshot
+	for(let i=0;i<N;i++)
+	for(let j=i+1;j<N;j++){
+		const sd = balls[i].sd(balls[j]);
+		solver.setConst(i,j, sd);
+	}
+}
+
+const relax = ()=>{}; // placeholder for iterative solver
+
+function addVel(){ // add collision impulses to Var.add
+	if(mouse.in){ const m=balls[0]; m.x.pos=mouse.x; m.y.pos=mouse.y; m.x.vel=m.y.vel = 0; }
+	const REST = 0.8; // restitution (0‑stick, 1‑elastic)
+	for(let i=0;i<N;i++)
+	for(let j=i+1;j<N;j++){
+		const sd = solver.getConst(i,j); if(sd>=0) continue;
+		const A = balls[i], B = balls[j];
+		const dx=A.x.pos-B.x.pos, dy=A.y.pos-B.y.pos, dist=Math.hypot(dx,dy)||1e-6;
+		const nx=dx/dist, ny=dy/dist;
+		const rel=(A.x.vel-B.x.vel)*nx + (A.y.vel-B.y.vel)*ny; if(rel>0) continue;
+		const imp = -(1+REST)*rel/2; // masses=1 for now
+		A.x.add += imp*nx; A.y.add += imp*ny;
+		B.x.add -= imp*nx; B.y.add -= imp*ny;
+		// internal DOF impulse (shrink/expand radii)
+		const dRA_dm = 15*Math.cos(A.m.pos*Math.sin(A.n.pos))*Math.sin(A.n.pos);
+		const dRA_dn = 15*Math.cos(A.m.pos*Math.sin(A.n.pos))*A.m.pos*Math.cos(A.n.pos);
+		const dRB_dm = 15*Math.cos(B.m.pos*Math.sin(B.n.pos))*Math.sin(B.n.pos);
+		const dRB_dn = 15*Math.cos(B.m.pos*Math.sin(B.n.pos))*B.m.pos*Math.cos(B.n.pos);
+		A.m.add += imp * (-dRA_dm);
+		A.n.add += imp * (-dRA_dn);
+		B.m.add += imp * (-dRB_dm);
+		B.n.add += imp * (-dRB_dn);
+
+		// Baumgarte positional correction (once per pair)
+		const corr = Math.max(sd + 0.01, 0) * 0.2;
+		A.x.pos -= corr * nx; A.y.pos -= corr * ny;
+		B.x.pos += corr * nx; B.y.pos += corr * ny;
+		A.x.pos -= corr*nx; A.y.pos -= corr*ny;
+		B.x.pos += corr*nx; B.y.pos += corr*ny;
+	}
+}
+
+function commit(){ // vel += add
+	balls.forEach(b=>{
+		b.x.vel += b.x.add; b.y.vel += b.y.add;
+		b.m.vel += b.m.add; b.n.vel += b.n.add;
+	});
+}
+
+function advance(dt){ // integrate positions & apply decay
+	const dampXY = Math.exp(-dt*DECAY_XY);
+	const dampMN = Math.exp(-dt*DECAY_MN);
+
+	solver.vars.forEach((v,idx)=>{
+		const damp = (idx%4<2) ? dampXY : dampMN;   // x,y or m,n
+		v.vel *= damp;
+		if(idx%4===1) v.vel += GR*dt;              // gravity on y
+		v.pos += v.vel*dt;
+	});
+
+	// wall bounce (x,y only)
+	balls.forEach(b=>{
+		const r=b.r();
+		if(b.x.pos-r<0){     b.x.pos=r;      b.x.vel=Math.abs(b.x.vel);} 
+		if(b.x.pos+r>512){  b.x.pos=512-r;  b.x.vel=-Math.abs(b.x.vel);} 
+		if(b.y.pos-r<0){     b.y.pos=r;      b.y.vel=Math.abs(b.y.vel);} 
+		if(b.y.pos+r>512){  b.y.pos=512-r;  b.y.vel=-Math.abs(b.y.vel);} 
+	});
+}
+
+function step(dt){ // one physics frame
+	zero();
+	fillJac();
+	relax();
+	addVel();
+	commit();
+	advance(dt);
+}
+
+// === rendering ============================================================
+const COLORS=Array.from({length:N},(_,i)=>`hsl(${(i*360/N)|0} 90% 60%)`);
+function draw(){ // render balls + debug text
+	ctx.clearRect(0,0,512,512);
+	balls.forEach((b,i)=>{
+		// ball colour
+		const hue = (i*360/N)|0;
+		ctx.fillStyle = `hsl(${hue} 90% 60%)`;
+		ctx.beginPath();
+		ctx.arc(b.x.pos, b.y.pos, b.r(), 0, Math.PI*2);
+		ctx.fill();
+		ctx.stroke();
+
+		// text colour = 1/2 brightness (lightness 30%)
+		ctx.fillStyle = `hsl(${hue} 90% 30%)`;
+		ctx.font = '16px monospace';
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'top';
+		const lines=[
+			`x:${b.x.pos.toFixed(1)}`,
+			`y:${b.y.pos.toFixed(1)}`,
+			`m:${b.m.pos.toFixed(2)}`,
+			`n:${b.n.pos.toFixed(2)}`
+		];
+		lines.forEach((txt,idx)=> ctx.fillText(txt, b.x.pos + b.r()+2, b.y.pos - b.r() + idx*18));
+	});
+}
+
+// === main loop ===========================================================
+let last = performance.now();                      // time of previous frame
+(function loop(t){                                 // IIFE animation loop
+	const dt = Math.min((t - last) / 1000, DT);    // clamp Δt
+	last = t;
+	step(dt);                                      // physics update
+	draw();                                        // render frame
+	requestAnimationFrame(loop);                   // schedule next
+})(last);
+</script>
