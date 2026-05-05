@@ -1,0 +1,532 @@
+<!doctype html>
+<!-- Ben F Rayfield | Apache‑2.0 -->
+<canvas id="sim" width="512" height="512" style="display:block; margin-bottom:6px;"></canvas>
+
+<!-- UI controls (beneath canvas) -->
+<div id="controls"><b>doSolverElseBouncePairs</b> <input type="checkbox" id="doSolverElseBouncePairs" checked> <b>doPositionCorrection</b> <input type="checkbox" id="doPositionCorrection"> <b>preventOverlapInReseed</b> <input type="checkbox" id="preventOverlapInReseed"></div>
+<button id="reset">reset</button>
+<button id="logFlags" onclick="logOpts()">log flags</button>
+<br>
+<input id="evalIn" style="width:400px" placeholder="type JS here">
+<button id="evalBtn" onclick="console.log('eval→', eval(document.getElementById('evalIn').value))">eval</button>
+
+<script>
+// === configurable ball variables ========================================
+const BallVarNames = ['x', 'y', 'm', 'n', 'q'];
+const BV           = BallVarNames.length;
+
+// === canvas utilities ====================================================
+const cv   = document.getElementById('sim');
+const ctx  = cv.getContext('2d');
+const rand = (a, b) => a + Math.random() * (b - a);
+function randBell(){
+	// Use this fact of math:
+	// stdDevA**2 + stdDevB**2 = stdDevC**2 forms a right triangle from 3 bellcurves
+	return Math.sqrt(-2*Math.log(Math.random())) * Math.cos(2*Math.PI*Math.random());
+}
+const RAD_Q_SCALE = 0.02;
+const rad  = (m, n, q) => {
+	const qRadius = RAD_Q_SCALE * q;
+	return 20 * (2 + Math.sin((m - qRadius) * Math.sin(n + qRadius) - qRadius * qRadius));
+};
+
+// quick checkbox helper → boolean
+const $ = id => document.getElementById(id);
+const Chk = id => $(id).checked;
+function newNumBox(n,v,base=0){ //create number box window[n] = base**val or val if base is 0
+	const id = n + '_input';
+	window[n] = base ? base**v : v;
+	$('controls').insertAdjacentHTML('beforeend', ` ${base ? 'log'+base+'(' : ''}${n}${base ? ')' : ''} <input id="${id}" type="number" step="1" value="${v}">`);
+	$(id).oninput = e => window[n] = base ? base**(+e.target.value) : +e.target.value;
+}
+newNumBox('GR', 66);
+$('controls').insertAdjacentHTML('beforeend', ' cycles <input id="cycles" type="number" value="0" disabled>');
+newNumBox('TIME_SCALE', 2, 2);
+newNumBox('PHYS_CYCLES', 4, 2);
+newNumBox('DECAY_XY', -17, 2);
+newNumBox('DECAY_MN', -3, 2);
+newNumBox('MAX_XY_VEL', 11, 2);
+newNumBox('MAX_MNQ_VEL', 0, 2);
+newNumBox('SOLVER_ITERS', 5, 2);
+newNumBox('SOLVER_LEARNING_RATE', -1, 2);
+newNumBox('SOLVER_GRAD_EPS', -10, 2);
+newNumBox('CONTACT_SLOP', -7, 2);
+newNumBox('SOLVER_MIN_BOUNCE_MUL', -8);
+newNumBox('SOLVER_BOUNCEMUL_LOSS_WEIGHT', 6, 2);
+newNumBox('MAX_RECENT_SOLVER_LOSSES', 8, 2);
+newNumBox('ignoreSolverIfLossMoreThan_exceptClosingLoss', 755, 2);
+newNumBox('log2OfStdDevOfBellcurveOfRandomnessAddToVel', 2);
+// Contact ─ stores one active overlap between two balls if sparse, includes noncontacting balls too if dense.
+class Contact {
+	constructor(ballA, ballB){
+		this.ballA = ballA;                                     // Ball A reference
+		this.ballB = ballB;                                     // Ball B reference
+		// 10 variable pointers: x y m n q of each ball
+		this.vars = [
+			ballA.x, ballA.y, ballA.m, ballA.n, ballA.q,
+			ballB.x, ballB.y, ballB.m, ballB.n, ballB.q
+		];
+		this.cache_changeOfSignedDistancePer1ChangeOfVar =
+			new Float32Array(this.vars.length);                 // ∂sd/∂var snapshot
+		this.resetFields();
+		this.updateGradients();
+	}
+	
+	resetFields(){
+		this.cache_sd = 0;                                      // current signed-distance
+		this.cache_sdVel = 0;                                   // current signed-distance velocity
+		this.bounceMul = default_bounceMul;
+		this.addToSolverLoss = 0;
+		this.cache_changeOfSolverLossPer1ChangeOf_bounceMul = 0;
+	}
+	
+	// recompute cache_sd, cache_sdVel, and ∂sd/∂var
+	updateGradients(){
+		const sd0 = this.ballA.sd(this.ballB);
+		this.cache_sd = sd0;
+		for(let k=0;k<this.vars.length;k++){
+			const v = this.vars[k];
+			v.pos += EPS;
+			const sd1 = this.ballA.sd(this.ballB);
+			v.pos -= EPS;
+			this.cache_changeOfSignedDistancePer1ChangeOfVar[k] = (sd1 - sd0)/EPS;
+		}
+		this.cache_sdVel = 0;
+		for(let k=0;k<this.vars.length;k++){
+			this.cache_sdVel += this.cache_changeOfSignedDistancePer1ChangeOfVar[k]*this.vars[k].vel;
+		}
+	}
+
+	// draw dotted line alternating ball colours (2 px thick, 10 px dash)
+	draw(ctx, colorA, colorB) {
+		const ax = this.ballA.x.pos, ay = this.ballA.y.pos;
+		const bx = this.ballB.x.pos, by = this.ballB.y.pos;
+		const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+		if (len < 1e-3) return;
+		const seg = 10, steps = Math.floor(len / seg);
+		ctx.lineWidth = 2;
+		for (let i = 0; i < steps; i++) {
+			ctx.strokeStyle = (i & 1) ? colorA : colorB;
+			ctx.beginPath();
+			const t0 = i     / steps,
+			      t1 = Math.min((i + 0.5) / steps, 1);
+			ctx.moveTo(ax + dx * t0, ay + dy * t0);
+			ctx.lineTo(ax + dx * t1, ay + dy * t1);
+			ctx.stroke();
+		}
+	}
+	
+	// Constraint-space collision response over x,y,m,n,q for both balls.
+	bounce(bounceMul = this.bounceMul){
+		this.updateGradients();
+		if(this.cache_sd >= 0) return;                // only if overlapping
+
+		let sdVel = 0, g2 = 0;
+		for(let i=0;i<this.vars.length;i++){
+			const invMass = 1 / this.vars[i].mass;
+			const dsd = this.cache_changeOfSignedDistancePer1ChangeOfVar[i];
+			sdVel += dsd*this.vars[i].vel;
+			g2 += dsd*dsd*invMass;
+		}
+		if (!Number.isFinite(g2) || g2 < 1e-12) return;
+
+		const penetration = -this.cache_sd;
+		if(Chk('doPositionCorrection')){
+			const correctionAlpha = CONTACT_POS_CORRECTION * Math.max(penetration - CONTACT_SLOP, 0) / g2;
+			for(let i=0;i<this.vars.length;i++){
+				const invMass = 1 / this.vars[i].mass;
+				this.vars[i].pos += correctionAlpha*this.cache_changeOfSignedDistancePer1ChangeOfVar[i]*invMass;
+			}
+		}
+
+		if(sdVel >= 0) return;                         // already separating
+
+		const impulseAlpha = bounceMul * sdVel / g2;
+		for(let i=0;i<this.vars.length;i++){
+			const invMass = 1 / this.vars[i].mass;
+			//this.vars[i].vel += impulseAlpha*this.cache_changeOfSignedDistancePer1ChangeOfVar[i]*invMass;
+			this.vars[i].add += impulseAlpha*this.cache_changeOfSignedDistancePer1ChangeOfVar[i]*invMass;
+		}
+
+		if(DEBUG) delayedLog = `bounce5D penetration=${penetration.toFixed(3)} sdVel=${sdVel.toFixed(3)} impulseAlpha=${impulseAlpha.toExponential(3)}`;
+	}
+
+	addVel(){
+		for(let vr of this.vars){
+			vr.vel += vr.add;
+			vr.add = 0;
+		}
+	}
+
+	bounceThenAddVel(bounceMul = this.bounceMul){
+		this.bounce(bounceMul);
+		this.addVel();
+	}
+}
+
+
+
+
+// === data model ==========================================================
+class Var {
+	constructor(p = 0, v = 0, m = 1) {
+		this.mass = m;
+		this.pos  = p;
+		this.vel  = v;
+		this.add  = 0;
+	}
+
+	changeOfSDPer1ChangeOfThisVarPos(ballA, ballB){
+        let sdNow = ballA.sd(ballB);
+		let prevPos = this.pos;
+      	this.pos += EPS; //perturb this Var.pos
+        let sdPerturbed = ballA.sd(ballB);
+        this.pos = prevPos;
+        return (sdPerturbed-sdNow)/EPS;
+    }
+}
+
+class Ball {
+	constructor() {
+		BallVarNames.forEach(n => (this[n] = new Var()));
+	}
+
+	r() {
+		return rad(this.m.pos, this.n.pos, this.q.pos);
+	}
+
+	sd(o) {
+		const dx = this.x.pos - o.x.pos;
+		const dy = this.y.pos - o.y.pos;
+		return Math.hypot(dx, dy) - this.r() - o.r();
+	}
+	
+	// true when this ball overlaps 'o'
+	isPenetrating(o){ return this.sd(o) < 0; }
+}
+
+// === constants & state ===================================================
+const N   = 20;
+const EPS = 1e-3;
+const DEBUG = true; // set true to collect verbose delayedLog
+const default_restitution = 1; //-1 no bounce, 0 stop when hit, 1 elastic, >1 may be perpetual-motion-machine
+const default_bounceMul = -(1 + default_restitution);
+const SOLVER_MAX_BOUNCE_MUL = -1;
+const SOLVER_CLOSING_LOSS_WEIGHT = 1e3;
+const SOLVER_ENERGY_LOSS_WEIGHT = 1;
+const SOLVER_DELTA_VEL_LOSS_WEIGHT = 1e-9;
+const CONTACT_POS_CORRECTION = 0.75;
+const VAR_MASS_XY = 1;
+const VAR_MASS_MN = 128;
+const VAR_MASS_Q = 2048;
+let delayedLog = ""; // collect debug text for manual dump
+let lastSolverLoss = NaN;
+let lastClosingLoss = NaN;
+let lastEnergyLoss = NaN;
+let lastDeltaVelLoss = NaN;
+let lastBounceMulLoss = NaN;
+const recentSolverLosses = [];
+
+const balls  = Array.from({ length: N }, () => new Ball());
+balls.forEach(b => {
+	b.x.mass = b.y.mass = VAR_MASS_XY;
+	b.m.mass = b.n.mass = VAR_MASS_MN;
+	b.q.mass = VAR_MASS_Q;
+});
+const contacts = [];            // active overlaps each frame
+
+let mouse = { x: 256, y: 256, in: false };
+
+function reseed() {
+	balls.forEach((b, i) => {
+		let ok = false;
+		const maxTries = Chk('preventOverlapInReseed') ? 1000 : 1;
+		for(let tries=0; tries<maxTries; tries++){
+			b.x.pos = 256 + rand(-150, 150);
+			b.y.pos = 256 + rand(-150, 150);
+			b.m.pos = rand(0, 6.28);
+			b.n.pos = rand(0, 6.28);
+			b.q.pos = rand(0, 6.28);
+
+			ok = true;
+			if(Chk('preventOverlapInReseed')){
+				for(let j=0; j<i; j++){
+					if(b.isPenetrating(balls[j])){
+						ok = false;
+						break;
+					}
+				}
+			}
+			if(ok) break;
+		}
+		if(!ok) throw new Error('reseed failed after placing ' + i + ' non-overlapping balls');
+
+		b.x.vel = rand(-50, 50);
+		b.y.vel = rand(-50, 50);
+
+		BallVarNames.slice(2).forEach(n => (b[n].vel = 0));
+	});
+}
+reseed();
+
+// === UI wiring ===========================================================
+
+$('reset').onclick     = reseed;
+
+cv.onmousemove = e => {
+	const r = cv.getBoundingClientRect();
+	mouse.x = e.clientX - r.left;
+	mouse.y = e.clientY - r.top;
+	mouse.in = true;
+};
+cv.onmouseleave = () => (mouse.in = false);
+
+// === per‑frame stages ====================================================
+// rebuild contacts from current geometry
+function rebuildContacts(){
+	contacts.length = 0;
+	for(let i=0;i<N;i++)
+		for(let j=i+1;j<N;j++)
+			if(balls[i].isPenetrating(balls[j]))
+				contacts.push(new Contact(balls[i], balls[j]));
+}
+
+function advance(dt) {
+	const dampXY = Math.exp(-dt * DECAY_XY);
+	const dampMN = Math.exp(-dt * DECAY_MN);
+
+	for(const b of balls)
+		for(let idx=0; idx<BV; idx++){
+			const v = b[BallVarNames[idx]];
+			const damp = idx < 2 ? dampXY : dampMN;
+			if(idx === 1) v.vel += GR * dt;
+			v.vel += randBell() * (2 ** log2OfStdDevOfBellcurveOfRandomnessAddToVel) * Math.sqrt(dt);
+			v.pos += v.vel * dt;
+			v.vel *= damp;
+			const maxVel = idx < 2 ? MAX_XY_VEL : MAX_MNQ_VEL;
+			if(v.vel > maxVel) v.vel = maxVel;
+			if(v.vel < -maxVel) v.vel = -maxVel;
+		}
+
+	// wall bounce (x, y)
+	balls.forEach(b => {
+		const r = b.r();
+		if (b.x.pos - r < 0)   { b.x.pos = r;       b.x.vel = Math.abs(b.x.vel); }
+		if (b.x.pos + r > 512) { b.x.pos = 512 - r; b.x.vel = -Math.abs(b.x.vel); }
+		if (b.y.pos - r < 0)   { b.y.pos = r;       b.y.vel = Math.abs(b.y.vel); }
+		if (b.y.pos + r > 512) { b.y.pos = 512 - r; b.y.vel = -Math.abs(b.y.vel); }
+	});
+}
+
+// unbiased shuffle – Fisher‑Yates
+function shuffledCopyOfList(arr){
+	const out = arr.slice();
+	for(let i = out.length-1; i > 0; i--){
+		const j = (Math.random() * (i+1)) | 0;
+		[out[i], out[j]] = [out[j], out[i]];
+	}
+	return out;
+}
+
+function clearAdds(){
+	const varsToClear = new Set();
+	for(const c of contacts)
+		for(const v of c.vars)
+			varsToClear.add(v);
+	for(const v of varsToClear)
+		v.add = 0;
+}
+
+function varsInContacts(){
+	const vars = new Set();
+	for(const c of contacts)
+		for(const v of c.vars)
+			vars.add(v);
+	return vars;
+}
+
+function solverLoss(){
+	clearAdds();
+	for(const c of contacts)
+		c.bounce();
+
+	let closingLoss = 0;
+	for(const c of contacts){
+		let postSdVel = 0;
+		for(let i=0;i<c.vars.length;i++){
+			postSdVel += c.cache_changeOfSignedDistancePer1ChangeOfVar[i]*(c.vars[i].vel + c.vars[i].add);
+		}
+		const closing = Math.min(postSdVel, 0); //penalize negative velocity of signedDistance between any 2 balls
+		c.addToSolverLoss = closing*closing;
+		closingLoss += c.addToSolverLoss;
+	}
+
+	let preEnergy = 0;
+	let postEnergy = 0;
+	let deltaVelLoss = 0;
+	for(const v of varsInContacts()){
+		const postVel = v.vel + v.add;
+		preEnergy += v.mass*v.vel*v.vel;
+		postEnergy += v.mass*postVel*postVel;
+		deltaVelLoss += v.mass*v.add*v.add;
+	}
+	const energyScale = Math.max(1, preEnergy);
+	const energyError = (postEnergy - preEnergy)/energyScale;
+	const energyLoss = energyError*energyError;
+	const scaledDeltaVelLoss = deltaVelLoss/energyScale;
+	let bounceMulLoss = 0;
+	for(const c of contacts){
+		const extra = Math.max(0, -2 - c.bounceMul);
+		bounceMulLoss += extra*extra;
+	}
+	lastClosingLoss = closingLoss;
+	lastEnergyLoss = energyLoss;
+	lastDeltaVelLoss = scaledDeltaVelLoss;
+	lastBounceMulLoss = bounceMulLoss;
+	const loss =
+		SOLVER_CLOSING_LOSS_WEIGHT*closingLoss +
+		SOLVER_ENERGY_LOSS_WEIGHT*energyLoss +
+		SOLVER_DELTA_VEL_LOSS_WEIGHT*scaledDeltaVelLoss +
+		SOLVER_BOUNCEMUL_LOSS_WEIGHT*bounceMulLoss;
+
+	clearAdds();
+	return loss;
+}
+
+function updateSolverLossGradient(){
+	const baseLoss = solverLoss();
+	lastSolverLoss = baseLoss;
+	const baseClosingLoss = lastClosingLoss;
+	const baseEnergyLoss = lastEnergyLoss;
+	const baseDeltaVelLoss = lastDeltaVelLoss;
+	const baseBounceMulLoss = lastBounceMulLoss;
+	for(const c of contacts){
+		const oldBounceMul = c.bounceMul;
+		c.bounceMul = oldBounceMul + SOLVER_GRAD_EPS;
+		const loss1 = solverLoss();
+		c.bounceMul = oldBounceMul;
+		c.cache_changeOfSolverLossPer1ChangeOf_bounceMul = (loss1 - baseLoss)/SOLVER_GRAD_EPS;
+	}
+	lastClosingLoss = baseClosingLoss;
+	lastEnergyLoss = baseEnergyLoss;
+	lastDeltaVelLoss = baseDeltaVelLoss;
+	lastBounceMulLoss = baseBounceMulLoss;
+}
+
+function solverStep(){
+	updateSolverLossGradient();
+	for(const c of contacts){
+		c.bounceMul -= SOLVER_LEARNING_RATE*c.cache_changeOfSolverLossPer1ChangeOf_bounceMul;
+		if(c.bounceMul > SOLVER_MAX_BOUNCE_MUL) c.bounceMul = SOLVER_MAX_BOUNCE_MUL;
+		if(c.bounceMul < SOLVER_MIN_BOUNCE_MUL) c.bounceMul = SOLVER_MIN_BOUNCE_MUL;
+	}
+}
+
+function bounceContactsThenAddVel(){
+	clearAdds();
+	for(const c of contacts)
+		c.bounce();
+
+	const varsToAdd = new Set();
+	for(const c of contacts)
+		for(const v of c.vars)
+			varsToAdd.add(v);
+	for(const v of varsToAdd){
+		v.vel += v.add;
+		v.add = 0;
+	}
+}
+
+function step(dt){
+	rebuildContacts();
+
+	if(Chk('doSolverElseBouncePairs')){
+		clearAdds();
+		for(let i=0; i<SOLVER_ITERS; i++)
+			solverStep();
+		recentSolverLosses.push(lastSolverLoss);
+		while(recentSolverLosses.length > MAX_RECENT_SOLVER_LOSSES)
+			recentSolverLosses.shift();
+		let maxRecentLoss = 0;
+		for(const loss of recentSolverLosses)
+			if(loss > maxRecentLoss) maxRecentLoss = loss;
+		console.log('solverLoss=', lastSolverLoss, 'maxRecentLoss=', maxRecentLoss, '= Lclosing', SOLVER_CLOSING_LOSS_WEIGHT*lastClosingLoss, '+ Lenergy', SOLVER_ENERGY_LOSS_WEIGHT*lastEnergyLoss, '+ LdeltaVel', SOLVER_DELTA_VEL_LOSS_WEIGHT*lastDeltaVelLoss, '+ LbounceMul', SOLVER_BOUNCEMUL_LOSS_WEIGHT*lastBounceMulLoss, 'contacts=', contacts.length);
+		const solverLossExceptClosing = lastSolverLoss - SOLVER_CLOSING_LOSS_WEIGHT*lastClosingLoss;
+		if(solverLossExceptClosing > ignoreSolverIfLossMoreThan_exceptClosingLoss){
+			console.log('ignoring solver cuz ignoreSolverIfLossMoreThan_exceptClosingLoss', ignoreSolverIfLossMoreThan_exceptClosingLoss, 'solverLossExceptClosing=', solverLossExceptClosing, 'solverLoss=', lastSolverLoss);
+			clearAdds();
+		}else{
+			bounceContactsThenAddVel();
+		}
+	}else{
+		for (let i = 0; i < 4; i++) {
+			rebuildContacts();
+			shuffledCopyOfList(contacts).forEach(c => c.bounceThenAddVel());
+		}
+	}
+	advance(dt);
+}
+
+
+// === rendering ===========================================================
+const COLORS = Array.from({length:N}, (_,i) => 'hsl(' + (((i*360)/N)|0) + ' 90% 60%)');
+
+function draw() {
+	ctx.clearRect(0, 0, 512, 512);
+
+	balls.forEach((b, i) => {
+		const hue = ((i * 360) / N) | 0;
+
+		ctx.fillStyle = 'hsl(' + hue + ' 90% 60%)';
+		ctx.beginPath();
+		ctx.arc(b.x.pos, b.y.pos, b.r(), 0, Math.PI * 2);
+		ctx.fill();
+		ctx.stroke();
+
+		ctx.fillStyle = 'hsl(' + hue + ' 90% 30%)';
+		ctx.font      = '16px monospace';
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'top';
+
+		const lines = [
+			'x:' + b.x.pos.toFixed(1),
+			'y:' + b.y.pos.toFixed(1),
+			'm:' + b.m.pos.toFixed(2),
+			'n:' + b.n.pos.toFixed(2),
+			'q:' + b.q.pos.toFixed(2)
+		];
+
+		lines.forEach((txt, idx) =>
+			ctx.fillText(txt, b.x.pos + b.r() + 2, b.y.pos - b.r() + idx * 18)
+		);
+	});
+
+	// draw contact lines first (dotted)
+	contacts.forEach(c => {
+		const ia = balls.indexOf(c.ballA), ib = balls.indexOf(c.ballB);
+		c.draw(ctx, COLORS[ia], COLORS[ib]);
+	});
+}
+
+// === main loop ===========================================================
+let last = performance.now();
+(function loop(t) {
+	const raw = (t - last) / 1000;
+	last      = t;
+
+	const dt = Math.min(raw * TIME_SCALE, 0.25);
+	const subDt = dt / PHYS_CYCLES;
+	for (let i = 0; i < PHYS_CYCLES; i++) {
+		step(subDt);
+		$('cycles').value = +$('cycles').value + 1;
+	}
+	draw();
+	requestAnimationFrame(loop);
+})(last);
+// log current checkbox states
+function logOpts(){
+	console.log('doSolverElseBouncePairs', Chk('doSolverElseBouncePairs'), 'contacts', contacts.length);
+	if(delayedLog) console.log(delayedLog);
+}
+</script>
+
