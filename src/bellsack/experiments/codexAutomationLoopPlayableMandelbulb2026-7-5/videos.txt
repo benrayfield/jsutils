@@ -1,0 +1,41 @@
+have local copies of videos too.
+J:\q\Q63x\w\bellsack\Bellsack0575.html.2026-7-5-113644aET.Bellsack0575gptFreeEdit.html.gptAutomationLoopCalledChromeAndEditedCodeAndLookedAtGraphicsOutputMultipleTimes.mp4
+J:\q\Q63x\w\bellsack\Bellsack0575.html.2026-7-5-113644aET.Bellsack0575gptFreeEdit.html.mePlayingTheMandelbulbGameThatGPTMadeWithAutomationLoop.mp4
+
+https://x.com/benrayfield/status/2073803652897136727
+
+Post
+
+See new posts
+Conversation
+Lambda Rick 🏴‍☠️/acc
+@benrayfield
+My progress building Bellsack is gonna go ALOT faster from now on. I just reached 100% automation for few minutes leading to new GPU code working and I played it with gamepad. GPT knew it worked before it stopped editing the code.
+
+I've reached a new level of automation in Bellsack 575: GPT (in VSCode Codex) writes GPU code, tests it in browser, takes screenshot, looks at screenshot, edits code, tests in browser again, takes another screenshot, and so on. It made mandelbulb. GPT can now make my game content and test it, and soon will be able to play it without rebooting the browser tho slowly cuz Codex isnt a live movement system.
+
+Last edited
+12:18 PM · Jul 5, 2026
+·
+120
+ Views
+
+Lambda Rick 🏴‍☠️/acc
+@benrayfield
+·
+30m
+If anyone wants help automating WebGL let me know. Thats what you're seeing in the 2 videos.
+
+
+---------
+
+https://x.com/benrayfield/status/2073808434600767591
+
+Community post
+Bellsack Intelligence
+
+See new posts
+Conversation
+Lambda Rick 🏴‍☠️/acc
+@benrayfield
+Reached 100% automation of coding Bellsack for 4 minutes in Codex which went through multiple edits and tests in browser before handing me the working product that I played with a gamepad. Mandelbulb happened cuz I asked for it.
