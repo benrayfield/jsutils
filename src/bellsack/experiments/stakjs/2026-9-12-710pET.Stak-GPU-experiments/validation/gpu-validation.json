@@ -1,0 +1,220 @@
+{
+  "renderer": "llvmpipe (LLVM 20.1.2, 256 bits)",
+  "version": "OpenGL ES 3.2 Mesa 25.2.8-0ubuntu0.24.04.2",
+  "kind": "Software GLES correctness validation, not hardware GPU performance",
+  "cases": [
+    {
+      "name": "arithmetic-throughput-recurrence-probe-64",
+      "passed": true,
+      "width": 2,
+      "height": 1,
+      "allFinite": true,
+      "min": 1.174683928489685,
+      "max": 1.214930534362793,
+      "maxError": 0.0
+    },
+    {
+      "name": "arithmetic-throughput-recurrence-probe-256",
+      "passed": true,
+      "width": 2,
+      "height": 1,
+      "allFinite": true,
+      "min": 1.2653101682662964,
+      "max": 1.3068931102752686,
+      "maxError": 0.0
+    },
+    {
+      "name": "arithmetic-throughput-recurrence-probe-1024",
+      "passed": true,
+      "width": 2,
+      "height": 1,
+      "allFinite": true,
+      "min": 1.686866044998169,
+      "max": 1.7345646619796753,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-0-signedIntegers_testMMMM",
+      "passed": true,
+      "width": 1,
+      "height": 1,
+      "allFinite": true,
+      "min": -2147483648.0,
+      "max": 1.0,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-1-modulo_testM",
+      "passed": true,
+      "width": 1,
+      "height": 1,
+      "allFinite": true,
+      "min": 0.0,
+      "max": 5.0,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-2-WWWlength3_demoHashM",
+      "passed": true,
+      "width": 3,
+      "height": 1,
+      "allFinite": true,
+      "min": 0.0,
+      "max": 13.0,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-3-WWWWsphere_demoHashM",
+      "passed": true,
+      "width": 3,
+      "height": 1,
+      "allFinite": true,
+      "min": 0.0,
+      "max": 2.0,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-4-W5torus_demoHashM",
+      "passed": true,
+      "width": 3,
+      "height": 1,
+      "allFinite": true,
+      "min": -1.5,
+      "max": 0.5,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-5-WWWWcomplexMul_demoHashMM",
+      "passed": true,
+      "width": 3,
+      "height": 1,
+      "allFinite": true,
+      "min": -5.0,
+      "max": 10.0,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-6-W6sumSix_demoHashM",
+      "passed": true,
+      "width": 2,
+      "height": 1,
+      "allFinite": true,
+      "min": -21.0,
+      "max": 21.0,
+      "maxError": 0.0
+    },
+    {
+      "name": "baseline-7-W24tinyNet_demoHashM",
+      "passed": true,
+      "width": 1,
+      "height": 1,
+      "allFinite": true,
+      "min": 0.0,
+      "max": 0.5255537033081055,
+      "maxError": 5.960464477539063e-08
+    },
+    {
+      "name": "baseline-8-W24rnn4ThreeSteps_demoHashMMMM",
+      "passed": true,
+      "width": 1,
+      "height": 1,
+      "allFinite": true,
+      "min": -0.8873870372772217,
+      "max": 0.7849189639091492,
+      "maxError": 7.450580596923828e-08
+    },
+    {
+      "name": "baseline-9-WWWmandelbulb8_demoHashM",
+      "passed": true,
+      "width": 3,
+      "height": 1,
+      "allFinite": true,
+      "min": -256.0,
+      "max": 2.0,
+      "maxError": 0.0
+    },
+    {
+      "name": "mandelbrot-stack",
+      "passed": true,
+      "width": 512,
+      "height": 384,
+      "allFinite": true,
+      "min": 0.0313725508749485,
+      "max": 1.0
+    },
+    {
+      "name": "mandelbrot-manual",
+      "passed": true,
+      "width": 512,
+      "height": 384,
+      "allFinite": true,
+      "min": 0.0313725508749485,
+      "max": 1.0
+    },
+    {
+      "name": "mandelbulb-stack",
+      "passed": true,
+      "width": 512,
+      "height": 384,
+      "allFinite": true,
+      "min": 0.16671794652938843,
+      "max": 1.0
+    },
+    {
+      "name": "mandelbulb-manual",
+      "passed": true,
+      "width": 512,
+      "height": 384,
+      "allFinite": true,
+      "min": 0.16671794652938843,
+      "max": 1.0
+    },
+    {
+      "name": "mandelbulb-stack-probes",
+      "passed": true,
+      "width": 15,
+      "height": 1,
+      "allFinite": true,
+      "min": 0.0,
+      "max": 1.241294026374817,
+      "maxError": 5.873509169430219e-05
+    },
+    {
+      "name": "mandelbulb-manual-probes",
+      "passed": true,
+      "width": 15,
+      "height": 1,
+      "allFinite": true,
+      "min": 0.0,
+      "max": 1.241294026374817,
+      "maxError": 5.8736023016876804e-05
+    }
+  ],
+  "comparisons": [
+    {
+      "a": "mandelbrot-stack",
+      "b": "mandelbrot-manual",
+      "maxError": 0.0,
+      "meanAbsoluteError": 0.0,
+      "channelsOver1Byte": 0,
+      "channels": 786432
+    },
+    {
+      "a": "mandelbulb-stack",
+      "b": "mandelbulb-manual",
+      "maxError": 0.40826499462127686,
+      "meanAbsoluteError": 1.3353303908540207e-05,
+      "channelsOver1Byte": 183,
+      "channels": 786432
+    },
+    {
+      "a": "mandelbulb-stack-probes",
+      "b": "mandelbulb-manual-probes",
+      "maxError": 8.346978574991226e-08,
+      "meanAbsoluteError": 1.6686196128527324e-09,
+      "channelsOver1Byte": 0,
+      "channels": 60
+    }
+  ],
+  "passed": true
+}

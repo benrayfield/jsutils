@@ -1,0 +1,37 @@
+[
+  {
+    "file": "Lamgl.js",
+    "bytes": 130184,
+    "sha256": "cdccf45a4cf7b2dd8e83e134e941dcdd485e1069ad0830cc8ffeadc0324fa36f"
+  },
+  {
+    "file": "Stak.js",
+    "bytes": 50317,
+    "sha256": "688f1727a3fe26acafb22375aac91022890fc6a242d58f54bb18f39a08188e27"
+  },
+  {
+    "file": "Stak-tests.js",
+    "bytes": 44967,
+    "sha256": "4721e820092f97881d9181cf859f27899473190212c7ab4dead08b8794f42545"
+  },
+  {
+    "file": "FractalGPU.js",
+    "bytes": 6461,
+    "sha256": "865741fd51b389d6f5876bc317da7aa378517bf6d1392e3bb55b2af8b58b22d1"
+  },
+  {
+    "file": "GPUTiming.js",
+    "bytes": 4404,
+    "sha256": "bbc48e107baf8eb54fd04061e4a1cd29205a50ea18c14b14a7f596f7b58ac37b"
+  },
+  {
+    "file": "FractalChecks.js",
+    "bytes": 3917,
+    "sha256": "3a89033cc4644c24e6b909d686f914582a1e7c41f6d0b70faf7623d4d5271eb7"
+  },
+  {
+    "file": "viewer.js",
+    "bytes": 14874,
+    "sha256": "00c579fd725d7d51ead525064a269e6d3a5422620c257e87a5d3997f6ad3f4b3"
+  }
+]

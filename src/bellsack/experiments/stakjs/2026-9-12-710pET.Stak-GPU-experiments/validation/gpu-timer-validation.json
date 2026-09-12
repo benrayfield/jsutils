@@ -1,0 +1,51 @@
+{
+  "kind": "Mock timer lifecycle unit tests; not browser or hardware timing",
+  "passed": 11,
+  "failed": 0,
+  "tests": [
+    {
+      "name": "Missing extension does not provide fake elapsed time",
+      "passed": true
+    },
+    {
+      "name": "Nanoseconds convert to GPU milliseconds and query is deleted",
+      "passed": true
+    },
+    {
+      "name": "Unavailable query stays pending without blocking",
+      "passed": true
+    },
+    {
+      "name": "Disjoint sample is discarded and deleted",
+      "passed": true
+    },
+    {
+      "name": "Context loss discards pending sample",
+      "passed": true
+    },
+    {
+      "name": "Expired unavailable query fails explicitly",
+      "passed": true
+    },
+    {
+      "name": "Zero/invalid elapsed query fails explicitly",
+      "passed": true
+    },
+    {
+      "name": "Clear handles an active query",
+      "passed": true
+    },
+    {
+      "name": "Async measurement waits then returns GPU time",
+      "passed": true
+    },
+    {
+      "name": "Pending query prevents competing measurement",
+      "passed": true
+    },
+    {
+      "name": "Draw exception still ends its active timer query",
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "kind": "CPU, package syntax, unchanged Lamgl fingerprint and real Lamgl declaration-parser checks; no browser execution",
+  "cpu": {
+    "passed": 126,
+    "failed": 0
+  },
+  "passed": 11,
+  "failed": 0,
+  "rows": [
+    {
+      "name": "All included CPU checks pass",
+      "passed": true
+    },
+    {
+      "name": "Supplied Lamgl copied byte-for-byte",
+      "passed": true
+    },
+    {
+      "name": "Both HTML files contain only parseable inline scripts, no external scripts",
+      "passed": true
+    },
+    {
+      "name": "Standalone example contains no Stak compiler and supplies all declared Lamgl uniforms",
+      "passed": true
+    },
+    {
+      "name": "Real Lamgl declaration parser: mandelbrot stack",
+      "passed": true
+    },
+    {
+      "name": "Real Lamgl declaration parser: mandelbrot manual",
+      "passed": true
+    },
+    {
+      "name": "Real Lamgl declaration parser: mandelbulb stack",
+      "passed": true
+    },
+    {
+      "name": "Real Lamgl declaration parser: mandelbulb manual",
+      "passed": true
+    },
+    {
+      "name": "Real Lamgl declaration parser: arithmetic output and uniforms",
+      "passed": true
+    },
+    {
+      "name": "GLSL reserved packed name is escaped",
+      "passed": true
+    },
+    {
+      "name": "Embedded runtime/source is the delivered runtime/source, not a stale snapshot",
+      "passed": true
+    }
+  ],
+  "lamglSHA256": "cdccf45a4cf7b2dd8e83e134e941dcdd485e1069ad0830cc8ffeadc0324fa36f"
+}

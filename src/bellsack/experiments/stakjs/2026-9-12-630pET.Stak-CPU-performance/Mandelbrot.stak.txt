@@ -1,0 +1,38 @@
+// Push the complex-plane x, then y. Pop one packed 0xRRGGBB number.
+// Edit C64 to change the fixed iteration count. No early-exit branch is used.
+WWmandelbrot_demoHashMBlok
+	yW xW
+	realL imagL realSquaredL imagSquaredL activeL ageL
+	toneL shadeL redL greenL blueL
+	M0 realV
+	M0 imagV
+	M1 activeV
+	M0 ageV
+	C64 Loop
+		stepJ
+		Aage Aactive WWaddM ageV
+		Areal Areal WWmulM realSquaredV
+		Aimag Aimag WWmulM imagSquaredV
+		Areal Aimag WWmulM M2 WWmulM My WWaddM
+		M-4 WWmaxM M4 WWminM imagV
+		ArealSquared AimagSquared WWsubM Mx WWaddM
+		M-4 WWmaxM M4 WWminM realV
+		// Clamp escaped orbits so later fixed iterations cannot overflow.
+		// The active flag stays zero forever after radius squared exceeds 4.
+		Aactive M1
+		Areal Areal WWmulM Aimag Aimag WWmulM WWaddM
+		M4 WWsubM WsignM M0 WWmaxM WWsubM WWmulM activeV
+	Pool
+	// All color channels, including the dark interior, are computed here.
+	Aage M0.12 WWmulM toneV
+	Aage Aage M8 WWaddM WWdivM shadeV
+	Atone M3 WWaddM WcosM M115 WWmulM M120 WWaddM
+	Ashade WWmulM M8 WWaddM WfloorM redV
+	Atone M3.8 WWaddM WcosM M115 WWmulM M120 WWaddM
+	Ashade WWmulM M12 WWaddM WfloorM greenV
+	Atone M4.6 WWaddM WcosM M115 WWmulM M120 WWaddM
+	Ashade WWmulM M25 WWaddM WfloorM blueV
+	Ared M65536 WWmulM Agreen M256 WWmulM WWaddM Ablue WWaddM
+	M1 Aactive WWsubM WWmulM
+	M527901 Aactive WWmulM WWaddM
+Kolb

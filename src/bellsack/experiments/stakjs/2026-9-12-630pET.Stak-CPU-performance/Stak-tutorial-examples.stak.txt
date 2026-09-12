@@ -1,0 +1,640 @@
+// Proposed Stak tutorial examples. demoHash identifiers are placeholders.
+// See the tutorial for input order, numeric domains and implementation status.
+
+WaddOne_demoHashMBlok
+	xW
+	Mx M1 WWaddM
+Kolb
+
+WWWlength3_demoHashMBlok
+	zW
+	yW
+	xW
+	Mx Mx WWmulM
+	My My WWmulM WWaddM
+	Mz Mz WWmulM WWaddM
+	WsqrtM
+Kolb
+
+WWWWsphere_demoHashMBlok
+	radiusW
+	zW
+	yW
+	xW
+	Mradius
+	Mx My Mz WWWlength3_demoHashM
+	WWsubM
+Kolb
+
+WtwiceSquare_demoHashMBlok
+	xW
+	squaredL
+	Mx Mx WWmulM squaredV
+	Asquared M2 WWmulM
+Kolb
+
+WWWWcube_demoHashMBlok
+	halfWidthW zW yW xW
+	MhalfWidth
+	Mx WabsM My WabsM WWmaxM Mz WabsM WWmaxM
+	WWsubM
+Kolb
+
+WWlength2_demoHashMBlok
+	yW xW
+	Mx Mx WWmulM My My WWmulM WWaddM WsqrtM
+Kolb
+
+W5torus_demoHashMBlok
+	minorW majorW zW yW xW
+	Mminor
+	Mx Mz WWlength2_demoHashM Mmajor WWsubM
+	My WWlength2_demoHashM
+	WWsubM
+Kolb
+
+WWWWsineTerm_demoHashMBlok
+	phaseW frequencyW amplitudeW xW
+	Mamplitude
+	Mx Mfrequency WWmulM Mphase WWaddM WsinM
+	WWmulM
+Kolb
+
+WsumThreeCopies_demoHashMBlok
+	inputW
+	totalL
+	M0 totalV
+	C3 Loop
+		copyJ
+		Atotal Minput WWaddM totalV
+	Pool
+	Atotal
+Kolb
+
+W6sumSix_demoHashMBlok
+	C6 valuesW
+	totalL
+	M0 totalV
+	C6 Loop
+		indexJ
+		Atotal Cindex J_values_M WWaddM totalV
+	Pool
+	Atotal
+Kolb
+
+W7rippleRadius_demoHashMBlok
+	C6 pairsW
+	angleW
+	sumL
+	frequencyL
+	M0 sumV
+	M1 frequencyV
+	C3 Loop
+		bandJ
+		Asum
+		Cband C2 JJimulC J_pairs_M
+		Afrequency Mangle WWmulM
+		Cband C2 JJimulC C1 JJiaddC J_pairs_M
+		WWaddM WsinM WWmulM WWaddM sumV
+		Afrequency M1 WWaddM frequencyV
+	Pool
+	M1 Asum M0.24 WWmulM WWaddM
+Kolb
+
+W24tinyNet_demoHashMBlok
+	C21 weightsW
+	C3 xyzW
+	C4 hiddenL
+	sumL
+
+	C4 Loop
+		hJ
+		Ch C4 JJimulC C3 JJiaddC J_weights_M sumV
+		C3 Loop
+			kJ
+			Asum Ck J_xyz_M
+			Ch C4 JJimulC Ck JJiaddC J_weights_M
+			WWmulM WWaddM sumV
+		Pool
+		Asum WtanhM Ch JW_hidden_
+	Pool
+
+	C20 J_weights_M sumV
+	C4 Loop
+		hJ
+		Asum Ch J_hidden_M
+		C16 Ch JJiaddC J_weights_M
+		WWmulM WWaddM sumV
+	Pool
+	Asum WtanhM
+Kolb
+
+W24rnn4ThreeSteps_demoHashMMMMBlok
+	C20 weightsW
+	C4 initialW
+	C4 stateL
+	C4 nextL
+	sumL
+
+	C4 Loop
+		iJ
+		Ci J_initial_M Ci JW_state_
+	Pool
+
+	C3 Loop
+		timeJ
+		C4 Loop
+			toJ
+			Cto C5 JJimulC C4 JJiaddC J_weights_M sumV
+			C4 Loop
+				fromJ
+				Asum Cfrom J_state_M
+				Cto C5 JJimulC Cfrom JJiaddC J_weights_M
+				WWmulM WWaddM sumV
+			Pool
+			Asum WtanhM Cto JW_next_
+		Pool
+		C4 Loop
+			iJ
+			Ci J_next_M Ci JW_state_
+		Pool
+	Pool
+
+	C4 Loop
+		iJ
+		Ci J_state_M
+	Pool
+Kolb
+
+W8springEnergy_demoHashMBlok
+	stiffnessW restLengthW
+	bzW byW bxW
+	azW ayW axW
+	errorL
+	Max Mbx WWsubM
+	May Mby WWsubM
+	Maz Mbz WWsubM
+	WWWlength3_demoHashM MrestLength WWsubM errorV
+	M0.5 Mstiffness WWmulM
+	Aerror Aerror WWmulM WWmulM
+Kolb
+
+WWWWcomplexMul_demoHashMMBlok
+	biW brW aiW arW
+	Mar Mbr WWmulM Mai Mbi WWmulM WWsubM
+	Mar Mbi WWmulM Mai Mbr WWmulM WWaddM
+Kolb
+
+WWcomplexPower8_demoHashMMBlok
+	inputImagW inputRealW
+	realL imagL
+	MinputReal realV MinputImag imagV
+	C3 Loop
+		squareIndexJ
+		Areal Aimag Areal Aimag WWWWcomplexMul_demoHashMM
+		imagV realV
+	Pool
+	Areal Aimag
+Kolb
+
+WWWbulbPower8_demoHashMMMBlok
+	zW yW xW
+	radiusL planarL safeRadiusL safePlanarL
+	radius8L polarCosL polarSinL azimuthCosL azimuthSinL
+	Mx My Mz WWWlength3_demoHashM radiusV
+	Mx My WWlength2_demoHashM planarV
+	Aradius M0.000000000001 WWmaxM safeRadiusV
+	Aplanar M0.000000000001 WWmaxM safePlanarV
+	Aradius Aradius WWmulM radius8V
+	Aradius8 Aradius8 WWmulM radius8V
+	Aradius8 Aradius8 WWmulM radius8V
+	Mz AsafeRadius WWdivM Aplanar AsafeRadius WWdivM
+	WWcomplexPower8_demoHashMM polarSinV polarCosV
+	Mx AsafePlanar WWdivM My AsafePlanar WWdivM
+	WWcomplexPower8_demoHashMM azimuthSinV azimuthCosV
+	Aradius8 ApolarSin WWmulM AazimuthCos WWmulM
+	Aradius8 ApolarSin WWmulM AazimuthSin WWmulM
+	Aradius8 ApolarCos WWmulM
+Kolb
+
+WWWmandelbulb8_demoHashMBlok
+	zW yW xW
+	orbitXL orbitYL orbitZL
+	nextXL nextYL nextZL
+	radiusL maximumRadiusL scaleL
+	M0 orbitXV M0 orbitYV M0 orbitZV M0 maximumRadiusV
+	C8 Loop
+		iterationJ
+		AorbitX AorbitY AorbitZ WWWbulbPower8_demoHashMMM
+		nextZV nextYV nextXV
+		AnextX Mx WWaddM nextXV
+		AnextY My WWaddM nextYV
+		AnextZ Mz WWaddM nextZV
+		AnextX AnextY AnextZ WWWlength3_demoHashM radiusV
+		AmaximumRadius Aradius WWmaxM maximumRadiusV
+		M1 M2 Aradius M0.000000000001 WWmaxM WWdivM WWminM scaleV
+		AnextX Ascale WWmulM orbitXV
+		AnextY Ascale WWmulM orbitYV
+		AnextZ Ascale WWmulM orbitZV
+	Pool
+	M2 AmaximumRadius WWsubM
+Kolb
+
+JQneuron_demoHashMBlok
+	nodesJ
+	Cnodes Jiadd1C withBiasJ
+	CwithBias weightsW
+	Cnodes statesW
+	sumL
+	Cnodes J_weights_M sumV
+	Cnodes Loop
+		fromJ
+		Asum Cfrom J_states_M Cfrom J_weights_M
+		WWmulM WWaddM sumV
+	Pool
+	Asum WtanhM
+Kolb
+
+W9neuron4_demoHashMBlok
+	C9 inputsW
+	C4
+	C9 Loop
+		slotJ
+		Cslot J_inputs_M
+	Pool
+	JQneuron_demoHashM
+Kolb
+
+W5lstmCell_demoHashMMBlok
+	oldCellW
+	rawCandidateW
+	rawOutputGateW
+	rawForgetGateW
+	rawInputGateW
+	newCellL
+
+	MrawForgetGate WsigmoidM MoldCell WWmulM
+	MrawInputGate WsigmoidM MrawCandidate WtanhM WWmulM
+	WWaddM newCellV
+
+	MrawOutputGate WsigmoidM AnewCell WtanhM WWmulM
+	AnewCell
+Kolb
+
+W15lstmOne_demoHashMMBlok
+	C12 weightsW
+	oldCellW
+	oldHiddenW
+	externalInputW
+	C4 gatesL
+	sumL
+
+	C4 Loop
+		gateJ
+		Cgate C3 JJimulC C2 JJiaddC J_weights_M sumV
+		Asum MexternalInput Cgate C3 JJimulC J_weights_M
+		WWmulM WWaddM sumV
+		Asum MoldHidden Cgate C3 JJimulC C1 JJiaddC J_weights_M
+		WWmulM WWaddM sumV
+		Asum Cgate JW_gates_
+	Pool
+
+	C4 Loop
+		gateJ
+		Cgate J_gates_M
+	Pool
+	MoldCell W5lstmCell_demoHashMM
+Kolb
+
+JQsoftmax_demoHashQBlok
+	nodesJ
+	Cnodes valuesW
+	Cnodes expsL
+	maximumL
+	totalL
+	valueL
+
+	C0 J_values_M maximumV
+	Cnodes Loop
+		iJ
+		Amaximum Ci J_values_M WWmaxM maximumV
+	Pool
+	M0 totalV
+	Cnodes Loop
+		iJ
+		Ci J_values_M Amaximum WWsubM WexpM valueV
+		Avalue Ci JW_exps_
+		Atotal Avalue WWaddM totalV
+	Pool
+	Cnodes Loop
+		iJ
+		Ci J_exps_M Atotal WWdivM
+	Pool
+Kolb
+
+W2198addressHead_demoHashM128Blok
+	C22 parametersW
+	C128 previousHeadW
+	C2048 tapeW
+	C128 scoresL
+	C128 contentL
+	C128 blendedL
+	C3 shiftsL
+	keyNormL
+	tapeNormL
+	dotL
+	valueL
+	betaL
+	gateL
+	gammaL
+
+	C16 J_parameters_M WsoftplusM M0.000001 WWaddM betaV
+	C17 J_parameters_M WsigmoidM gateV
+	C21 J_parameters_M WsoftplusM M1 WWaddM gammaV
+	M0 keyNormV
+	C16 Loop
+		kJ
+		Ck J_parameters_M valueV
+		AkeyNorm Avalue Avalue WWmulM WWaddM keyNormV
+	Pool
+	AkeyNorm M0.000000000001 WWaddM WsqrtM keyNormV
+
+	C128 Loop
+		jJ
+		M0 tapeNormV
+		M0 dotV
+		C16 Loop
+			kJ
+			Cj C16 JJimulC Ck JJiaddC J_tape_M valueV
+			AtapeNorm Avalue Avalue WWmulM WWaddM tapeNormV
+			Adot Avalue Ck J_parameters_M WWmulM WWaddM dotV
+		Pool
+		Abeta Adot WWmulM
+		AkeyNorm AtapeNorm M0.000000000001 WWaddM WsqrtM WWmulM
+		WWdivM Cj JW_scores_
+	Pool
+	C128 Loop
+		jJ
+		Cj J_scores_M
+	Pool
+	C128 JQsoftmax_demoHashQ
+	C128 Loop
+		jJ
+		C127 Cj JJisubC JW_content_
+	Pool
+
+	C3 Loop
+		kJ
+		C18 Ck JJiaddC J_parameters_M
+	Pool
+	C3 JQsoftmax_demoHashQ
+	C3 Loop
+		kJ
+		C2 Ck JJisubC JW_shifts_
+	Pool
+
+	C128 Loop
+		jJ
+		Agate Cj J_content_M WWmulM
+		M1 Agate WWsubM Cj J_previousHead_M WWmulM
+		WWaddM Cj JW_blended_
+	Pool
+
+	C128 Loop
+		jJ
+		C0 J_shifts_M Cj C1 JJiaddC C128 JJimodC J_blended_M WWmulM
+		C1 J_shifts_M Cj J_blended_M WWmulM WWaddM
+		C2 J_shifts_M Cj C127 JJiaddC C128 JJimodC J_blended_M WWmulM WWaddM
+		M1e-30 WWmaxM WlogM Agamma WWmulM Cj JW_scores_
+	Pool
+	C128 Loop
+		jJ
+		Cj J_scores_M
+	Pool
+	C128 JQsoftmax_demoHashQ
+Kolb
+
+W2176readTape_demoHashM16Blok
+	C128 readHeadW
+	C2048 tapeW
+	totalL
+
+	C16 Loop
+		kJ
+		M0 totalV
+		C128 Loop
+			jJ
+			Atotal Cj J_readHead_M
+			Cj C16 JJimulC Ck JJiaddC J_tape_M
+			WWmulM WWaddM totalV
+		Pool
+		Atotal
+	Pool
+Kolb
+
+W2208writeTape_demoHashM2048Blok
+	C16 rawAddW
+	C16 rawEraseW
+	C128 writeHeadW
+	C2048 tapeW
+	C16 eraseL
+	C16 addL
+	weightL
+
+	C16 Loop
+		kJ
+		Ck J_rawErase_M WsigmoidM Ck JW_erase_
+		Ck J_rawAdd_M WtanhM Ck JW_add_
+	Pool
+	C128 Loop
+		jJ
+		Cj J_writeHead_M weightV
+		C16 Loop
+			kJ
+			Cj C16 JJimulC Ck JJiaddC J_tape_M
+			M1 Aweight Ck J_erase_M WWmulM WWsubM WWmulM
+			Aweight Ck J_add_M WWmulM WWaddM
+		Pool
+	Pool
+Kolb
+
+JJQaffine_demoHashQBlok
+	rowsJ widthJ
+	Cwidth Jiadd1C strideJ
+	Crows Cstride JJimulC countJ
+	Ccount weightsW
+	Cwidth valuesW
+	sumL
+
+	Crows Loop
+		rowJ
+		Crow Cstride JJimulC Cwidth JJiaddC J_weights_M sumV
+		Cwidth Loop
+			columnJ
+			Asum
+			Ccolumn J_values_M
+			Crow Cstride JJimulC Ccolumn JJiaddC J_weights_M
+			WWmulM WWaddM sumV
+		Pool
+		Asum
+	Pool
+Kolb
+
+JQlstm_demoHashQBlok
+	nodesJ
+	Cnodes C32 JJiaddC widthJ
+	Cnodes C4 JJimulC gatesJ
+	Cwidth Jiadd1C Cgates JJimulC countJ
+	Cnodes cellW
+	Cnodes hiddenW
+	C16 readW
+	C16 inputW
+	Ccount weightsW
+	Cgates zL
+	Cnodes newHiddenL
+	Cnodes newCellL
+	currentCellL
+
+	Cwidth Cgates
+	C16 Loop inputIndexJ CinputIndex J_input_M Pool
+	C16 Loop readIndexJ CreadIndex J_read_M Pool
+	Cnodes Loop hiddenIndexJ ChiddenIndex J_hidden_M Pool
+	Ccount Loop weightIndexJ CweightIndex J_weights_M Pool
+	JJQaffine_demoHashQ
+	Cgates Loop
+		gateResultJ
+		Cgates C1 JJisubC CgateResult JJisubC JW_z_
+	Pool
+
+	Cnodes Loop
+		nodeJ
+		Cnode C4 JJimulC C1 JJiaddC J_z_M WsigmoidM
+		Cnode J_cell_M WWmulM
+		Cnode C4 JJimulC J_z_M WsigmoidM
+		Cnode C4 JJimulC C3 JJiaddC J_z_M WtanhM
+		WWmulM WWaddM currentCellV
+		AcurrentCell Cnode JW_newCell_
+		Cnode C4 JJimulC C2 JJiaddC J_z_M WsigmoidM
+		AcurrentCell WtanhM WWmulM Cnode JW_newHidden_
+	Pool
+
+	Cnodes Loop outHiddenJ CoutHidden J_newHidden_M Pool
+	Cnodes Loop outCellJ CoutCell J_newCell_M Pool
+Kolb
+
+JQntmStep_demoHashQBlok
+	nodesJ
+	Cnodes C33 JJiaddC Cnodes JJimulC C4 JJimulC lstmCountJ
+	Cnodes Jiadd1C C76 JJimulC interfaceCountJ
+	ClstmCount CinterfaceCount JJiaddC parameterCountJ
+	C128 oldWriteW
+	C128 oldReadW
+	C2048 oldTapeW
+	Cnodes oldCellW
+	Cnodes oldHiddenW
+	C16 inputW
+	CparameterCount weightsW
+	C16 readL
+	Cnodes newHiddenL
+	Cnodes newCellL
+	C76 controlsL
+	C128 newReadL
+	C128 newWriteL
+	C2048 newTapeL
+
+	// The previous head reads the previous tape for this controller step.
+	C2048 Loop tapeReadIndexJ CtapeReadIndex J_oldTape_M Pool
+	C128 Loop oldReadIndexJ ColdReadIndex J_oldRead_M Pool
+	W2176readTape_demoHashM16
+	C16 Loop readResultJ C15 CreadResult JJisubC JW_read_ Pool
+
+	// Update the whole LSTM synchronously.
+	Cnodes
+	ClstmCount Loop lstmWeightIndexJ ClstmWeightIndex J_weights_M Pool
+	C16 Loop inputIndexJ CinputIndex J_input_M Pool
+	C16 Loop readIndexJ CreadIndex J_read_M Pool
+	Cnodes Loop oldHiddenIndexJ ColdHiddenIndex J_oldHidden_M Pool
+	Cnodes Loop oldCellIndexJ ColdCellIndex J_oldCell_M Pool
+	JQlstm_demoHashQ
+	Cnodes Loop cellResultJ Cnodes C1 JJisubC CcellResult JJisubC JW_newCell_ Pool
+	Cnodes Loop hiddenResultJ Cnodes C1 JJisubC ChiddenResult JJisubC JW_newHidden_ Pool
+
+	// Project the new hidden vector to all read/write interface controls.
+	Cnodes C76
+	Cnodes Loop newHiddenIndexJ CnewHiddenIndex J_newHidden_M Pool
+	CinterfaceCount Loop
+		interfaceWeightIndexJ
+		ClstmCount CinterfaceWeightIndex JJiaddC J_weights_M
+	Pool
+	JJQaffine_demoHashQ
+	C76 Loop controlResultJ C75 CcontrolResult JJisubC JW_controls_ Pool
+
+	// Read address: content lookup, interpolation, circular shift, sharpening.
+	C2048 Loop tapeForReadHeadJ CtapeForReadHead J_oldTape_M Pool
+	C128 Loop previousReadJ CpreviousRead J_oldRead_M Pool
+	C22 Loop readControlJ CreadControl J_controls_M Pool
+	W2198addressHead_demoHashM128
+	C128 Loop newReadResultJ C127 CnewReadResult JJisubC JW_newRead_ Pool
+
+	// Write address uses its own previous position and controls.
+	C2048 Loop tapeForWriteHeadJ CtapeForWriteHead J_oldTape_M Pool
+	C128 Loop previousWriteJ CpreviousWrite J_oldWrite_M Pool
+	C22 Loop writeControlJ C22 CwriteControl JJiaddC J_controls_M Pool
+	W2198addressHead_demoHashM128
+	C128 Loop newWriteResultJ C127 CnewWriteResult JJisubC JW_newWrite_ Pool
+
+	// Erase/add write, with per-component learned controls.
+	C2048 Loop tapeForWriteJ CtapeForWrite J_oldTape_M Pool
+	C128 Loop writeLocationJ CwriteLocation J_newWrite_M Pool
+	C16 Loop eraseControlJ C44 CeraseControl JJiaddC J_controls_M Pool
+	C16 Loop addControlJ C60 CaddControl JJiaddC J_controls_M Pool
+	W2208writeTape_demoHashM2048
+	C2048 Loop newTapeResultJ C2047 CnewTapeResult JJisubC JW_newTape_ Pool
+
+	// Explicit recurrent state. No persistent data is hidden in scratch.
+	Cnodes Loop returnHiddenJ CreturnHidden J_newHidden_M Pool
+	Cnodes Loop returnCellJ CreturnCell J_newCell_M Pool
+	C2048 Loop returnTapeJ CreturnTape J_newTape_M Pool
+	C128 Loop returnReadJ CreturnRead J_newRead_M Pool
+	C128 Loop returnWriteJ CreturnWrite J_newWrite_M Pool
+Kolb
+
+JQntmFiveSteps_demoHashQBlok
+	nodesJ
+	Cnodes C33 JJiaddC Cnodes JJimulC C4 JJimulC lstmCountJ
+	Cnodes Jiadd1C C76 JJimulC interfaceCountJ
+	ClstmCount CinterfaceCount JJiaddC parameterCountJ
+	Cnodes C2 JJimulC C2304 JJiaddC stateCountJ
+	CstateCount initialW
+	C80 inputsW
+	CparameterCount weightsW
+	CstateCount stateL
+
+	CstateCount Loop
+		initialIndexJ
+		CinitialIndex J_initial_M CinitialIndex JW_state_
+	Pool
+	C5 Loop
+		timeJ
+		Cnodes
+		CparameterCount Loop weightIndexJ CweightIndex J_weights_M Pool
+		C16 Loop
+			inputIndexJ
+			Ctime C16 JJimulC CinputIndex JJiaddC J_inputs_M
+		Pool
+		CstateCount Loop stateIndexJ CstateIndex J_state_M Pool
+		JQntmStep_demoHashQ
+		CstateCount Loop
+			resultIndexJ
+			CstateCount C1 JJisubC CresultIndex JJisubC JW_state_
+		Pool
+	Pool
+	CstateCount Loop finalIndexJ CfinalIndex J_state_M Pool
+Kolb
+
+W9016ntm22_demoHashM2348Blok
+	C9016 inputsW
+	C22
+	C9016 Loop slotJ Cslot J_inputs_M Pool
+	JQntmFiveSteps_demoHashQ
+Kolb

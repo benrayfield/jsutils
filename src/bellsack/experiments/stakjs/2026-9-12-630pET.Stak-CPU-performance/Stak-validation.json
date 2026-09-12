@@ -1,0 +1,1350 @@
+{
+  "version": "0.4.0-cpu-inline-prototype",
+  "note": "CPU tests only. Node benchmark timing uses real global scope. Host tests use an instrumented DOM/canvas; no real browser/GPU execution.",
+  "cpu": {
+    "cpu": {
+      "passed": 70,
+      "failed": 0,
+      "skipped": 0,
+      "rows": [
+        {
+          "name": "newStakStream alias",
+          "status": "PASS",
+          "expected": "true",
+          "actual": "true"
+        },
+        {
+          "name": "3.4 rounds to its float32 value",
+          "status": "PASS",
+          "expected": "3.4000000953674316",
+          "actual": "3.4000000953674316"
+        },
+        {
+          "name": "LIFO and exact capacity",
+          "status": "PASS",
+          "expected": "[2, 1, 0]",
+          "actual": "[2, 1, 0]"
+        },
+        {
+          "name": "Independent streams",
+          "status": "PASS",
+          "expected": "[10, 20]",
+          "actual": "[10, 20]"
+        },
+        {
+          "name": "clear resets depth",
+          "status": "PASS",
+          "expected": "0",
+          "actual": "0"
+        },
+        {
+          "name": "toArray is a snapshot",
+          "status": "PASS",
+          "expected": "[1, 2]",
+          "actual": "[1, 2]"
+        },
+        {
+          "name": "Signed zero survives storage",
+          "status": "PASS",
+          "expected": "true",
+          "actual": "true"
+        },
+        {
+          "name": "Numeric NaN and infinities survive storage",
+          "status": "PASS",
+          "expected": "[true, Infinity, -Infinity]",
+          "actual": "[true, Infinity, -Infinity]"
+        },
+        {
+          "name": "Empty stream rejects pop",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stream underflow"
+        },
+        {
+          "name": "Full stream rejects push",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stream overflow: capacity 1"
+        },
+        {
+          "name": "Explicit undefined is a rejected push, not a pop",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stakstream expects zero arguments, or one number"
+        },
+        {
+          "name": "String push rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stakstream expects zero arguments, or one number"
+        },
+        {
+          "name": "Two arguments rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stakstream expects zero arguments, or one number"
+        },
+        {
+          "name": "Fractional capacity rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: capacity must be an integer from 0 through 16777216"
+        },
+        {
+          "name": "Negative capacity rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: capacity must be an integer from 0 through 16777216"
+        },
+        {
+          "name": "Top-level postfix arithmetic",
+          "status": "PASS",
+          "expected": "[50]",
+          "actual": "[50]"
+        },
+        {
+          "name": "Subtraction operand order",
+          "status": "PASS",
+          "expected": "[7]",
+          "actual": "[7]"
+        },
+        {
+          "name": "Division operand order",
+          "status": "PASS",
+          "expected": "[4]",
+          "actual": "[4]"
+        },
+        {
+          "name": "Each operation rounds to float32",
+          "status": "PASS",
+          "expected": "[0]",
+          "actual": "[0]"
+        },
+        {
+          "name": "Bare xW binds caller float",
+          "status": "PASS",
+          "expected": "[8]",
+          "actual": "[8]"
+        },
+        {
+          "name": "Ordinary callable stream protocol",
+          "status": "PASS",
+          "expected": "[91, 8]",
+          "actual": "[91, 8]"
+        },
+        {
+          "name": "Klob accepted as spelling alias",
+          "status": "PASS",
+          "expected": "[8]",
+          "actual": "[8]"
+        },
+        {
+          "name": "Named locals are private to each call",
+          "status": "PASS",
+          "expected": "[20]",
+          "actual": "[20]"
+        },
+        {
+          "name": "Scalar local allocation and update",
+          "status": "PASS",
+          "expected": "[18]",
+          "actual": "[18]"
+        },
+        {
+          "name": "Constant loop with immutable index",
+          "status": "PASS",
+          "expected": "[45]",
+          "actual": "[45]"
+        },
+        {
+          "name": "Array block preserves element order",
+          "status": "PASS",
+          "expected": "[10, 20, 30]",
+          "actual": "[10, 20, 30]"
+        },
+        {
+          "name": "Grouped xyzWWW / MMMxyz preserve three floats",
+          "status": "PASS",
+          "expected": "[10, 20, 30]",
+          "actual": "[10, 20, 30]"
+        },
+        {
+          "name": "Grouped local write and read",
+          "status": "PASS",
+          "expected": "[10, 20, 30]",
+          "actual": "[10, 20, 30]"
+        },
+        {
+          "name": "Scalar names beginning with marker letters",
+          "status": "PASS",
+          "expected": "[7]",
+          "actual": "[7]"
+        },
+        {
+          "name": "Derived integer array sizes",
+          "status": "PASS",
+          "expected": "[21]",
+          "actual": "[21]"
+        },
+        {
+          "name": "Read and write local arrays",
+          "status": "PASS",
+          "expected": "[9, 8, 7]",
+          "actual": "[9, 8, 7]"
+        },
+        {
+          "name": "Generic Q integer specialization",
+          "status": "PASS",
+          "expected": "[10]",
+          "actual": "[10]"
+        },
+        {
+          "name": "Integer binding cannot be reassigned",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: duplicate or immutable name n\n  in bad_testM at line 1 [nJ]"
+        },
+        {
+          "name": "Loop index cannot escape its scope",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS bad_testM: unknown integer index."
+        },
+        {
+          "name": "Uninitialized scalar rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS bad_testM: uninitialized value[0]."
+        },
+        {
+          "name": "Uninitialized array element rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS bad_testM: uninitialized values[1]."
+        },
+        {
+          "name": "Out-of-bounds array read rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: array bounds: values[3] has size 3."
+        },
+        {
+          "name": "Negative array index rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: array bounds: values[-1] has size 3."
+        },
+        {
+          "name": "Readonly parameter array cannot be written",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: cannot write readonly parameter values."
+        },
+        {
+          "name": "Float cannot be used as an integer index",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: integer stack underflow."
+        },
+        {
+          "name": "Declared output count checked",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS Wbad_testMM: float output arity mismatch: promised 2, left 1."
+        },
+        {
+          "name": "Callee cannot consume caller prefix",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS Wbad_testM: float frame underflow: body consumes 3 inputs but signature allows 1."
+        },
+        {
+          "name": "Recursive call rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: recursive call cycle: Wrecursive_testM -> Wrecursive_testM"
+        },
+        {
+          "name": "Missing Kolb rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: missing Kolb in Wbad_testM at line 1 (Mx)"
+        },
+        {
+          "name": "Unexpected Pool rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: unexpected Pool at line 1 (Pool)"
+        },
+        {
+          "name": "Missing Pool rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: unexpected Kolb at line 1 (Kolb)"
+        },
+        {
+          "name": "Unknown opcode rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS @topLevel: unknown token notAnOpcode."
+        },
+        {
+          "name": "Malformed numeric literal rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS @topLevel: unknown variable or read width mismatch: M3.4.5."
+        },
+        {
+          "name": "Positive modulo for negative loop-relative indices",
+          "status": "PASS",
+          "expected": "[5]",
+          "actual": "[5]"
+        },
+        {
+          "name": "Signed integer division and modulo extremes",
+          "status": "PASS",
+          "expected": "[1, -2, -2, -2147483648]",
+          "actual": "[1, -2, -2, -2147483648]"
+        },
+        {
+          "name": "GLSL signed integer regression shape",
+          "status": "PASS",
+          "expected": "[0, 4]",
+          "actual": "[0, 4]"
+        },
+        {
+          "name": "GLSL default follows executable top-level code",
+          "status": "PASS",
+          "expected": "[0, 1]",
+          "actual": "[0, 1]"
+        },
+        {
+          "name": "GLSL respects program.get selected entry",
+          "status": "PASS",
+          "expected": "[1, 1]",
+          "actual": "[1, 1]"
+        },
+        {
+          "name": "GLSL scalar names beginning with marker letters",
+          "status": "PASS",
+          "expected": "[1, 1]",
+          "actual": "[1, 1]"
+        },
+        {
+          "name": "GLSL stack capacity validated",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak GLSL needs operand capacity 3 floats, but capacity is 2."
+        },
+        {
+          "name": "GLSL array bounds validated before shader execution",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak GLSL WWWbad_testM: index 3 outside values[3]."
+        },
+        {
+          "name": "GLSL uninitialized reads rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak GLSL bad_testM: read of uninitialized values[1]."
+        },
+        {
+          "name": "Compile content examples",
+          "status": "PASS",
+          "expected": "Named definitions",
+          "actual": "[WaddOne_demoHashM, WWWlength3_demoHashM, WWWWsphere_demoHashM, WtwiceSquare_demoHashM, WWWWcube_demoHashM, WWlength2_demoHashM, W5torus_demoHashM, WWWWsineTerm_demoHashM, WsumThreeCopies_demoHashM, W6sumSix_demoHashM, W7rippleRadius_demoHashM, W24tinyNet_demoHashM, W24rnn4ThreeSteps_demoHashMMMM, W8springEnergy_demoHashM, WWWWcomplexMul_demoHashMM, WWcomplexPower8_demoHashMM, WWWbulbPower8_demoHashMMM, WWWmandelbulb8_demoHashM, modulo_testM, signedIntegers_testMMMM]"
+        },
+        {
+          "name": "length3: (3,4,12)",
+          "status": "PASS",
+          "expected": "[13]",
+          "actual": "[13]"
+        },
+        {
+          "name": "Nested helper preserves underlying caller value",
+          "status": "PASS",
+          "expected": "[91, 1]",
+          "actual": "[91, 1]"
+        },
+        {
+          "name": "Sphere inside / surface / outside",
+          "status": "PASS",
+          "expected": "[2, 0, -2]",
+          "actual": "[2, 0, -2]"
+        },
+        {
+          "name": "Cube inside / surface / outside",
+          "status": "PASS",
+          "expected": "[1, 0, -1]",
+          "actual": "[1, 0, -1]"
+        },
+        {
+          "name": "Torus tube center / outer surface / hole",
+          "status": "PASS",
+          "expected": "[0.5, 0, -1.5]",
+          "actual": "[0.5, 0, -1.5]"
+        },
+        {
+          "name": "Two returned floats retain order",
+          "status": "PASS",
+          "expected": "[-5, 10]",
+          "actual": "[-5, 10]"
+        },
+        {
+          "name": "Tiny neural field against scalar equations",
+          "status": "PASS",
+          "expected": "[0.5255537629127502]",
+          "actual": "[0.5255537629127502]"
+        },
+        {
+          "name": "RNN four nodes, three synchronous cycles",
+          "status": "PASS",
+          "expected": "[0.15739217400550842, 0.7849189639091492, -0.8873870372772217, 0.14800314605236053]",
+          "actual": "[0.15739217400550842, 0.7849189639091492, -0.8873870372772217, 0.14800314605236053]"
+        },
+        {
+          "name": "Mandelbulb origin / north escape",
+          "status": "PASS",
+          "expected": "[2, -256]",
+          "actual": "[2, -256]"
+        },
+        {
+          "name": "Mandelbulb independent spherical reference [0.1, 0.2, -0.1]",
+          "status": "PASS",
+          "expected": "[1.7550461362553913]",
+          "actual": "[1.7550461292266846]"
+        },
+        {
+          "name": "Mandelbulb independent spherical reference [0.3, -0.2, 0.2]",
+          "status": "PASS",
+          "expected": "[1.587689437438234]",
+          "actual": "[1.5876893997192383]"
+        },
+        {
+          "name": "Mandelbulb independent spherical reference [-0.15, 0.1, 0.25]",
+          "status": "PASS",
+          "expected": "[1.691779299851551]",
+          "actual": "[1.691779375076294]"
+        }
+      ],
+      "results": [
+        {
+          "name": "newStakStream alias",
+          "status": "PASS",
+          "expected": "true",
+          "actual": "true"
+        },
+        {
+          "name": "3.4 rounds to its float32 value",
+          "status": "PASS",
+          "expected": "3.4000000953674316",
+          "actual": "3.4000000953674316"
+        },
+        {
+          "name": "LIFO and exact capacity",
+          "status": "PASS",
+          "expected": "[2, 1, 0]",
+          "actual": "[2, 1, 0]"
+        },
+        {
+          "name": "Independent streams",
+          "status": "PASS",
+          "expected": "[10, 20]",
+          "actual": "[10, 20]"
+        },
+        {
+          "name": "clear resets depth",
+          "status": "PASS",
+          "expected": "0",
+          "actual": "0"
+        },
+        {
+          "name": "toArray is a snapshot",
+          "status": "PASS",
+          "expected": "[1, 2]",
+          "actual": "[1, 2]"
+        },
+        {
+          "name": "Signed zero survives storage",
+          "status": "PASS",
+          "expected": "true",
+          "actual": "true"
+        },
+        {
+          "name": "Numeric NaN and infinities survive storage",
+          "status": "PASS",
+          "expected": "[true, Infinity, -Infinity]",
+          "actual": "[true, Infinity, -Infinity]"
+        },
+        {
+          "name": "Empty stream rejects pop",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stream underflow"
+        },
+        {
+          "name": "Full stream rejects push",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stream overflow: capacity 1"
+        },
+        {
+          "name": "Explicit undefined is a rejected push, not a pop",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stakstream expects zero arguments, or one number"
+        },
+        {
+          "name": "String push rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stakstream expects zero arguments, or one number"
+        },
+        {
+          "name": "Two arguments rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: stakstream expects zero arguments, or one number"
+        },
+        {
+          "name": "Fractional capacity rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: capacity must be an integer from 0 through 16777216"
+        },
+        {
+          "name": "Negative capacity rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: capacity must be an integer from 0 through 16777216"
+        },
+        {
+          "name": "Top-level postfix arithmetic",
+          "status": "PASS",
+          "expected": "[50]",
+          "actual": "[50]"
+        },
+        {
+          "name": "Subtraction operand order",
+          "status": "PASS",
+          "expected": "[7]",
+          "actual": "[7]"
+        },
+        {
+          "name": "Division operand order",
+          "status": "PASS",
+          "expected": "[4]",
+          "actual": "[4]"
+        },
+        {
+          "name": "Each operation rounds to float32",
+          "status": "PASS",
+          "expected": "[0]",
+          "actual": "[0]"
+        },
+        {
+          "name": "Bare xW binds caller float",
+          "status": "PASS",
+          "expected": "[8]",
+          "actual": "[8]"
+        },
+        {
+          "name": "Ordinary callable stream protocol",
+          "status": "PASS",
+          "expected": "[91, 8]",
+          "actual": "[91, 8]"
+        },
+        {
+          "name": "Klob accepted as spelling alias",
+          "status": "PASS",
+          "expected": "[8]",
+          "actual": "[8]"
+        },
+        {
+          "name": "Named locals are private to each call",
+          "status": "PASS",
+          "expected": "[20]",
+          "actual": "[20]"
+        },
+        {
+          "name": "Scalar local allocation and update",
+          "status": "PASS",
+          "expected": "[18]",
+          "actual": "[18]"
+        },
+        {
+          "name": "Constant loop with immutable index",
+          "status": "PASS",
+          "expected": "[45]",
+          "actual": "[45]"
+        },
+        {
+          "name": "Array block preserves element order",
+          "status": "PASS",
+          "expected": "[10, 20, 30]",
+          "actual": "[10, 20, 30]"
+        },
+        {
+          "name": "Grouped xyzWWW / MMMxyz preserve three floats",
+          "status": "PASS",
+          "expected": "[10, 20, 30]",
+          "actual": "[10, 20, 30]"
+        },
+        {
+          "name": "Grouped local write and read",
+          "status": "PASS",
+          "expected": "[10, 20, 30]",
+          "actual": "[10, 20, 30]"
+        },
+        {
+          "name": "Scalar names beginning with marker letters",
+          "status": "PASS",
+          "expected": "[7]",
+          "actual": "[7]"
+        },
+        {
+          "name": "Derived integer array sizes",
+          "status": "PASS",
+          "expected": "[21]",
+          "actual": "[21]"
+        },
+        {
+          "name": "Read and write local arrays",
+          "status": "PASS",
+          "expected": "[9, 8, 7]",
+          "actual": "[9, 8, 7]"
+        },
+        {
+          "name": "Generic Q integer specialization",
+          "status": "PASS",
+          "expected": "[10]",
+          "actual": "[10]"
+        },
+        {
+          "name": "Integer binding cannot be reassigned",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: duplicate or immutable name n\n  in bad_testM at line 1 [nJ]"
+        },
+        {
+          "name": "Loop index cannot escape its scope",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS bad_testM: unknown integer index."
+        },
+        {
+          "name": "Uninitialized scalar rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS bad_testM: uninitialized value[0]."
+        },
+        {
+          "name": "Uninitialized array element rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS bad_testM: uninitialized values[1]."
+        },
+        {
+          "name": "Out-of-bounds array read rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: array bounds: values[3] has size 3."
+        },
+        {
+          "name": "Negative array index rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: array bounds: values[-1] has size 3."
+        },
+        {
+          "name": "Readonly parameter array cannot be written",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: cannot write readonly parameter values."
+        },
+        {
+          "name": "Float cannot be used as an integer index",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS WWWbad_testM: integer stack underflow."
+        },
+        {
+          "name": "Declared output count checked",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS Wbad_testMM: float output arity mismatch: promised 2, left 1."
+        },
+        {
+          "name": "Callee cannot consume caller prefix",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS Wbad_testM: float frame underflow: body consumes 3 inputs but signature allows 1."
+        },
+        {
+          "name": "Recursive call rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: recursive call cycle: Wrecursive_testM -> Wrecursive_testM"
+        },
+        {
+          "name": "Missing Kolb rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: missing Kolb in Wbad_testM at line 1 (Mx)"
+        },
+        {
+          "name": "Unexpected Pool rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: unexpected Pool at line 1 (Pool)"
+        },
+        {
+          "name": "Missing Pool rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak: unexpected Kolb at line 1 (Kolb)"
+        },
+        {
+          "name": "Unknown opcode rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS @topLevel: unknown token notAnOpcode."
+        },
+        {
+          "name": "Malformed numeric literal rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak JS @topLevel: unknown variable or read width mismatch: M3.4.5."
+        },
+        {
+          "name": "Positive modulo for negative loop-relative indices",
+          "status": "PASS",
+          "expected": "[5]",
+          "actual": "[5]"
+        },
+        {
+          "name": "Signed integer division and modulo extremes",
+          "status": "PASS",
+          "expected": "[1, -2, -2, -2147483648]",
+          "actual": "[1, -2, -2, -2147483648]"
+        },
+        {
+          "name": "GLSL signed integer regression shape",
+          "status": "PASS",
+          "expected": "[0, 4]",
+          "actual": "[0, 4]"
+        },
+        {
+          "name": "GLSL default follows executable top-level code",
+          "status": "PASS",
+          "expected": "[0, 1]",
+          "actual": "[0, 1]"
+        },
+        {
+          "name": "GLSL respects program.get selected entry",
+          "status": "PASS",
+          "expected": "[1, 1]",
+          "actual": "[1, 1]"
+        },
+        {
+          "name": "GLSL scalar names beginning with marker letters",
+          "status": "PASS",
+          "expected": "[1, 1]",
+          "actual": "[1, 1]"
+        },
+        {
+          "name": "GLSL stack capacity validated",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak GLSL needs operand capacity 3 floats, but capacity is 2."
+        },
+        {
+          "name": "GLSL array bounds validated before shader execution",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak GLSL WWWbad_testM: index 3 outside values[3]."
+        },
+        {
+          "name": "GLSL uninitialized reads rejected",
+          "status": "PASS",
+          "expected": "Error",
+          "actual": "Error: Stak GLSL bad_testM: read of uninitialized values[1]."
+        },
+        {
+          "name": "Compile content examples",
+          "status": "PASS",
+          "expected": "Named definitions",
+          "actual": "[WaddOne_demoHashM, WWWlength3_demoHashM, WWWWsphere_demoHashM, WtwiceSquare_demoHashM, WWWWcube_demoHashM, WWlength2_demoHashM, W5torus_demoHashM, WWWWsineTerm_demoHashM, WsumThreeCopies_demoHashM, W6sumSix_demoHashM, W7rippleRadius_demoHashM, W24tinyNet_demoHashM, W24rnn4ThreeSteps_demoHashMMMM, W8springEnergy_demoHashM, WWWWcomplexMul_demoHashMM, WWcomplexPower8_demoHashMM, WWWbulbPower8_demoHashMMM, WWWmandelbulb8_demoHashM, modulo_testM, signedIntegers_testMMMM]"
+        },
+        {
+          "name": "length3: (3,4,12)",
+          "status": "PASS",
+          "expected": "[13]",
+          "actual": "[13]"
+        },
+        {
+          "name": "Nested helper preserves underlying caller value",
+          "status": "PASS",
+          "expected": "[91, 1]",
+          "actual": "[91, 1]"
+        },
+        {
+          "name": "Sphere inside / surface / outside",
+          "status": "PASS",
+          "expected": "[2, 0, -2]",
+          "actual": "[2, 0, -2]"
+        },
+        {
+          "name": "Cube inside / surface / outside",
+          "status": "PASS",
+          "expected": "[1, 0, -1]",
+          "actual": "[1, 0, -1]"
+        },
+        {
+          "name": "Torus tube center / outer surface / hole",
+          "status": "PASS",
+          "expected": "[0.5, 0, -1.5]",
+          "actual": "[0.5, 0, -1.5]"
+        },
+        {
+          "name": "Two returned floats retain order",
+          "status": "PASS",
+          "expected": "[-5, 10]",
+          "actual": "[-5, 10]"
+        },
+        {
+          "name": "Tiny neural field against scalar equations",
+          "status": "PASS",
+          "expected": "[0.5255537629127502]",
+          "actual": "[0.5255537629127502]"
+        },
+        {
+          "name": "RNN four nodes, three synchronous cycles",
+          "status": "PASS",
+          "expected": "[0.15739217400550842, 0.7849189639091492, -0.8873870372772217, 0.14800314605236053]",
+          "actual": "[0.15739217400550842, 0.7849189639091492, -0.8873870372772217, 0.14800314605236053]"
+        },
+        {
+          "name": "Mandelbulb origin / north escape",
+          "status": "PASS",
+          "expected": "[2, -256]",
+          "actual": "[2, -256]"
+        },
+        {
+          "name": "Mandelbulb independent spherical reference [0.1, 0.2, -0.1]",
+          "status": "PASS",
+          "expected": "[1.7550461362553913]",
+          "actual": "[1.7550461292266846]"
+        },
+        {
+          "name": "Mandelbulb independent spherical reference [0.3, -0.2, 0.2]",
+          "status": "PASS",
+          "expected": "[1.587689437438234]",
+          "actual": "[1.5876893997192383]"
+        },
+        {
+          "name": "Mandelbulb independent spherical reference [-0.15, 0.1, 0.25]",
+          "status": "PASS",
+          "expected": "[1.691779299851551]",
+          "actual": "[1.691779375076294]"
+        }
+      ]
+    },
+    "allocation": {
+      "passed": 14,
+      "failed": 0,
+      "rows": [
+        {
+          "name": "Actual length3 source is direct code",
+          "status": "PASS",
+          "detail": 1
+        },
+        {
+          "name": "Every nested helper has an inspectable allocation-free body",
+          "status": "PASS",
+          "detail": 2
+        },
+        {
+          "name": "Scalar input bindings consume only caller-supplied floats",
+          "status": "PASS"
+        },
+        {
+          "name": "Scalar locals and function namespaces are private",
+          "status": "PASS"
+        },
+        {
+          "name": "Source contains no per-call runtime metrics object",
+          "status": "PASS"
+        },
+        {
+          "name": "Compiled length3 works after constructors and compiler are disabled",
+          "status": "PASS"
+        },
+        {
+          "name": "Nested helper works after constructors and compiler are disabled",
+          "status": "PASS"
+        },
+        {
+          "name": "Native fixed loop computes nine repetitions",
+          "status": "PASS"
+        },
+        {
+          "name": "Grouped parameter and local storage preserves order",
+          "status": "PASS"
+        },
+        {
+          "name": "Named local array is scalar storage, with no per-call allocation",
+          "status": "PASS"
+        },
+        {
+          "name": "Repeated calls on separate streams do not share locals",
+          "status": "PASS"
+        },
+        {
+          "name": "Pure stream interface works without depth or capacity properties",
+          "status": "PASS"
+        },
+        {
+          "name": "Caller prefix retained through repeated length3 calls",
+          "status": "PASS"
+        },
+        {
+          "name": "Full four-node RNN runs all three synchronous cycles without runtime allocations",
+          "status": "PASS"
+        }
+      ]
+    },
+    "readability": {
+      "passed": 16,
+      "failed": 0,
+      "rows": [
+        {
+          "name": "Generated declaration uses var NAME = s=> and original scalar names",
+          "status": "PASS"
+        },
+        {
+          "name": "Native function inspection exposes the actual s arrow",
+          "status": "PASS"
+        },
+        {
+          "name": "No generated helper performs explicit float32 rounding",
+          "status": "PASS",
+          "detail": "33 entry/helper source inspections"
+        },
+        {
+          "name": "Decimal literal reaches the stream before float32 rounding",
+          "status": "PASS"
+        },
+        {
+          "name": "Integer-looking float literal also rounds only when pushed",
+          "status": "PASS"
+        },
+        {
+          "name": "Each stack push still rounds intermediate arithmetic",
+          "status": "PASS"
+        },
+        {
+          "name": "s cannot be a readonly float parameter",
+          "status": "PASS"
+        },
+        {
+          "name": "s cannot be a writable float local",
+          "status": "PASS"
+        },
+        {
+          "name": "s cannot be an integer binding",
+          "status": "PASS"
+        },
+        {
+          "name": "s cannot be a loop counter",
+          "status": "PASS"
+        },
+        {
+          "name": "JS keywords produce a clear reserved-name error",
+          "status": "PASS"
+        },
+        {
+          "name": "Math and internal scratch prefix are reserved",
+          "status": "PASS"
+        },
+        {
+          "name": "Ordinary user a and b are preserved without scratch collisions",
+          "status": "PASS"
+        },
+        {
+          "name": "CRLF and bare CR normalize to exactly the LF program",
+          "status": "PASS"
+        },
+        {
+          "name": "Input tabs remain visible on generated statements",
+          "status": "PASS"
+        },
+        {
+          "name": "Unindented nested loops gain logical tab indentation",
+          "status": "PASS"
+        }
+      ]
+    },
+    "optimization": {
+      "passed": 27,
+      "failed": 0,
+      "rows": [
+        {
+          "name": "Subtraction and division operand order",
+          "status": "PASS"
+        },
+        {
+          "name": "Caller prefix survives a compiled call",
+          "status": "PASS"
+        },
+        {
+          "name": "Earlier local read survives overwriting that local",
+          "status": "PASS"
+        },
+        {
+          "name": "Several earlier reads survive several writes",
+          "status": "PASS"
+        },
+        {
+          "name": "Stack value carries through a fixed loop",
+          "status": "PASS"
+        },
+        {
+          "name": "Zero-iteration loop preserves its incoming stack",
+          "status": "PASS"
+        },
+        {
+          "name": "Loop can grow the return tuple",
+          "status": "PASS"
+        },
+        {
+          "name": "Nested fixed loops preserve a scalar accumulator",
+          "status": "PASS"
+        },
+        {
+          "name": "Helper call preserves an earlier pending result",
+          "status": "PASS"
+        },
+        {
+          "name": "Helper locals do not alias their caller",
+          "status": "PASS"
+        },
+        {
+          "name": "Read-only array order and sparse access",
+          "status": "PASS"
+        },
+        {
+          "name": "Array read survives an overwrite",
+          "status": "PASS"
+        },
+        {
+          "name": "Vector local components preserve independent values",
+          "status": "PASS"
+        },
+        {
+          "name": "Indexed loop restores array values in reverse order",
+          "status": "PASS"
+        },
+        {
+          "name": "Stack swap keeps evaluation order",
+          "status": "PASS"
+        },
+        {
+          "name": "Reported stream calls match executed calls, including helpers and loops",
+          "status": "PASS"
+        },
+        {
+          "name": "Inlining is opt-in and default code is unchanged",
+          "status": "PASS"
+        },
+        {
+          "name": "Inline output uses the supplied stream only at retained boundaries",
+          "status": "PASS"
+        },
+        {
+          "name": "Inline invocation does not compile or allocate",
+          "status": "PASS"
+        },
+        {
+          "name": "Three literal loads plus two additions",
+          "status": "PASS"
+        },
+        {
+          "name": "Literal and named input loads plus multiplication",
+          "status": "PASS"
+        },
+        {
+          "name": "Fixed loop scales only its executed operations",
+          "status": "PASS"
+        },
+        {
+          "name": "Unexecuted loop contributes no float operations",
+          "status": "PASS"
+        },
+        {
+          "name": "Allocated but unread array does not multiply operation count",
+          "status": "PASS"
+        },
+        {
+          "name": "One sparse array read costs one regardless of array extent",
+          "status": "PASS"
+        },
+        {
+          "name": "Helper body counted for each call",
+          "status": "PASS"
+        },
+        {
+          "name": "Decaying meter has a one-second half-life and preserves total work",
+          "status": "PASS"
+        }
+      ]
+    },
+    "audit": {
+      "auditedFunctions": 36,
+      "rejectedNegativeExamples": 9,
+      "kind": "Static source audit; not a JS-engine memory measurement"
+    }
+  },
+  "host": {
+    "passed": 20,
+    "checks": [
+      "Counter decays by half in one second without losing cumulative work",
+      "Every benchmark mode receives exactly the same coordinate grid",
+      "Warmed comparison uses complete frames and three rounds for every mode",
+      "Warmups precede rotating timed order",
+      "Inline and both manual references agree on sampled colors",
+      "Benchmark cancellation is checked before more pixel work",
+      "Viewer renders real ByteRect RGBA pixels and updates frame work",
+      "Wheel zoom changes view and renders again",
+      "Dragging changes the center",
+      "Inlining can be disabled and re-enabled",
+      "Applied editor code actually computes canvas color",
+      "Manual rendering uses independent JavaScript and disables the inline option",
+      "Benchmark remains the default64 source after arbitrary editor changes",
+      "Bad editor source reports an error without replacing the last valid kernel",
+      "Restore returns to the Mandelbrot example",
+      "Reset statistics clears totals",
+      "All packaged HTML scripts initialize and finish the initial frame",
+      "Packaged example console computes length3",
+      "Packaged optimization-tests button is connected",
+      "Packaged CPU-tests button completes without GPU execution"
+    ],
+    "benchmark": {
+      "width": 8,
+      "height": 6,
+      "centerX": -0.65,
+      "centerY": 0,
+      "span": 3.5,
+      "rounds": 3,
+      "referenceFlopsPerPixel": 2948,
+      "rows": [
+        {
+          "id": "stack",
+          "name": "Stak \u00b7 stack calls",
+          "millisecondsPerFrame": 9.592619000000013,
+          "computeFPS": 104.2468172664836,
+          "referenceFlopsPerSecond": 14751341.630476495,
+          "checksum": 238700864,
+          "samples": [
+            {
+              "milliseconds": 9.433739000000003,
+              "pixels": 48,
+              "millisecondsPerFrame": 9.433739000000003
+            },
+            {
+              "milliseconds": 9.592619000000013,
+              "pixels": 48,
+              "millisecondsPerFrame": 9.592619000000013
+            },
+            {
+              "milliseconds": 12.832394000000022,
+              "pixels": 48,
+              "millisecondsPerFrame": 12.832394000000022
+            }
+          ],
+          "timesManualFixed": 2.481541364071559,
+          "sampledPixels": 48,
+          "packedColorDifferences": 0,
+          "maxChannelDifference": 0
+        },
+        {
+          "id": "inline",
+          "name": "Stak \u00b7 inline arithmetic",
+          "millisecondsPerFrame": 6.797697000000028,
+          "computeFPS": 147.10864576635234,
+          "referenceFlopsPerSecond": 20816461.81052192,
+          "checksum": 238700864,
+          "samples": [
+            {
+              "milliseconds": 6.4200029999999515,
+              "pixels": 48,
+              "millisecondsPerFrame": 6.4200029999999515
+            },
+            {
+              "milliseconds": 6.797697000000028,
+              "pixels": 48,
+              "millisecondsPerFrame": 6.797697000000028
+            },
+            {
+              "milliseconds": 7.24661100000003,
+              "pixels": 48,
+              "millisecondsPerFrame": 7.24661100000003
+            }
+          ],
+          "timesManualFixed": 1.7585151965198649,
+          "sampledPixels": 48,
+          "packedColorDifferences": 0,
+          "maxChannelDifference": 0
+        },
+        {
+          "id": "fixed",
+          "name": "Hand-written \u00b7 same fixed work",
+          "millisecondsPerFrame": 3.865589,
+          "computeFPS": 258.69278911958827,
+          "referenceFlopsPerSecond": 36606064.43157822,
+          "checksum": 238700864,
+          "samples": [
+            {
+              "milliseconds": 3.794029999999964,
+              "pixels": 48,
+              "millisecondsPerFrame": 3.794029999999964
+            },
+            {
+              "milliseconds": 4.762894000000017,
+              "pixels": 48,
+              "millisecondsPerFrame": 4.762894000000017
+            },
+            {
+              "milliseconds": 3.865589,
+              "pixels": 48,
+              "millisecondsPerFrame": 3.865589
+            }
+          ],
+          "timesManualFixed": 1,
+          "sampledPixels": 48,
+          "packedColorDifferences": 0,
+          "maxChannelDifference": 0
+        },
+        {
+          "id": "fast",
+          "name": "Hand-written \u00b7 fastest / early exit",
+          "millisecondsPerFrame": 0.06405806250000268,
+          "computeFPS": 15610.8374336167,
+          "referenceFlopsPerSecond": 2208995940.2064977,
+          "checksum": 3162786448,
+          "samples": [
+            {
+              "milliseconds": 1.0249290000000428,
+              "pixels": 768,
+              "millisecondsPerFrame": 0.06405806250000268
+            },
+            {
+              "milliseconds": 1.0100140000000124,
+              "pixels": 864,
+              "millisecondsPerFrame": 0.05611188888888958
+            },
+            {
+              "milliseconds": 1.0193589999998949,
+              "pixels": 480,
+              "millisecondsPerFrame": 0.10193589999998949
+            }
+          ],
+          "timesManualFixed": 0.016571358853722597,
+          "sampledPixels": 48,
+          "packedColorDifferences": 0,
+          "maxChannelDifference": 0
+        }
+      ],
+      "note": "Warmed CPU kernel throughput including the same stream I/O and checksum. Excludes code generation, canvas writes and scheduling. Fast mode performs less work; reference FLOPs are common source-work units, not hardware instructions."
+    },
+    "note": "Node VM and mocked browser events; not actual browser canvas performance."
+  },
+  "files": [
+    {
+      "name": "ByteRect.js",
+      "bytes": 864,
+      "sha256": "e97aeb84f9c747a5ba7ccf3b483d6fd090832122a207340a22ca1412782d399d"
+    },
+    {
+      "name": "CPU-benchmark.json",
+      "bytes": 3914,
+      "sha256": "69add655782b438be87ca47e0bfca48160355ba218653698cd9f08a6055b4388"
+    },
+    {
+      "name": "Mandelbrot.stak.txt",
+      "bytes": 1339,
+      "sha256": "96ce71bab6b149d023af0f4519d652e70ac17c6755b1faa53576caeb4ee8a6c7"
+    },
+    {
+      "name": "MandelbrotCPU.js",
+      "bytes": 2415,
+      "sha256": "ad48c36ae2b9c1853bf79cf363ff3766058afeb8d1e0d1e8cc2c17d7c0cd6236"
+    },
+    {
+      "name": "Stak-README.md",
+      "bytes": 8690,
+      "sha256": "9707a3d7590e34243f3260babd8ea54fcd532476906a6bb237444d44d676e834"
+    },
+    {
+      "name": "Stak-changes.diff",
+      "bytes": 12197,
+      "sha256": "7602125c802c6035c8e0d354c1e927c4512cf880322f011dfb3251b38ebe44cd"
+    },
+    {
+      "name": "Stak-from-zero-to-advanced.html",
+      "bytes": 219894,
+      "sha256": "36078c9f4362f05ddc36ffcbb113cfd46fb1e09ca53ec2ae1b7334603d580af4"
+    },
+    {
+      "name": "Stak-from-zero-to-advanced.md",
+      "bytes": 88126,
+      "sha256": "71bb948ef2659c57c1d07764007497cbf8b07a36eed77683db4b7b6215c4b179"
+    },
+    {
+      "name": "Stak-performance-tests.js",
+      "bytes": 7897,
+      "sha256": "95d2d772b4d23df64987b122ef764707dfea2e76afcd9ec72a9f924810f8e2da"
+    },
+    {
+      "name": "Stak-playground.html",
+      "bytes": 235543,
+      "sha256": "f1e9f97826f9f8f94f132c8208c7a701b9e1c2052d4510fabefc5047d62dee31"
+    },
+    {
+      "name": "Stak-tests.js",
+      "bytes": 44967,
+      "sha256": "4721e820092f97881d9181cf859f27899473190212c7ab4dead08b8794f42545"
+    },
+    {
+      "name": "Stak-tutorial-examples.stak.txt",
+      "bytes": 13265,
+      "sha256": "66cdb15ebf61faa10fe9d72c8b6ddf253fb77192fa63c23eff47006c381884b3"
+    },
+    {
+      "name": "Stak.js",
+      "bytes": 47511,
+      "sha256": "3230b8e2694d009f487449eed2716042b37070be51bd96b118d65200b66802e7"
+    },
+    {
+      "name": "StakCPU.js",
+      "bytes": 5116,
+      "sha256": "1ec664839fc296b62e2a987020702460a3af94d14d436828cf7891c24ab91df3"
+    },
+    {
+      "name": "length3-inline-generated.js",
+      "bytes": 113,
+      "sha256": "1381ff1416ea670e4359760007cb9779f5c157d153d1dd31e567d3e119881b63"
+    },
+    {
+      "name": "mandelbrot-inline-generated.js",
+      "bytes": 782,
+      "sha256": "2b25152aadf54b69274e8f644c349ae87ef0e1bba04e813b073db67c397a344d"
+    },
+    {
+      "name": "run-cpu-benchmark.mjs",
+      "bytes": 1023,
+      "sha256": "b1fee240513e903fb341cb0af0fe4f2fdb63b285eb1c9f7bc4a142ee98c7fb3f"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+// Power-8 Mandelbulb distance estimate. Push x, y, z; pop one distance.
+// The helper is a real Stak function call, with its own isolated locals.
+WWWlength3_demoHashMBlok
+	zW yW xW
+	Mx Mx WWmulM
+	My My WWmulM WWaddM
+	Mz Mz WWmulM WWaddM
+	WsqrtM
+Kolb
+
+WWWmandelbulb_demoHashMBlok
+	zW yW xW
+	zxL zyL zzL radiusL safeRadiusL r2L r4L r7L r8L
+	drL nextDrL activeL thetaL phiL sinThetaL axisFixL
+	nextXLocalL nextYLocalL nextZLocalL
+	Mx zxV
+	My zyV
+	Mz zzV
+	M1 drV
+	M1 activeV
+	C10 Loop
+		iterationJ
+		Azx Azy Azz WWWlength3_demoHashM radiusV
+		// Once escaped, keep the orbit and derivative unchanged.
+		Aactive M1 Aradius M4 WWsubM WsignM M0 WWmaxM WWsubM WWmulM activeV
+		// All candidate calculations stay finite, even on inactive iterations.
+		Aradius M0.00000001 WWmaxM M4 WWminM safeRadiusV
+		AsafeRadius AsafeRadius WWmulM r2V
+		Ar2 Ar2 WWmulM r4V
+		Ar4 Ar2 WWmulM AsafeRadius WWmulM r7V
+		Ar4 Ar4 WWmulM r8V
+		Ar7 M8 WWmulM Adr WWmulM M1 WWaddM M1e30 WWminM nextDrV
+		Azz AsafeRadius WWdivM M-1 WWmaxM M1 WWminM WacosM M8 WWmulM thetaV
+		// GLSL atan(0,0) is undefined: make the polar-axis case atan(0,epsilon).
+		M1 Azx WabsM Azy WabsM WWaddM WsignM WWsubM M1e-20 WWmulM axisFixV
+		Azy Azx AaxisFix WWaddM WWatan2M M8 WWmulM phiV
+		Atheta WsinM sinThetaV
+		Ar8 AsinTheta WWmulM Aphi WcosM WWmulM Mx WWaddM nextXLocalV
+		Ar8 AsinTheta WWmulM Aphi WsinM WWmulM My WWaddM nextYLocalV
+		Ar8 Atheta WcosM WWmulM Mz WWaddM nextZLocalV
+		// Mix only finite values; zero times NaN would not freeze safely.
+		Azx M1 Aactive WWsubM WWmulM AnextXLocal Aactive WWmulM WWaddM zxV
+		Azy M1 Aactive WWsubM WWmulM AnextYLocal Aactive WWmulM WWaddM zyV
+		Azz M1 Aactive WWsubM WWmulM AnextZLocal Aactive WWmulM WWaddM zzV
+		Adr M1 Aactive WWsubM WWmulM AnextDr Aactive WWmulM WWaddM drV
+	Pool
+	Azx Azy Azz WWWlength3_demoHashM M0.00000001 WWmaxM radiusV
+	M0.5 Aradius WlogM WWmulM Aradius WWmulM Adr WWdivM M0 WWmaxM
+Kolb

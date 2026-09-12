@@ -1,0 +1,119 @@
+{
+  "kind": "Mock DOM/Lamgl host checks, not actual browser/GPU execution",
+  "passed": 28,
+  "failed": 0,
+  "rows": [
+    {
+      "name": "Template initialization chooses 512 × 384 Mandelbulb and both sources exist",
+      "status": "PASS"
+    },
+    {
+      "name": "The actual Lamgl canvas is appended into the viewport",
+      "status": "PASS"
+    },
+    {
+      "name": "Missing GPU timer disables comparison and GFLOP/s without disabling rendering",
+      "status": "PASS"
+    },
+    {
+      "name": "Each displayed tensor is freed after display and compile probes are freed",
+      "status": "PASS"
+    },
+    {
+      "name": "Mandelbrot/Mandelbulb switching loads matching source and kernel",
+      "status": "PASS"
+    },
+    {
+      "name": "Pointer drag changes the Mandelbulb camera and release stops dragging",
+      "status": "PASS"
+    },
+    {
+      "name": "Mandelbrot wheel zoom keeps the pointed coordinate fixed",
+      "status": "PASS"
+    },
+    {
+      "name": "Apply uses normalized edited source and handwritten mode ignores edits",
+      "status": "PASS"
+    },
+    {
+      "name": "Rejected apply is transactional: current program and selected mode stay coherent",
+      "status": "PASS"
+    },
+    {
+      "name": "A failed edit does not poison the saved source when switching away and back",
+      "status": "PASS"
+    },
+    {
+      "name": "Driver shader compilation failure also preserves the active program",
+      "status": "PASS"
+    },
+    {
+      "name": "Source/report/PNG actions trigger downloads and textarea accepts Tab",
+      "status": "PASS"
+    },
+    {
+      "name": "CPU check task restores controls and timer-disabled controls remain disabled",
+      "status": "PASS"
+    },
+    {
+      "name": "Context loss cancels animation and displays recovery instruction",
+      "status": "PASS"
+    },
+    {
+      "name": "GPU timer starts/ends query, converts nanoseconds, and deletes completed query",
+      "status": "PASS"
+    },
+    {
+      "name": "An incomplete timer query remains pending until available",
+      "status": "PASS"
+    },
+    {
+      "name": "Disjoint GPU samples are discarded, never interpreted as throughput",
+      "status": "PASS"
+    },
+    {
+      "name": "Queries time out after 15 seconds and are deleted",
+      "status": "PASS"
+    },
+    {
+      "name": "Nonpositive GPU elapsed values are rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "Another active GPU query cannot be silently nested",
+      "status": "PASS"
+    },
+    {
+      "name": "Clearing an active timer ends and deletes it",
+      "status": "PASS"
+    },
+    {
+      "name": "Asynchronous GPU measurement waits for result rather than timing submission",
+      "status": "PASS"
+    },
+    {
+      "name": "Missing timer extension refuses fake submission-time GFLOP/s",
+      "status": "PASS"
+    },
+    {
+      "name": "Benchmark iteration bounds and nominal operation structure remain fixed",
+      "status": "PASS"
+    },
+    {
+      "name": "Fractal timing action completes rotated samples and publishes stack/manual ratio",
+      "status": "PASS"
+    },
+    {
+      "name": "Arithmetic benchmark action uses GPU milliseconds and explicit nominal work",
+      "status": "PASS"
+    },
+    {
+      "name": "Cancellation between submissions restores controls without another workload",
+      "status": "PASS"
+    },
+    {
+      "name": "GPU correctness button invokes both primitive and fractal check suites",
+      "status": "PASS"
+    }
+  ]
+}

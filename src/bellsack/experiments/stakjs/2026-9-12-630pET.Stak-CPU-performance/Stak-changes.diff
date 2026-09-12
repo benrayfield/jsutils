@@ -1,0 +1,191 @@
+--- previous/Stak.js
++++ updated/Stak.js
+@@ -268,6 +268,7 @@
+ 	const indentWidth=text=>[...text].reduce((width,char)=>width+(char==='\t'?4:1),0);
+ 	Stak.eval=function(source,options){
+ 		options=options||{};
++		const inline=options.inline===true;
+ 		source=typeof source==='string'?source.replace(/\r\n/g,'\n').replace(/\r/g,'\n'):source;
+ 		const ast=internal.parse(source),definitions=Object.assign(Object.create(null),ast.definitions);
+ 		const names=Object.keys(ast.definitions),variants=new Map(),entries=new Map(),active=new Set();
+@@ -287,7 +288,7 @@
+ 			const prepared=internal.prepare(def,intArgs,definitions);
+ 			active.add(name);
+ 			const id=serial++,functionName=def.synthetic?'Stak_topLevel':name+'_js'+id;
+-			const context={name,height:0,min:0,peak:0,locals:new Map(),iStack:intArgs.map(v=>({v:internal.checkedInt(v),code:String(v),constant:true})),ints:new Map(),header:true,declarations:[],children:new Set(),chars:0,ops:0,loopSerial:0,loops:0,unrolledIterations:0,codeNames:new Set(),usedScratch:0};
++			const context={name,height:0,min:0,peak:0,locals:new Map(),iStack:intArgs.map(v=>({v:internal.checkedInt(v),code:String(v),constant:true})),ints:new Map(),header:true,declarations:[],children:new Set(),chars:0,ops:0,estimatedFlops:0,loopSerial:0,loops:0,unrolledIterations:0,codeNames:new Set(),usedScratch:0,tempSerial:0};
+ 			const checkName=variable=>{if(reservedNames.has(variable)||variable.startsWith('_stak')) fail(context,'reserved name '+variable+'; s, JavaScript keywords, Math, NaN, Infinity, undefined, arguments, eval, and the _stak prefix are reserved.');};
+ 			const adjust=delta=>{context.height+=delta;context.min=Math.min(context.min,context.height);context.peak=Math.max(context.peak,context.height);};
+ 			const popInt=()=>{if(!context.iStack.length) fail(context,'integer stack underflow.');return context.iStack.pop();};
+@@ -304,7 +305,7 @@
+ 				return value.codes[index.v];
+ 			};
+ 			function walk(body,emit,scope,depth,minimumIndent=1){
+-				const lines=[];
++				const lines=[],pending=[];
+ 				let tokenIndent=depth+1;
+ 				const put=(line,count=true)=>{
+ 					if(!emit) return;
+@@ -312,11 +313,31 @@
+ 					if(context.chars>maxSourceChars) fail(context,'generated JS exceeds maxSourceChars='+maxSourceChars+'; indexed arrays are scalarized. Increase this explicit compile-time budget only if appropriate.');
+ 					lines.push(count?'\t'.repeat(tokenIndent)+line:line);
+ 				};
++				// Symbolic values are compile-time objects only. A mutation snapshots any
++				// older pending reads; calls and loops commit the pending float stack.
++				const temporary=value=>{
++					const name='_stakT'+context.tempSerial++;
++					context.declarations.push(name);put(name+'='+value.code+';');
++					return {code:name,reads:new Set()};
++				};
++				const pushFloat=(code,reads=[])=>{
++					if(inline&&emit) pending.push({code,reads:new Set(reads)});
++					else put('s('+code+');');
++				};
++				const takeFloat=()=>pending.length?pending.pop():temporary({code:'s()'});
++				const flush=()=>{for(const value of pending) put('s('+value.code+');');pending.length=0;};
++				const writeFloat=code=>{
++					if(!inline||!emit){put(code+'=s();');return;}
++					const value=pending.length?pending.pop():{code:'s()'};
++					for(let i=0;i<pending.length;i++) if(pending[i].reads.has(code)) pending[i]=temporary(pending[i]);
++					put(code+'='+value.code+';');
++				};
+ 				for(let tokenIndex=0;tokenIndex<body.length;tokenIndex++){
+ 					const token=body[tokenIndex],record=body.locations?.[tokenIndex];
+ 					tokenIndent=Math.max(minimumIndent,depth+1,Math.ceil(indentWidth(record?.indent||'')/4));
+ 					if(++analysisSteps>maxAnalysisSteps) fail(context,'static validation exceeds maxAnalysisSteps='+maxAnalysisSteps+'.');
+ 					if(typeof token!=='string'){
++						flush();
+ 						if(token.kind!=='loop') fail(context,'unknown AST node.');
+ 						context.header=false;
+ 						const count=popInt(),counterBinding=typeof token.body[0]==='string'?internal.binding(token.body[0],'J'):null;
+@@ -346,16 +367,25 @@
+ 					}
+ 					let match;
+ 					if(token==='Ji2fM'){
+-						context.header=false;adjust(1);put('s('+popInt().code+');');continue;
++						context.header=false;adjust(1);context.estimatedFlops++;pushFloat(popInt().code);continue;
+ 					}
+ 					if(own(internal.floatOps,token)){
+ 						context.header=false;
+ 						const op=internal.floatOps[token],args=scratch.slice(0,op.inputs);
+-						context.usedScratch=Math.max(context.usedScratch,op.inputs);
+ 						if(op.outputs!==1||op.inputs>4) fail(context,'unsupported primitive '+token+'.');
+-						for(let i=op.inputs-1;i>=0;i--) put(args[i]+'=s();');
+ 						adjust(-op.inputs);adjust(1);context.ops++;
+-						put('s('+floatExpression(op.glsl,args)+');');continue;
++						context.estimatedFlops+=op.glsl==='add3'?2:1;
++						if(inline&&emit){
++							const values=[];
++							for(let i=op.inputs-1;i>=0;i--) values[i]=takeFloat();
++							if(['fract','softplus'].includes(op.glsl)&&!/^[-+\w.$]+$/.test(values[0].code)) values[0]=temporary(values[0]);
++							pushFloat(floatExpression(op.glsl,values.map(value=>/^(?:[A-Za-z_$][\w$]*|\d+(?:\.\d+)?(?:e[+-]?\d+)?)$/.test(value.code)?value.code:'('+value.code+')')),values.flatMap(value=>[...value.reads]));
++						}else{
++							if(emit) context.usedScratch=Math.max(context.usedScratch,op.inputs);
++							for(let i=op.inputs-1;i>=0;i--) put(args[i]+'=s();');
++							put('s('+floatExpression(op.glsl,args)+');');
++						}
++						continue;
+ 					}
+ 					if(own(internal.intOps,token)){
+ 						const op=internal.intOps[token],args=[];
+@@ -364,23 +394,24 @@
+ 						context.iStack.push({v:value,constant,code:constant?String(value):intExpression(op.glsl,args.map(v=>v.code))});continue;
+ 					}
+ 					if(own(definitions,token)){
++						flush();
+ 						context.header=false;
+ 						const args=[];
+ 						for(let i=0;i<definitions[token].signature.intInputs;i++) args.unshift(popInt());
+ 						if(args.some(v=>!v.constant)) fail(context,'integer arguments require compile-time specialization.');
+ 						const child=compile(token,args.map(v=>v.v));context.children.add(child);
+ 						context.peak=Math.max(context.peak,context.height-child.inputs+child.peak);
+-						adjust(-child.inputs);adjust(child.outputs);context.ops+=child.ops;
++						adjust(-child.inputs);adjust(child.outputs);context.ops+=child.ops;context.estimatedFlops+=child.estimatedFlops;
+ 						for(const value of child.intResults) context.iStack.push({v:value,code:String(value),constant:true});
+ 						put(child.functionName+'(s);');continue;
+ 					}
+ 					if((match=/^J_([A-Za-z_$][A-Za-z0-9_$]*)_M$/.exec(token))){
+ 						context.header=false;const value=local(match[1],false),index=popInt();
+-						adjust(1);put('s('+at(value,index,true)+');');continue;
++						adjust(1);context.estimatedFlops++;const code=at(value,index,true);pushFloat(code,[code]);continue;
+ 					}
+ 					if((match=/^JW_([A-Za-z_$][A-Za-z0-9_$]*)_$/.exec(token))){
+ 						context.header=false;const value=local(match[1],true),index=popInt(),code=at(value,index,false);
+-						adjust(-1);value.init.add(index.v);put(code+'=s();');continue;
++						adjust(-1);value.init.add(index.v);writeFloat(code);continue;
+ 					}
+ 					if(token.startsWith('C')){
+ 						const text=token.slice(1);
+@@ -414,19 +445,19 @@
+ 						context.locals.set(name,value);context.declarations.push(...value.codes);
+ 						if(value.parameter){
+ 							adjust(-width);
+-							for(let i=width-1;i>=0;i--){value.init.add(i);put(value.codes[i]+'=s();');}
++							for(let i=width-1;i>=0;i--){value.init.add(i);writeFloat(value.codes[i]);}
+ 						}
+ 						continue;
+ 					}
+ 					if((match=/^([A-Za-z_$][A-Za-z0-9_$]*?)(V+)$/.exec(token))){
+ 						context.header=false;const value=local(match[1],true);
+ 						if(value.width!==match[2].length) fail(context,'local write width mismatch for '+value.name+'.');
+-						for(let i=value.width-1;i>=0;i--){adjust(-1);value.init.add(i);put(value.codes[i]+'=s();');}
++						for(let i=value.width-1;i>=0;i--){adjust(-1);value.init.add(i);writeFloat(value.codes[i]);}
+ 						continue;
+ 					}
+ 					if(token.startsWith('M')||token.startsWith('A')){
+ 						context.header=false;const letter=token[0],text=token.slice(1);
+-						if(letter==='M'&&floatLiteral.test(text)){adjust(1);put('s('+numberText(Number(text))+');');continue;}
++						if(letter==='M'&&floatLiteral.test(text)){adjust(1);context.estimatedFlops++;pushFloat(numberText(Number(text)));continue;}
+ 						const candidates=[];
+ 						for(let width=1;width<token.length&&token[width-1]===letter;width++){
+ 							const value=context.locals.get(token.slice(width));
+@@ -434,12 +465,12 @@
+ 						}
+ 						if(candidates.length!==1) fail(context,candidates.length?'ambiguous grouped read '+token+'.':'unknown variable or read width mismatch: '+token+'.');
+ 						const value=candidates[0];
+-						for(let i=0;i<value.width;i++){adjust(1);put('s('+at(value,{v:i,constant:true},true)+');');}
++						for(let i=0;i<value.width;i++){adjust(1);context.estimatedFlops++;const code=at(value,{v:i,constant:true},true);pushFloat(code,[code]);}
+ 						continue;
+ 					}
+ 					fail(context,'unknown token '+token+'.');
+ 				}
+-				return lines;
++				flush();return lines;
+ 			}
+ 			try{
+ 				const lines=walk(def.body,true,context.ints,0),required=Math.max(0,-context.min);
+@@ -451,7 +482,15 @@
+ 				const declarations=context.declarations.concat(scratch.slice(0,context.usedScratch));
+ 				const js='var '+functionName+' = s=>{\n'+(declarations.length?'\tlet '+declarations.join(',')+';\n':'')+lines.join('\n')+'\n};';
+ 				if(js.length>maxSourceChars) fail(context,'generated JS exceeds maxSourceChars='+maxSourceChars+'.');
+-				const result={name,functionName,source:js,inputs,outputs,peak:inputs+context.peak,intResults:context.iStack.map(v=>v.v),children:context.children,ops:context.ops,loops:context.loops,unrolledIterations:context.unrolledIterations,localFloats:context.declarations.length,codeNames:context.codeNames};
++				const weights=[1];let streamCalls=0;
++				for(const line of lines){
++					const count=/^\s*for\(let [\w$]+=0;[\w$]+<(\d+);/.exec(line);
++					if(count){weights.push(weights.at(-1)*Number(count[1]));continue;}
++					if(line.trim()==='}'){weights.pop();continue;}
++					streamCalls+=weights.at(-1)*(line.match(/\bs\(/g)||[]).length;
++					for(const child of context.children) if(line.trim()===child.functionName+'(s);') streamCalls+=weights.at(-1)*child.streamCalls;
++				}
++				const result={name,functionName,source:js,inputs,outputs,peak:inputs+context.peak,intResults:context.iStack.map(v=>v.v),children:context.children,ops:context.ops,estimatedFlops:context.estimatedFlops,streamCalls,loops:context.loops,unrolledIterations:context.unrolledIterations,localFloats:context.declarations.length,codeNames:context.codeNames};
+ 				variants.set(key,result);return result;
+ 			}finally{active.delete(name);}
+ 		}
+@@ -474,7 +513,7 @@
+ 				functions[i].entryName=order[i].name;
+ 			}
+ 			entry.ast=ast;entry.names=names.slice();entry.get=get;entry.source=source;entry.integerArgs=args.slice();entry.intOutputs=root.intResults.slice();
+-			entry.jsSource=jsSource;entry.generatedFunctions=functions;entry.stats={peakStack:root.peak,localFloats:root.localFloats,functions:functions.length,analysisSteps,sourceChars:jsSource.length,primitiveCalls:root.ops,loopStatements:order.reduce((n,item)=>n+item.loops,0),unrolledIterations:order.reduce((n,item)=>n+item.unrolledIterations,0)};
++			entry.jsSource=jsSource;entry.generatedFunctions=functions;entry.stats={inline,estimatedFlops:root.estimatedFlops,streamCalls:root.streamCalls,peakStack:root.peak,localFloats:root.localFloats,functions:functions.length,analysisSteps,sourceChars:jsSource.length,primitiveCalls:root.ops,loopStatements:order.reduce((n,item)=>n+item.loops,0),unrolledIterations:order.reduce((n,item)=>n+item.unrolledIterations,0)};
+ 			if(name==='@topLevel') delete entry.entryName;
+ 			entries.set(key,entry);return entry;
+ 		}
+@@ -508,7 +547,7 @@
+ 		if(!sign) throw new Error('Stak JS: unknown integer primitive '+op);
+ 		return '('+a.join(sign)+')';
+ 	}
+-	Stak.version='0.3.0-readable-js-prototype';
++	Stak.version='0.4.0-cpu-inline-prototype';
+ })(globalThis.Stak);
+ 
+ (function(Stak){

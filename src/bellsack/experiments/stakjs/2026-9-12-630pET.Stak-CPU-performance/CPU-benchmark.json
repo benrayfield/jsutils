@@ -1,0 +1,133 @@
+{
+  "width": 192,
+  "height": 128,
+  "centerX": -0.65,
+  "centerY": 0,
+  "span": 3.5,
+  "rounds": 3,
+  "referenceFlopsPerPixel": 2948,
+  "rows": [
+    {
+      "id": "stack",
+      "name": "Stak · stack calls",
+      "millisecondsPerFrame": 1176.3679200000051,
+      "computeFPS": 0.8500741842739095,
+      "referenceFlopsPerSecond": 61587915.45420559,
+      "checksum": 2176190056,
+      "samples": [
+        {
+          "milliseconds": 1219.3953569999994,
+          "pixels": 24576,
+          "millisecondsPerFrame": 1219.3953569999994
+        },
+        {
+          "milliseconds": 1163.8822670000018,
+          "pixels": 24576,
+          "millisecondsPerFrame": 1163.8822670000018
+        },
+        {
+          "milliseconds": 1176.3679200000051,
+          "pixels": 24576,
+          "millisecondsPerFrame": 1176.3679200000051
+        }
+      ],
+      "timesManualFixed": 105.16363318434848,
+      "sampledPixels": 512,
+      "packedColorDifferences": 0,
+      "maxChannelDifference": 0
+    },
+    {
+      "id": "inline",
+      "name": "Stak · inline arithmetic",
+      "millisecondsPerFrame": 11.069279499997492,
+      "computeFPS": 90.34011653606059,
+      "referenceFlopsPerSecond": 6545145779.363184,
+      "checksum": 3325324572,
+      "samples": [
+        {
+          "milliseconds": 42.92823000000453,
+          "pixels": 98304,
+          "millisecondsPerFrame": 10.732057500001133
+        },
+        {
+          "milliseconds": 37.15796399999908,
+          "pixels": 73728,
+          "millisecondsPerFrame": 12.385987999999694
+        },
+        {
+          "milliseconds": 44.27711799998997,
+          "pixels": 98304,
+          "millisecondsPerFrame": 11.069279499997492
+        }
+      ],
+      "timesManualFixed": 0.9895591584584861,
+      "sampledPixels": 512,
+      "packedColorDifferences": 0,
+      "maxChannelDifference": 0
+    },
+    {
+      "id": "fixed",
+      "name": "Hand-written · same fixed work",
+      "millisecondsPerFrame": 11.186071500001049,
+      "computeFPS": 89.39688969446568,
+      "referenceFlopsPerSecond": 6476808949.414743,
+      "checksum": 3325324572,
+      "samples": [
+        {
+          "milliseconds": 44.744286000004195,
+          "pixels": 98304,
+          "millisecondsPerFrame": 11.186071500001049
+        },
+        {
+          "milliseconds": 43.30904800000144,
+          "pixels": 98304,
+          "millisecondsPerFrame": 10.82726200000036
+        },
+        {
+          "milliseconds": 47.63776799998868,
+          "pixels": 73728,
+          "millisecondsPerFrame": 15.879255999996227
+        }
+      ],
+      "timesManualFixed": 1,
+      "sampledPixels": 512,
+      "packedColorDifferences": 0,
+      "maxChannelDifference": 0
+    },
+    {
+      "id": "fast",
+      "name": "Hand-written · fastest / early exit",
+      "millisecondsPerFrame": 2.227774375000564,
+      "computeFPS": 448.87849111728235,
+      "referenceFlopsPerSecond": 32521268227.61468,
+      "checksum": 416396400,
+      "samples": [
+        {
+          "milliseconds": 36.9266209999937,
+          "pixels": 417792,
+          "millisecondsPerFrame": 2.172154176470218
+        },
+        {
+          "milliseconds": 35.644390000009025,
+          "pixels": 393216,
+          "millisecondsPerFrame": 2.227774375000564
+        },
+        {
+          "milliseconds": 35.92076899996573,
+          "pixels": 344064,
+          "millisecondsPerFrame": 2.5657692142832667
+        }
+      ],
+      "timesManualFixed": 0.19915610006608264,
+      "sampledPixels": 512,
+      "packedColorDifferences": 0,
+      "maxChannelDifference": 0
+    }
+  ],
+  "note": "Warmed CPU kernel throughput including the same stream I/O and checksum. Excludes code generation, canvas writes and scheduling. Fast mode performs less work; reference FLOPs are common source-work units, not hardware instructions.",
+  "environment": {
+    "runtime": "v24.19.0",
+    "platform": "linux",
+    "architecture": "x64"
+  }
+}
