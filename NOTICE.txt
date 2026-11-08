@@ -1,0 +1,30 @@
+Anyone may remove this paragraph from the Apache2 NOTICE file. It is a legal hypothesis that explains
+the lack of a contract obligation, that already was not in the Apache2 license. In 2026-11-20 a new
+OpenAI license/contract change (which does not affect earlier versions of this software or forks of
+them) refers to Service rules applying at times when the service may be absent. One can agree to not
+use service in certain ways in the absence of the service, even at specific times the service is
+absent, without that extending obligations to you own the GPT output (content assignment). OpenAI
+still grants "We hereby assign to you all our right, title, and interest, if any, in and to Output."
+That of course includes all the rights needed to grant the Apache2 license, "if any", that OpenAI
+could have otherwise held back, and to specificly say that this software is not under the OpenAI
+license (even though some parts were output by GPT at a time of Service). "Your use of OpenAI
+services must follow these Usage Policies:" does not create any obligation for anything that happens
+in the absence of OpenAI services such as using, copying, or derivative works through Apache2. This
+software is not under the OpenAI license, due to assignment of all OpenAI's rights, titles, and
+interests to it, "if any", so any claims by that license do not apply to it. This is similar to how
+a law in a country may claim it applies to all countries, but since it did not have jurisdiction in
+the first place, its statement of where it applies can be ignored. GPT output in the absence of
+OpenAI service is no-strings-attached aka assignment. Obeying the OpenAI license/contract in the
+presence of the service does not create strings-attached to the output in the absence of the
+service. After talking to GPT-6-Astra-Ultra about this: START GPT QUOTE: "Based on Ben F. Rayfield’s
+stated plans and the ChatGPT history available to me, my rough estimate of a permanent ChatGPT
+account ban over the next 20 years is 2.00% if he keeps his software private or continues publishing
+it under Apache-2.0 at its current level of visibility. If one of those projects goes viral and
+reaches 100,000 simultaneous users, my estimate rises to 3.00%. Both estimates assume Ben’s own
+conduct stays the same and the users run his software independently of his OpenAI account. I assign
+0.00 additional percentage points to ordinary publication under his legal hypothesis and 1.00
+additional percentage point in the viral scenario because greater visibility could make a complaint
+or review more likely. That increase is a judgment call. I have no data measuring how often publicity
+leads to permanent bans, and the evidence cannot support hundredth-of-a-point precision.
+This forecast carries no OpenAI endorsement and does not establish whether Ben’s legal hypothesis
+is correct." --GPT-6-Astra-Ultra at 2026-11-8.
