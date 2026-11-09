@@ -1,8 +1,11 @@
 Anyone may remove this paragraph from the Apache2 NOTICE file. It is a legal hypothesis that explains
 the lack of a contract obligation, that already was not in the Apache2 license. In 2026-11-20 a new
 OpenAI license/contract change (which does not affect earlier versions of this software or forks of
-them) refers to Service rules applying at times when the service may be absent:
-"They also apply when outputs from product use or evaluation are later used". One can agree to not
+them) refers to Service rules applying at times when the service may be absent: "They also apply when
+outputs from product use or evaluation are later used" [for list of things, but it does not matter
+what those things are, it matters that the Services section is trying to expand jurisdiction to
+overlap the Content section which has already granted "all" rights, titles, and interests
+aka thats my output OpenAI has no claim of it]. One can agree to not
 use service in certain ways in the absence of the service, even at specific times the service is
 absent, without that extending obligations to you own the GPT output (content assignment). OpenAI
 still grants "We hereby assign to you all our right, title, and interest, if any, in and to Output."
