@@ -51,3 +51,12 @@ when 2026-11-20 comes up and continue to build with GPT Consumer:
 governed by these terms⁠⁠." and "Our Business Terms⁠⁠ govern use of ChatGPT Enterprise, our APIs,
 and our other services for businesses and developers." That did not happen. If it does in your code
 you want to contribute here then we would need to put that in a plugin marked that way.
+The confusing part is those 3 different contracts use some of the same sub-contracts (website pages),
+including the Usage Policy, but the GPT Consumer license does not require you to obey it for Content,
+only for Service use, even though it says some things about Content.
+I specificly am not subject to this while not using GPT Services:
+"You must not use OpenAI models or their outputs to generate, prepare, select, or supply training
+material or signals for models that are intended as alternatives to or substitutes for OpenAI
+models or service" because "These Service Terms govern your use of the Services" (but not Content
+made by USA GPT Consumer). Why? Because I'm not under Content license.
+There is no use-license on my software here nor on myself.
