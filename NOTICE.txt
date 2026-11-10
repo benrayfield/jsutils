@@ -57,6 +57,9 @@ only for Service use, even though it says some things about Content.
 I specificly am not subject to this while not using GPT Services:
 "You must not use OpenAI models or their outputs to generate, prepare, select, or supply training
 material or signals for models that are intended as alternatives to or substitutes for OpenAI
-models or service" because "These Service Terms govern your use of the Services" (but not Content
-made by USA GPT Consumer). Why? Because I'm not under Content license.
+models or service" because "In using our Services, you must comply with all applicable laws as well
+as our Sharing & Publication Policy⁠⁠, Usage Policies⁠⁠" and inside Usage Policy thats in
+"Your use of OpenAI services must follow these Usage Policies"
+(but not Content made by USA GPT Consumer). Why? Because I'm not under Content license.
 There is no use-license on my software here nor on myself.
+That does not exist in Consumer, maybe in API and Europe.
