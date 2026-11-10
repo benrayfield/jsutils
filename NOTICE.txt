@@ -31,4 +31,23 @@ additional percentage point in the viral scenario because greater visibility cou
 or review more likely. That increase is a judgment call. I have no data measuring how often publicity
 leads to permanent bans, and the evidence cannot support hundredth-of-a-point precision.
 This forecast carries no OpenAI endorsement and does not establish whether Ben’s legal hypothesis
-is correct." --GPT-6-Astra-Ultra at 2026-11-8.
+is correct." --GPT-6-Astra-Ultra at 2026-11-8. AFTER THAT me and GPT did more research
+and found that the USA Consumer GPT (ChatGPT.com, Codex using ChatGPT acct, ChatGPT android app, etc)
+only put Services under Usage Policy etc but not Content, and found that the EU and GPT API
+contracts/licenses have very different rules about content in that they seem to specify
+both Service and Content, while the USA consumer kind specifies only Service,
+so the USA Consumer kind is no-strings-attached, and the other kinds I will leave as for future research
+if I end up using those. I only use GPT-API for a small experiment in
+https://github.com/benrayfield/jsutils/blob/master/src/OpenAICallsItselfRecursively_2023-6-24-8p.html
+and a similarly named png file, which is not part of these softwares but is in the same dir.
+It is important to list the right license. That license is Apache2 and lacks any use-license,
+because I used only USA Consumer GPT to make Bellsack, Lamgl, Vagjs, Varjs, etc,
+and did not use GPT API nor GPT services in Europe, though this software has no location limits
+and it does not put you under OpenAI's europe license just to use it in europe since this software
+is not under OpenAI license and was assigned (all their rights titles and interests in it) to me.
+Specificly, I am not under contract for these 2 things it says in the OpenAI license nor will I be
+when 2026-11-20 comes up and continue to build with GPT Consumer:
+"If you reside in the European Economic Area, Switzerland, or the UK, your use of the Services is
+governed by these terms⁠⁠." and "Our Business Terms⁠⁠ govern use of ChatGPT Enterprise, our APIs,
+and our other services for businesses and developers." That did not happen. If it does in your code
+you want to contribute here then we would need to put that in a plugin marked that way.
